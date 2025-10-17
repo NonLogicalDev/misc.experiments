@@ -1,0 +1,17 @@
+let root_scope = container_memory_rss{id="/", instance="cadvisor:8080", job="cadvisor"};
+let system_slice = container_memory_rss{id="/system.slice", instance="cadvisor:8080", job="cadvisor"};
+
+let system_slice_rate = $system_slice[5m:10m] | ~rate | $[1m:];
+
+#equivalent to: sum without(instance) $system_slice_rate
+let system_slice_rate_sum_11 = ~bottomk<wo(instance)>($system_slice_rate, 10);
+let system_slice_rate_sum_12 = ~bottomk<without(instance)>($system_slice_rate, 10);
+let system_slice_rate_sum_13 = $system_slice_rate | ~bottomk<without(instance)>(10);
+let system_slice_rate_sum_14 = $system_slice_rate | ~bottomk<without(instance)>($, 10);
+
+#equivalent to: sum by(instance) $system_slice_rate
+let system_slice_rate_sum_21 = ~bottomk<by(instance)>($system_slice_rate, 10);
+let system_slice_rate_sum_22 = $system_slice_rate | ~bottomk<by(instance)>(10);
+let system_slice_rate_sum_23 = $system_slice_rate | ~bottomk<by(instance)>($, 10);
+
+system_slice_rate_sum_21 / system_slice_rate_sum_12 / system_slice_rate_sum_11

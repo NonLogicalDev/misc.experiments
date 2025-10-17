@@ -1,0 +1,99 @@
+# Basic pipeline tests
+- name: simple_pipeline
+  input: >
+    http_requests_total | $[5m] | rate($)
+  expected: >
+    rate(http_requests_total[5m])
+
+- name: with_aggregation
+  input: >
+    {method="GET"} | $[5m] | rate($) | sum by(le, method, path) $
+  expected: >
+    sum by(le, method, path) (rate({method="GET"}[5m]))
+
+- name: alias
+  input: >
+    let base = {metric="test"}; $base | $[5m] | rate($)
+  expected: >
+    rate({metric="test"}[5m])
+
+- name: multiple_stages
+  input: >
+    http_requests_total | $[5m] | rate($) | sum by(method) $
+  expected: >
+    sum by(method) (rate(http_requests_total[5m]))
+
+- name: arithmetic
+  input: >
+    up + on(instance) group_left(job) node_load1
+  expected: >
+    up +  on(instance) group_left(job) node_load1
+
+# Sugar function tests
+- name: sugar_rate_no_dollar
+  input: >
+    http_requests_total | $[5m] | ~rate
+  expected: >
+    rate(http_requests_total[5m])
+
+- name: sugar_resample_no_dollar
+  input: >
+    http_requests_total | $[5m] | rate($) | ~resample(5m)
+  expected: >
+    (rate(http_requests_total[5m]))[5m:5m]
+
+- name: sugar_offset_no_dollar
+  input: >
+    http_requests_total | ~offset(5m)
+  expected: >
+    http_requests_total offset 5m
+
+- name: sugar_combined_no_dollar
+  input: >
+    http_requests_total | $[5m] | ~rate | ~offset(5m) | ~at(1000)
+  expected: >
+    rate(http_requests_total[5m]) offset 5m @ 1000
+
+# Examples from examples directory
+- name: example_01_simple_arithmetic
+  input: |
+    let root_scope = container_memory_rss{id="/", instance="cadvisor:8080", job="cadvisor"};
+    let system_slice = container_memory_rss{id="/system.slice", instance="cadvisor:8080", job="cadvisor"};
+
+    #compute percentage of system slice in root scope
+    ($system_slice / $root_scope) * 100
+  expected: >
+    (container_memory_rss{id="/system.slice", instance="cadvisor:8080", job="cadvisor"} / container_memory_rss{id="/", instance="cadvisor:8080", job="cadvisor"}) * 100
+
+- name: example_02_resample_rate
+  input: |
+    let root_scope = container_memory_rss{id="/", instance="cadvisor:8080", job="cadvisor"};
+    let system_slice = container_memory_rss{id="/system.slice", instance="cadvisor:8080", job="cadvisor"};
+
+    #compute percentage of system slice in root scope
+    ($system_slice | ~resample(5m, 10m) | ~rate | ~resample(1m, 1m))
+    /
+    ($root_scope | ~resample(5m, 10m) | ~rate | ~resample(1m, 1m)) * 100
+  expected: >
+    ((rate((container_memory_rss{id="/system.slice", instance="cadvisor:8080", job="cadvisor"})[5m:10m]))[1m:1m]) / ((rate((container_memory_rss{id="/", instance="cadvisor:8080", job="cadvisor"})[5m:10m]))[1m:1m]) * 100
+
+- name: example_03_subquery_rate
+  input: |
+    let root_scope = container_memory_rss{id="/", instance="cadvisor:8080", job="cadvisor"};
+    let system_slice = container_memory_rss{id="/system.slice", instance="cadvisor:8080", job="cadvisor"};
+
+    #compute percentage of system slice in root scope
+    ($system_slice[5m:10m] | ~rate | $[1m:])
+    /
+    ($root_scope[5m:10m] | ~rate | $[1m:]) * 100
+  expected: >
+    ((rate(container_memory_rss{id="/system.slice", instance="cadvisor:8080", job="cadvisor"}[5m:10m]))[1m:]) / ((rate(container_memory_rss{id="/", instance="cadvisor:8080", job="cadvisor"}[5m:10m]))[1m:]) * 100
+
+- name: example_05_binary_op_with_group_left
+  input: |
+    let root_scope = container_memory_rss{id="/", instance="cadvisor:8080", job="cadvisor"};
+    let system_slice = container_memory_rss{id="/system.slice", instance="cadvisor:8080", job="cadvisor"};
+
+    $system_slice | :div<on(job, instance), group_left>($root_scope)
+  expected: >
+    container_memory_rss{id="/system.slice", instance="cadvisor:8080", job="cadvisor"} / on(job, instance) group_left container_memory_rss{id="/", instance="cadvisor:8080", job="cadvisor"}

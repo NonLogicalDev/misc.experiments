@@ -1,0 +1,44 @@
+{
+  "name": "promql-plus",
+  "displayName": "PromQL+",
+  "description": "Syntax highlighting for PromQL+ language",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "promql-plus",
+        "aliases": [
+          "PromQL+",
+          "promql+",
+          "promql-plus"
+        ],
+        "extensions": [
+          ".promql",
+          ".pql"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "promql-plus",
+        "scopeName": "source.promql-plus",
+        "path": "./syntaxes/promql-plus.tmLanguage.json"
+      },
+      {
+        "scopeName": "markdown.promql-plus.codeblock",
+        "path": "./syntaxes/promql-plus.markdown.json",
+        "injectTo": ["text.html.markdown"],
+        "embeddedLanguages": {
+          "meta.embedded.block.promql-plus": "promql-plus"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,4 @@
+let root_scope = container_memory_rss{id="/", instance="cadvisor:8080", job="cadvisor"};
+let system_slice = container_memory_rss{id="/system.slice", instance="cadvisor:8080", job="cadvisor"};
+
+$system_slice | :div<on(job, instance), group_left>($root_scope)

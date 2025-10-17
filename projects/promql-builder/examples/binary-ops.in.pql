@@ -1,0 +1,25 @@
+#Binary Operation Functions Example
+#Demonstrates :div, :mul, :add, :sub, :mod, :pow with various modifiers
+
+#Example 1: Simple division without modifiers
+let errors = http_errors_total{job="api"};
+let requests = http_requests_total{job="api"};
+:div($errors, $requests)
+
+#Example 2: Division with label matching (on)
+#err_rate = $errors | $[5m] | ~rate | ~sum<by(service, env)>;
+#req_rate = $requests | $[5m] | ~rate | ~sum<by(service, env)>;
+:div<on(service, env)>($err_rate, $req_rate)
+
+#Example 3: Pipeline style - calculate error percentage
+$err_rate | :div($req_rate) | :mul(100)
+
+#Example 4: Many-to-one matching with group_left
+#instance_requests = http_requests | $[5m] | ~rate | ~sum<by(instance, service)>;
+#service_capacity = capacity_metric | ~avg<by(service)>;
+:div<on(service), group_left(region)>($instance_requests, $service_capacity)
+
+#Example 5: Chained binary operations in pipeline
+#cpu_used = node_cpu_seconds{mode!="idle"} | $[5m] | ~rate | ~sum<by(node)>;
+#cpu_total = node_cpu_total | ~avg<by(node)>;
+$cpu_used | :div<on(node)>($cpu_total) | :mul(100)

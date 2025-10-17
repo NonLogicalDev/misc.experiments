@@ -1,0 +1,38 @@
+# Build the project
+build:
+    cargo build
+
+# Build in release mode
+build-release:
+    cargo build --release
+
+# Run tests
+test:
+    cargo test
+
+# Run tests with output
+test-verbose:
+    cargo test -- --nocapture
+
+# Run linter (clippy)
+lint:
+    cargo clippy -- -D warnings
+
+# Format code
+fmt:
+    cargo fmt
+
+# Check formatting without applying changes
+fmt-check:
+    cargo fmt --check
+
+# Run all checks (format, lint, test)
+check: fmt-check lint test
+
+# Clean build artifacts
+clean:
+    cargo clean
+
+# Run the project
+run *ARGS:
+    cargo run {{ARGS}}

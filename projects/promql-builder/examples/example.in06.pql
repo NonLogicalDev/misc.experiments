@@ -1,0 +1,12 @@
+#Calculate error rate percentage
+let errors = http_errors_total{job="api"};
+let requests = http_requests_total{job="api"};
+let common_ops_1 = ~rate[5m:] | ~sum<by(service_3)>;
+let common_ops_2 = $[5m] | ~rate[5m:] | ~sum<by(service_2)>;
+let common_ops_3 = rate($) | sum by(service_1) $;
+
+let err_rate = $errors | $common_ops_1;
+let req_rate = $requests | $common_ops_2;
+let req_rate_2 = $requests | $common_ops_3;
+
+$err_rate | :div<on(service)>($req_rate) | :add<on(service)>($req_rate_2)[5m:] | :mul(100)

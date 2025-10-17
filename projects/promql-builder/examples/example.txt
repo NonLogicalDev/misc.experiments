@@ -1,0 +1,9 @@
+-- Example query: Calculate HTTP request rate by method
+-- with a 5 minute lookback window
+
+req = http_requests_total;
+
+$req
+  | $[5m]           -- 5 minute range
+  | rate($)         -- per-second rate
+  | sum by(method) $ -- aggregate by HTTP method

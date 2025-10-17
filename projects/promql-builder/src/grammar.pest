@@ -1,0 +1,223 @@
+WHITESPACE = _{ " " | "\t" | "\n" | "\r" }
+COMMENT = _{ "#" ~ (!"\n" ~ ANY)* }
+
+// Top level query with optional aliases
+query = { SOI ~ (alias ~ ";")* ~ expression ~ EOI }
+
+// Alias definition: let name = expression
+alias = { "let" ~ identifier ~ "=" ~ expression }
+
+// Expression: pipeline, arithmetic, or single term
+expression = { pipeline | arithmetic | term }
+
+// Pipeline: term | stage | stage | ...
+pipeline = { term ~ ("|" ~ stage)+ }
+
+// Arithmetic expression with operator precedence
+arithmetic = { term ~ (binary_op ~ binary_op_modifiers? ~ term)+ }
+
+binary_op = { "^" | "*" | "/" | "%" | "+" | "-" }
+
+// Binary operator modifiers: on/ignoring with optional group_left/group_right
+binary_op_modifiers = {
+    (on_modifier | ignoring_modifier) ~ group_modifier?
+}
+
+on_modifier = { "on" ~ "(" ~ label_list ~ ")" }
+ignoring_modifier = { "ignoring" ~ "(" ~ label_list ~ ")" }
+group_modifier = {
+    "group_left" ~ ("(" ~ label_list? ~ ")")? |
+    "group_right" ~ ("(" ~ label_list? ~ ")")?
+}
+
+// Term: base unit with optional postfix selectors
+term = {
+    ( "(" ~ expression ~ ")" |
+      binary_op_function_term |
+      aggregation_term |
+      sugar_function_term |
+      function_call_term |
+      reference |
+      metric_with_labels |
+      metric_selector |
+      number |
+      identifier
+    ) ~ postfix_selector*
+}
+
+// Binary operation function as a term: :div(a, b), :add(a, b)
+binary_op_function_term = {
+    ":" ~ binary_op_name ~ binary_op_template? ~ "(" ~ expression ~ "," ~ expression ~ ")"
+}
+
+binary_op_name = { "add" | "sub" | "mul" | "div" | "mod" | "pow" }
+
+// Binary operation template: <on(labels), group_left()>
+binary_op_template = {
+    "<" ~ binary_op_modifier_item ~ ("," ~ binary_op_modifier_item)* ~ ">"
+}
+
+binary_op_modifier_item = {
+    on_modifier | ignoring_modifier | group_left_modifier | group_right_modifier
+}
+
+group_left_modifier = {
+    "group_left" ~ ("(" ~ label_list? ~ ")")?
+}
+group_right_modifier = {
+    "group_right" ~ ("(" ~ label_list? ~ ")")?
+}
+
+// Aggregation as a term: sum by(labels) (expr) - standard PromQL syntax
+aggregation_term = {
+    aggregation_op ~ (by_clause | without_clause)? ~ "(" ~ expression ~ ")"
+}
+
+aggregation_op = {
+    "sum" | "avg" | "min" | "max" | "count" | "stddev" | "stdvar" |
+    "topk" | "bottomk" | "quantile" | "count_values" | "group"
+}
+
+// Sugar function as a term (for use in arithmetic and aliases)
+sugar_function_term = {
+    "~" ~ sugar_func_name ~ aggregation_template? ~ ("(" ~ sugar_args ~ ")")?
+}
+
+// Function call as a term (for use in arithmetic)
+function_call_term = {
+    identifier ~ "(" ~ function_args? ~ ")"
+}
+
+// Postfix selectors: [5m] or [5m:1m]
+postfix_selector = {
+    "[" ~ duration ~ ":" ~ duration? ~ "]" |  // subquery (with optional resolution)
+    "[" ~ duration ~ "]"                       // range
+}
+
+// Number literal: integers and floats
+number = @{ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? }
+
+// Pipeline stages
+stage = {
+    subquery_selector |
+    range_selector |
+    offset_modifier |
+    at_modifier |
+    aggregation |
+    sugar_function |
+    binary_op_function |
+    reference |
+    function_call
+}
+
+// Binary operation function in pipeline: | :div(expr) or | :div<on(job)>(expr) or | :div(expr)[5m:]
+binary_op_function = {
+    ":" ~ binary_op_name ~ binary_op_template? ~ "(" ~ expression ~ ")" ~ postfix_selector?
+}
+
+// Range selector: $[5m]
+range_selector = { "$" ~ "[" ~ duration ~ "]" }
+
+// Subquery selector: $[5m:1m] (range:resolution) or $[5m:] (empty resolution)
+subquery_selector = { "$" ~ "[" ~ duration ~ ":" ~ duration? ~ "]" }
+
+// Offset modifier: $ offset 5m
+offset_modifier = { "$" ~ "offset" ~ duration }
+
+// @ timestamp modifier: $ @ 1234567890 or $ @ start() or $ @ end()
+at_modifier = { "$" ~ "@" ~ (at_function | timestamp) }
+at_function = { ("start" | "end") ~ "()" }
+timestamp = @{ ASCII_DIGIT+ }
+
+// Sugar syntax functions: ~offset($, 5m), ~at($, 1000), ~window($, 5m, 1m), ~rate, ~rate[5m:], ~bottomk<by(instance)>($, 10)
+sugar_function = {
+    "~" ~ sugar_func_name ~ aggregation_template? ~ ("(" ~ sugar_args ~ ")")? ~ postfix_selector?
+}
+
+// Aggregation template: <without(instance)> or <by(instance)> or <wo(instance)>
+aggregation_template = {
+    "<" ~ (without_clause | by_clause | wo_clause) ~ ">"
+}
+
+// Shorthand for without
+wo_clause = { "wo" ~ "(" ~ label_list ~ ")" }
+
+sugar_func_name = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")* }
+
+sugar_args = {
+    (sugar_arg_complex | reference | dollar_placeholder | sugar_arg)? ~ ("," ~ sugar_arg)*
+}
+
+// Complex argument: allows terms like $alias[5m]
+sugar_arg_complex = {
+    reference ~ postfix_selector+
+}
+
+sugar_arg = { (!(("," | ")")) ~ ANY)+ }
+
+// Aggregation: sum by(labels) $ or sum without(labels) $
+aggregation = {
+    identifier ~ (by_clause | without_clause) ~ "$"
+}
+
+by_clause = { "by" ~ "(" ~ label_list ~ ")" }
+without_clause = { "without" ~ "(" ~ label_list ~ ")" }
+
+// Function call: rate($) or func($, args) or rate(term)
+function_call = {
+    identifier ~ "(" ~ function_args? ~ ")"
+}
+
+function_args = {
+    function_arg ~ ("," ~ function_arg)*
+}
+
+function_arg = {
+    term_in_function |
+    dollar_placeholder |
+    plain_arg
+}
+
+// Term used in function context (simplified to avoid ambiguity)
+term_in_function = {
+    "(" ~ expression ~ ")" ~ postfix_selector* |  // Parenthesized expression with optional postfix
+    aggregation_op ~ (by_clause | without_clause)? ~ "(" ~ expression ~ ")" |  // sum by(le) (expr) - full aggregation
+    reference ~ postfix_selector+ |  // $alias[5m] or $alias[5m:1m]
+    reference |                       // $alias
+    metric_with_labels ~ postfix_selector* |
+    metric_selector ~ postfix_selector* |
+    identifier ~ postfix_selector+ |  // metric_name[5m]
+    number
+}
+
+dollar_placeholder = { "$" }
+
+plain_arg = { (!(("," | ")") | "$" | "{" | ASCII_DIGIT) ~ ANY)+ }
+
+// Reference to alias: $name or placeholder: $
+reference = { "$" ~ identifier? }
+
+// Metric with labels: metric_name{label="value", ...}
+metric_with_labels = { identifier ~ metric_selector }
+
+// Metric selector: {label="value", ...}
+metric_selector = { "{" ~ label_selector* ~ "}" }
+
+label_selector = {
+    identifier ~ operator ~ string_literal ~ ","?
+}
+
+operator = { "=~" | "!~" | "!=" | "=" }
+
+// Label list: label1, label2, label3
+label_list = { identifier ~ ("," ~ identifier)* }
+
+// Duration: 5m, 1h, 30s, etc.
+duration = @{ ASCII_DIGIT+ ~ time_unit }
+time_unit = { "ms" | "s" | "m" | "h" | "d" | "w" | "y" }
+
+// String literal
+string_literal = @{ "\"" ~ (!"\"" ~ ANY)* ~ "\"" }
+
+// Identifier
+identifier = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")* }

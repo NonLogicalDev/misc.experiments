@@ -1,0 +1,23 @@
+#Comprehensive Example: Calculate service health metrics
+#Combines aliases, pipelines, sugar functions, aggregations, and binary operations
+
+#Step 1: Define base metrics
+let errors = http_errors_total{job="api"};
+let requests = http_requests_total{job="api"};
+let latency_bucket = http_duration_seconds_bucket{job="api"};
+
+#Step 2: Calculate error rate per service
+let err_rate = $errors | $[5m] | ~rate | ~sum<by(service, env)>;
+let req_rate = $requests | $[5m] | ~rate | ~sum<by(service, env)>;
+
+#Step 3: Calculate error percentage using binary operation function
+let error_pct = $err_rate | :div<on(service, env)>($req_rate) | :mul(100);
+
+#Step 4: Calculate p99 latency
+let latency_increased = $latency_bucket | $[5m] | increase($) | avg by(le, service, env) $;
+let latency_subquery = $latency_increased | $[15m:30s] | ~rate | ~sum<by(le, service, env)>;
+let p99_latency = histogram_quantile(0.99, $latency_subquery);
+
+#Output: Combine error percentage and p99 latency
+#For demo, just output error percentage
+$error_pct

@@ -1,0 +1,4 @@
+let full = container_memory_rss{instance="cadvisor:8080", id="/"};
+let part = container_memory_rss{instance="cadvisor:8080", id="/init.scope"};
+
+:div<on(instance)>($part, $full) | :mul(100)[5m:] | max_over_time($)

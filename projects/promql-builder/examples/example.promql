@@ -1,0 +1,26 @@
+(
+  histogram_quantile(0.99,
+    sum by (le, service, environment) (
+      rate(
+        (
+          avg by (instance, le, service, environment) (
+            increase(
+              http_request_duration_seconds_bucket{job="api"}[5m]
+            )
+          )
+        )[15m:30s]
+      )
+    )
+  )
+  /
+  on(service, environment)
+  group_left()
+  avg by (service, environment) (
+    clamp_max(
+      sum by (service, environment, instance) (
+        rate(http_request_duration_seconds_count[5m])
+      ),
+      1000
+    )
+  )
+)

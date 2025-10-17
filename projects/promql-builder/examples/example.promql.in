@@ -1,0 +1,10 @@
+-- Complex PromQL query example demonstrating nested aggregations
+-- This builds a complex histogram quantile query using our Flux-like syntax
+
+-- Build the histogram quantile part step by step
+base_bucket = http_request_duration_seconds_bucket{job="api"};
+increased = $base_bucket | $[5m] | increase($) | avg by(instance, le, service, environment) $;
+subquery_rated = $increased | $[15m:30s] | rate($) | sum by(le, service, environment) $;
+
+-- Output the final histogram_quantile query
+histogram_quantile(0.99, $subquery_rated)
