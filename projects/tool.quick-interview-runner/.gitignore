@@ -1,0 +1,25 @@
+# Exclude interviews folder for now
+interviews/
+
+# Common
+interviews/*/.build/
+interviews/*/build/
+
+# Bazel
+.bazel-*
+
+# Nix
+.nix/flake.lock
+.direnv/
+
+# Java
+*.class
+
+# Rust
+Cargo.lock
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd

@@ -1,0 +1,6 @@
+load("//tools/bazel:interview_rules.bzl", "java_interview")
+
+java_interview(
+    name = "interview",
+    main_class = "Main",
+)

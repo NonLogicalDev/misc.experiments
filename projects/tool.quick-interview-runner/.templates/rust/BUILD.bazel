@@ -1,0 +1,6 @@
+load("//tools/bazel:interview_rules.bzl", "rust_interview")
+
+rust_interview(
+    name = "interview",
+    main_file = "main.rs",
+)

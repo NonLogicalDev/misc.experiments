@@ -1,0 +1,5 @@
+update:
+    uv pip compile requirements.in \
+    --output-file requirements_lock.txt \
+    --python-version 3.11 \
+    --only-binary=:all:

@@ -1,0 +1,60 @@
+# Common configuration for Uber Interview Environment
+
+# Build configuration
+build --enable_bzlmod
+
+# Python configuration - force wheel-only installs to avoid compilation
+build --@rules_python//python/config_settings:precompile=auto
+build --action_env=PYTHONDONTWRITEBYTECODE=1
+# Disable C extensions compilation for Python packages
+build --action_env=PYO3_NO_PYTHON_VERSION_CHECK=1
+# Force pip to use wheels only
+build --action_env=PIP_ONLY_BINARY=:all:
+build --action_env=PIP_NO_COMPILE=1
+# Prevent numpy from trying to compile
+build --action_env=NPY_DISABLE_OPTIMIZATION=1
+
+# Java configuration
+build --java_language_version=17
+build --java_runtime_version=remotejdk_17
+build --tool_java_language_version=17
+build --tool_java_runtime_version=remotejdk_17
+
+# Output configuration
+build --symlink_prefix=.bazel-
+build --experimental_convenience_symlinks=normal
+
+# Performance optimization 
+build --local_resources=memory=HOST_RAM*0.75
+build --local_resources=cpu=HOST_CPUS*0.75
+build --jobs=auto
+
+# Test configuration  
+test --test_output=errors
+test --test_summary=short
+
+# Common flags for all commands
+common --enable_platform_specific_config
+
+# Platform-specific configurations
+build:linux --copt=-fstack-protector
+build:macos --copt=-fstack-protector-all
+build:macos --linkopt=-framework --linkopt=CoreFoundation
+build:macos --linkopt=-framework --linkopt=Security
+build:macos --linkopt=-lresolv
+build:macos --linkopt=-liconv
+# Disable Xcode detection for Python wheel compilation
+build:macos --action_env=DEVELOPER_DIR=
+build:macos --action_env=SDKROOT=
+build:windows --copt=/GS
+
+# Development mode
+build:dev --compilation_mode=fastbuild
+build:dev --strip=never
+
+# Production mode
+build:prod --compilation_mode=opt
+build:prod --strip=always
+
+# Try to import local user configuration
+try-import %workspace%/.bazelrc.local

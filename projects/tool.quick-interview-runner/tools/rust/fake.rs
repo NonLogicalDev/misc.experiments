@@ -1,0 +1,1 @@
+// Minimal fake library for dependency resolution

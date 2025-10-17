@@ -1,0 +1,6 @@
+load("//tools/bazel:interview_rules.bzl", "cpp_interview")
+
+cpp_interview(
+    name = "interview",
+    main_file = "main.cpp",
+)

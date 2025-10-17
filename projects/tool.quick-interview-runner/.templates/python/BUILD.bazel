@@ -1,0 +1,6 @@
+load("//tools/bazel:interview_rules.bzl", "python_interview")
+
+python_interview(
+    name = "interview",
+    main_file = "main.py",
+)

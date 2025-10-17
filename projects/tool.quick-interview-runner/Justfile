@@ -1,0 +1,40 @@
+# Quick Interview Environment Commands
+default:
+    @just --list:w
+
+# Create a new Python interview
+new_python name:
+    python3 scripts/scaffold.py python {{name}}
+
+# Create a new Go interview
+new_go name:
+    python3 scripts/scaffold.py go {{name}}
+
+# Create a new Java interview
+new_java name:
+    python3 scripts/scaffold.py java {{name}}
+
+# Create a new Rust interview
+new_rust name:
+    python3 scripts/scaffold.py rust {{name}}
+
+# Create a new C++ interview
+new_cpp name:
+    python3 scripts/scaffold.py cpp {{name}}
+
+# List all interviews
+list:
+    @echo "Available interviews:"
+    @ls -1 interviews/ 2>/dev/null || echo "No interviews found"
+
+# Update Python dependencies
+update_python_deps:
+    bazel run //tools:update_python_deps
+
+# Update Rust dependencies  
+update_rust_deps:
+    bazel run //tools:update_rust_deps
+
+# Update all language dependencies
+update_all_deps:
+    bazel run //tools:update_all_deps
