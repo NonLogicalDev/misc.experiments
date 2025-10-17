@@ -5,7 +5,7 @@ install:
     mise exec -- pnpm install
 
 build:
-    mise exec -- pnpm run compile
+    mise exec -- pnpm run build
 
 lint:
     mise exec -- pnpm run lint

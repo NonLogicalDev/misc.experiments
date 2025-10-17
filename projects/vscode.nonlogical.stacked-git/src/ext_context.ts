@@ -170,6 +170,18 @@ export class GlobalContext {
       { cwd: params.rootPath ?? this.rootPath },
     );
   }
+
+  async apiGitRepoLastReflogSHA(params: {
+    rootPath?: string;
+  }): Promise<{ sha: string; date: string; message: string }> {
+    const output = await execCLI(
+      "git",
+      ["reflog", "--all", "-n", "1", "--format=%H|%gd|%gs"],
+      { cwd: params.rootPath ?? this.rootPath },
+    );
+    const [sha, date, message] = output.split("|");
+    return { sha, date, message };
+  }
 }
 
 /**

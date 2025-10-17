@@ -7,7 +7,14 @@ module.exports = tseslint.config(
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    ignores: ["dist/**", "node_modules/**", "**/*.d.ts", "**/*.js"],
+    ignores: [
+      "dist/**",
+      "out/**",
+      "node_modules/**",
+      "**/*.d.ts",
+      "**/*.js",
+      "vite.config.ts",
+    ],
   },
   {
     files: ["**/*.ts"],
