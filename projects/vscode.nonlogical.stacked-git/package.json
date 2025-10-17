@@ -1,0 +1,332 @@
+{
+  "name": "vscode-stacked-git",
+  "displayName": "StackedGit",
+  "description": "StackedGit support for VS Code",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "SCM Providers"
+  ],
+  "activationEvents": [
+    "workspaceContains:.git"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "stackedGit.reload",
+        "title": "Reload",
+        "category": "StackedGit",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "stackedGit.refreshFromIndex",
+        "title": "Refresh Patch From Index",
+        "icon": "$(save-all)",
+        "category": "Stacked Git"
+      },
+      {
+        "command": "stackedGit.popAll",
+        "title": "Pop All Patches",
+        "category": "Stacked Git",
+        "icon": "$(circle-slash)"
+      },
+      {
+        "command": "stackedGit.pullRemote",
+        "title": "Pull Remote",
+        "category": "Stacked Git",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "stackedGit.viewFileChanges",
+        "title": "View File Changes",
+        "category": "Stacked Git",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "stackedGit.viewFileChangesFull",
+        "title": "View File Changes Full",
+        "category": "Stacked Git",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "stackedGit.copyPatchName",
+        "title": "Copy Stg Patch Name",
+        "category": "StackedGit"
+      },
+      {
+        "command": "stackedGit.copyPatchSha",
+        "title": "Copy Git SHA",
+        "category": "StackedGit"
+      },
+      {
+        "command": "stackedGit.copyCommitMessage",
+        "title": "Copy Commit Message",
+        "category": "StackedGit"
+      },
+      {
+        "command": "stackedGit.copySubject",
+        "title": "Copy Subject",
+        "category": "Stacked Git"
+      },
+      {
+        "command": "stackedGit.viewPatchContents",
+        "title": "View Patch Contents",
+        "category": "StackedGit"
+      },
+      {
+        "command": "stackedGit.copyEditCommand",
+        "title": "Copy Edit Command",
+        "category": "StackedGit"
+      },
+      {
+        "command": "stackedGit.copyRefreshIndexCommand",
+        "title": "Copy Refresh Index Command",
+        "category": "Stacked Git"
+      },
+      {
+        "command": "stackedGit.copyGotoCommand",
+        "title": "Copy Goto Command",
+        "category": "Stacked Git"
+      },
+      {
+        "command": "stackedGit.copyPushCommand",
+        "title": "Copy Push Command",
+        "category": "Stacked Git"
+      },
+      {
+        "command": "stackedGit.openSourceFile",
+        "title": "Open Source File",
+        "category": "Stacked Git"
+      },
+      {
+        "command": "stackedGit.viewSourceAtPatch",
+        "title": "View Source at Patch",
+        "category": "Stacked Git"
+      },
+      {
+        "command": "stackedGit.copyFilePath",
+        "title": "Copy File Path",
+        "category": "Stacked Git"
+      },
+      {
+        "command": "stackedGit.execPushCommand",
+        "title": "Push Selected Patches",
+        "category": "Stacked Git"
+      },
+      {
+        "command": "stackedGit.gotoPatch",
+        "title": "Goto Patch",
+        "category": "StackedGit"
+      },
+      {
+        "command": "stackedGit.statusBarClick",
+        "title": "Status Bar Operations",
+        "category": "StackedGit"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "stackedGit.openSourceFile",
+          "when": "view == stackedGit && viewItem == stg-file"
+        },
+        {
+          "command": "stackedGit.viewSourceAtPatch",
+          "when": "view == stackedGit && viewItem == stg-file"
+        },
+        {
+          "command": "stackedGit.viewPatchContents",
+          "when": "view == stackedGit && viewItem == stg-patch"
+        },
+        {
+          "command": "stackedGit.copyEditCommand",
+          "when": "view == stackedGit && viewItem == stg-patch"
+        },
+        {
+          "command": "stackedGit.copyPushCommand",
+          "when": "view == stackedGit && viewItem == stg-patch"
+        },
+        {
+          "command": "stackedGit.copyGotoCommand",
+          "when": "view == stackedGit && viewItem == stg-patch"
+        },
+        {
+          "command": "stackedGit.copySubject",
+          "when": "view == stackedGit && viewItem == stg-patch"
+        },
+        {
+          "command": "stackedGit.copyRefreshIndexCommand",
+          "when": "view == stackedGit && viewItem == stg-patch"
+        },
+        {
+          "command": "stackedGit.copyCommitMessage",
+          "when": "view == stackedGit && viewItem == stg-patch"
+        },
+        {
+          "command": "stackedGit.copyPatchSha",
+          "when": "view == stackedGit && viewItem == stg-patch"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "stackedGit.reload",
+          "when": "view == stackedGit",
+          "group": "navigation@99"
+        },
+        {
+          "command": "stackedGit.popAll",
+          "when": "view == stackedGit",
+          "group": "navigation@1"
+        },
+        {
+          "command": "stackedGit.refreshFromIndex",
+          "when": "view == stackedGit",
+          "group": "navigation@2"
+        },
+        {
+          "command": "stackedGit.pullRemote",
+          "when": "view == stackedGit",
+          "group": "navigation@3"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "stackedGit.copyPatchName",
+          "when": "view == stackedGit && viewItem == stg-patch",
+          "group": "1_copy@1"
+        },
+        {
+          "command": "stackedGit.copyPatchSha",
+          "when": "view == stackedGit && viewItem == stg-patch",
+          "group": "1_copy@2"
+        },
+        {
+          "command": "stackedGit.copyCommitMessage",
+          "when": "view == stackedGit && viewItem == stg-patch",
+          "group": "1_copy@3"
+        },
+        {
+          "command": "stackedGit.copySubject",
+          "when": "view == stackedGit && viewItem == stg-patch",
+          "group": "1_copy@4"
+        },
+        {
+          "command": "stackedGit.execPushCommand",
+          "when": "view == stackedGit && viewItem == stg-patch",
+          "group": "2_exec@3"
+        },
+        {
+          "command": "stackedGit.gotoPatch",
+          "when": "view == stackedGit && viewItem == stg-patch",
+          "group": "2_exec@1"
+        },
+        {
+          "command": "stackedGit.copyRefreshIndexCommand",
+          "when": "view == stackedGit && viewItem == stg-patch",
+          "group": "3_commands@2"
+        },
+        {
+          "command": "stackedGit.copyPushCommand",
+          "when": "view == stackedGit && viewItem == stg-patch",
+          "group": "3_commands@4"
+        },
+        {
+          "command": "stackedGit.copyEditCommand",
+          "when": "view == stackedGit && viewItem == stg-patch",
+          "group": "3_commands@1"
+        },
+        {
+          "command": "stackedGit.copyGotoCommand",
+          "when": "view == stackedGit && viewItem == stg-patch",
+          "group": "3_commands@3"
+        },
+        {
+          "command": "stackedGit.viewPatchContents",
+          "when": "view == stackedGit && viewItem == stg-patch",
+          "group": "4_patch@2"
+        },
+        {
+          "command": "stackedGit.copyFilePath",
+          "when": "view == stackedGit && viewItem == stg-file",
+          "group": "1_copy@1"
+        },
+        {
+          "command": "stackedGit.openSourceFile",
+          "when": "view == stackedGit && viewItem == stg-file",
+          "group": "3_actions@1"
+        },
+        {
+          "command": "stackedGit.viewSourceAtPatch",
+          "when": "view == stackedGit && viewItem == stg-file",
+          "group": "4_patch@2"
+        },
+        {
+          "command": "stackedGit.viewFileChanges",
+          "when": "view == stackedGit && viewItem == stg-file",
+          "group": "4_patch@3"
+        },
+        {
+          "command": "stackedGit.viewFileChangesFull",
+          "when": "view == stackedGit && viewItem == stg-file",
+          "group": "4_patch@4"
+        }
+      ],
+      "git.commit": [
+        {
+          "command": "stackedGit.refreshFromIndex",
+          "group": "3_actions@1"
+        }
+      ]
+    },
+    "views": {
+      "scm": [
+        {
+          "id": "stackedGit",
+          "name": "Stacked Git"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "StackedGit",
+      "properties": {
+        "stackedGit.refreshInterval": {
+          "type": "number",
+          "default": 30,
+          "minimum": 5,
+          "description": "How often to refresh the stacked git status (in seconds)"
+        },
+        "stackedGit.statusBar.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show stacked git status in the status bar"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "rimraf ./out && npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint .",
+    "test": "vscode-test",
+    "fmt": "prettier --write \"src/**/*.ts\""
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.37.0",
+    "@types/node": "20.x",
+    "@types/vscode": "^1.80.0",
+    "@vscode/test-cli": "0.0.9",
+    "@vscode/test-electron": "2.4.0",
+    "eslint": "^9.37.0",
+    "rimraf": "5.0.7",
+    "typescript": "5.4.5",
+    "typescript-eslint": "^8.0.0"
+  },
+  "dependencies": {
+    "prettier": "^3.5.2"
+  }
+}

@@ -1,3 +1,4 @@
 .nix/flake.lock
+pnpm-lock.yaml
 .direnv
 .vscode

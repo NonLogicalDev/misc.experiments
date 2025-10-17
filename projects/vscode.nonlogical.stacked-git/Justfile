@@ -1,0 +1,17 @@
+VSCODE_COMMIT := "1e1dabdbb9edc1df2fcf34fde86264a7d3a8a690"
+
+install:
+    mise exec -- npm install -g pnpm
+    mise exec -- pnpm install
+
+build:
+    mise exec -- pnpm run compile
+
+lint:
+    mise exec -- pnpm run lint
+
+fmt:
+    mise exec -- pnpm run fmt
+
+update_types:
+    VSCODE_COMMIT={{VSCODE_COMMIT}} ./scripts/update_typescript_api.sh
