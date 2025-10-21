@@ -1,0 +1,23 @@
+[package]
+name = "pam-ussh-rs"
+version = "0.1.0"
+edition = "2024"
+authors = ["Oleg Utkin <oleg.utkin@example.com>"]
+description = "Rust PAM module mirroring pam-ussh-go semantics."
+license = "MIT"
+readme = "README.md"
+
+[lib]
+name = "pam_ussh"
+crate-type = ["cdylib"]
+
+[dependencies]
+libc = "0.2"
+nix = { version = "0.29", features = ["user", "process", "resource"] }
+pam-bindings = "0.1.1"
+rand = "0.8"
+signature = "2"
+ssh-agent-client-rs = "1.1"
+ssh-key = { version = "0.6", features = ["std", "alloc", "crypto"] }
+syslog = "6.0"
+uzers = "0.12"

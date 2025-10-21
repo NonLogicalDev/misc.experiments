@@ -1,0 +1,6 @@
+default:
+    @just --list
+
+save:
+    git add -A
+    git commit -m "$(date) :: save"
