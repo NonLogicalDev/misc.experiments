@@ -43,6 +43,9 @@ build:macos --linkopt=-framework --linkopt=CoreFoundation
 build:macos --linkopt=-framework --linkopt=Security
 build:macos --linkopt=-lresolv
 build:macos --linkopt=-liconv
+# Use Nix-provided C++ toolchain
+build:macos --action_env=CC=clang
+build:macos --action_env=CXX=clang++
 # Disable Xcode detection for Python wheel compilation
 build:macos --action_env=DEVELOPER_DIR=
 build:macos --action_env=SDKROOT=

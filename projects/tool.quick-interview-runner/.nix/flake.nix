@@ -31,6 +31,14 @@
             # Bazel - primary build system
             pkgs.bazel_7
 
+            # C++ toolchain (required for C++ interviews)
+            pkgs.clang
+            pkgs.llvmPackages.libcxx
+
+            # Rust toolchain (required for Rust interviews)
+            pkgs.rustc
+            pkgs.cargo
+
             # Minimal Python for scaffolding scripts only
             pkgs.python3
 
