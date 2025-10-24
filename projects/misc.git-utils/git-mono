@@ -1,0 +1,582 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "click",
+#     "pydantic",
+# ]
+# ///
+
+# Standard Library
+import os
+import random
+import string
+import subprocess as sp
+from pathlib import Path
+
+# Third Party
+import click
+from pydantic import BaseModel
+
+USER_NAME = "oleg.utkin"
+TRACE_COMMANDS = os.environ.get("GIT_MONO_TRACE", "0") == "1"
+
+# ------------------------------------------------------------
+# Models
+# ------------------------------------------------------------
+
+class GitBranchInfo(BaseModel):
+    name: str
+    sha: str
+    new_commits: list[str]
+
+# ------------------------------------------------------------
+
+@click.group()
+def main():
+    """Main entry point for git-mono script."""
+    pass
+
+
+@main.command()
+@click.argument("branch", type=str)
+def show_new_commits(branch: str):
+    git = GitOps.new_from_dir(Path(os.getcwd()))
+    branch_info = git.get_branch_info(branch)
+    click.echo(f"New commits on {branch}: {branch_info.new_commits}")
+
+@main.command()
+def branch_tree():
+    """Display a tree of branches based on their upstream relationships."""
+    git = GitOps.new_from_dir(Path(os.getcwd()))
+    tree = git.build_branch_tree()
+    git.print_branch_tree(tree)
+
+@main.command()
+@click.argument("name", type=str)
+def new(name: str):
+    """Create a new branch with format {USER_NAME}/{name}@{random_5_chars}."""
+    git = GitOps.new_from_dir(Path(os.getcwd()))
+
+    git.ensure_clean()
+
+    current_branch_info = git.get_branch_info("HEAD")
+
+    # Generate random 5 lowercase alphanumeric chars
+    random_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=5))
+    new_branch_name = f"{USER_NAME}/{name}@{random_suffix}"
+
+    click.echo(f"Creating new branch: {new_branch_name}")
+    git.make_new_branch(new_branch_name, 'HEAD', force=False)
+
+    click.echo(f"Setting upstream to {current_branch_info.name}")
+    git.set_branch_upstream(new_branch_name, current_branch_info.name)
+
+    click.echo(f"Switching to {new_branch_name}")
+    git.switch_to_branch(new_branch_name)
+
+    click.echo(f"✓ Created and switched to branch: {new_branch_name}")
+
+@main.command()
+@click.argument("target_branch", type=str)
+@click.option("--branch", "-b", type=str, default=None, help="Branch to reparent (defaults to current branch)")
+def branch_reparent(target_branch: str, branch: str):
+    """Change the upstream of a branch to a new target branch."""
+    git = GitOps.new_from_dir(Path(os.getcwd()))
+
+    # Determine which branch to reparent
+    if branch is None:
+        branch_to_reparent = git._run_output(["git", "rev-parse", "--abbrev-ref", "HEAD"])
+        click.echo(f"Reparenting current branch: {branch_to_reparent}")
+    else:
+        branch_to_reparent = branch
+        click.echo(f"Reparenting branch: {branch_to_reparent}")
+
+    # Validate target branch exists
+    try:
+        git.validate_commit_exists(target_branch)
+    except RuntimeError:
+        raise click.ClickException(f"Target branch does not exist: {target_branch}")
+
+    # Get current upstream if any
+    try:
+        old_upstream = git._run_output(["git", "rev-parse", "--abbrev-ref", f"{branch_to_reparent}@{{upstream}}"])
+        click.echo(f"Current upstream: {old_upstream}")
+    except sp.CalledProcessError:
+        click.echo("Current upstream: (none)")
+
+    # Set new upstream
+    click.echo(f"Setting new upstream to: {target_branch}")
+    git.set_branch_upstream(branch_to_reparent, target_branch)
+
+    click.echo(f"✓ Successfully reparented {branch_to_reparent} to {target_branch}")
+
+
+## git-mono push-branch $PUSH_BRANCH
+# is a helper script that will
+#  * find new commits on the $PUSH_BRANCH (using merge-base)
+#  * create a new temporary branch from the current head and call it ${PUSH_BRANCH}@@push-branch
+#  * check out the newly created branch
+#  * cherry-pick the new commits from $PUSH_BRANCH to the newly created branch
+#  * once all commits are cherry-picked, point the $PUSH_BRANCH to the current head
+#  * checkout the $PUSH_BRANCH
+#  * delete the temporary branch
+@main.command()
+@click.argument("push_branch", type=str)
+def push_branch(push_branch: str):
+    git = GitOps.new_from_dir(Path(os.getcwd()))
+
+    git.ensure_clean()
+
+    current_branch_info = git.get_branch_info("HEAD")
+
+    push_branch_info = git.get_branch_info(push_branch)
+    temp_branch_name = f"{push_branch}@@push-branch-wip"
+    if len(push_branch_info.new_commits) == 0:
+        click.echo(f"No new commits found on {push_branch}")
+        return
+
+    click.echo(f"New commits found on {push_branch}: {push_branch_info.new_commits}")
+
+    click.echo(f"Creating temporary branch... {temp_branch_name}")
+    git.make_new_branch(temp_branch_name, current_branch_info.sha, force=True)
+
+    click.echo(f"Switching to temporary branch... {temp_branch_name}")
+    git.switch_to_branch(temp_branch_name)
+
+    click.echo(f"Cherry-picking commits... {push_branch_info.new_commits}")
+    git.cherry_pick_commits(push_branch_info.new_commits)
+
+    click.echo(f"Pointing {push_branch} to HEAD... {push_branch}")
+    git.make_new_branch(push_branch, 'HEAD', force=True)
+
+    click.echo(f"Switching to {push_branch}... {push_branch}")
+    git.switch_to_branch(push_branch)
+
+    click.echo(f"Pointing upstream for {push_branch} to {current_branch_info.sha}... {push_branch}")
+    git.set_branch_upstream(push_branch, current_branch_info.name)
+
+    click.echo(f"Deleting temporary branch... {temp_branch_name}")
+    git.delete_branch(temp_branch_name)
+
+
+# git-mono push-sha $BRANCH_NAME $COMMIT_SHA [--force]
+# is a helper script that will
+#  * validate commit_sha exists
+#  * create a new branch from current HEAD (error if already exists, unless --force)
+#  * set upstream to current branch
+#  * switch to the new branch
+#  * merge the commit onto the branch:
+#    - if no conflicts: commit with original metadata (same as cherry-pick)
+#    - if conflicts: create empty commit with original metadata, leave index/worktree in conflict state
+#      user can resolve conflicts and use 'git commit --amend' to finalize
+@main.command()
+@click.argument("branch_name", type=str)
+@click.argument("commit_sha", type=str)
+@click.option("--force", is_flag=True, default=False, help="Overwrite branch if it already exists")
+def push_sha(branch_name: str, commit_sha: str, force: bool):
+    git = GitOps.new_from_dir(Path(os.getcwd()))
+
+    git.ensure_clean()
+
+    current_branch_info = git.get_branch_info("HEAD")
+
+    click.echo(f"Validating commit SHA... {commit_sha}")
+    git.validate_commit_exists(commit_sha)
+
+    click.echo(f"Creating new branch from HEAD... {branch_name}")
+    git.make_new_branch(branch_name, 'HEAD', force=force)
+
+    click.echo(f"Setting upstream for {branch_name} to {current_branch_info.name}")
+    git.set_branch_upstream(branch_name, current_branch_info.name)
+
+    click.echo(f"Switching to branch... {branch_name}")
+    git.switch_to_branch(branch_name)
+
+    click.echo(f"Merging commit {commit_sha}...")
+    git.merge_commit_with_soft_conflicts(commit_sha)
+
+
+# git-mono push-stg-patch $PATCH_NAME [--force] [--branch BRANCH]
+# is a helper script that will
+#  * use stg id to get the commit SHA for the patch
+#  * call push-sha logic with patch name as branch name
+@main.command()
+@click.argument("patch_name", type=str)
+@click.option("--force", is_flag=True, default=False, help="Overwrite branch if it already exists")
+@click.option("--branch", "-b", type=str, default=None, help="Stacked git branch to get patch from")
+def push_stg_patch(patch_name: str, force: bool, branch: str):
+    git = GitOps.new_from_dir(Path(os.getcwd()))
+
+    # Get commit SHA from stacked git
+    if branch:
+        click.echo(f"Getting commit SHA for patch {patch_name} from branch {branch}...")
+    else:
+        click.echo(f"Getting commit SHA for patch {patch_name}...")
+
+    commit_sha = git.get_stg_patch_sha(patch_name, branch)
+    click.echo(f"Found commit SHA: {commit_sha}")
+
+    # Reuse push-sha logic
+    git.ensure_clean()
+
+    # Create new branch name '${USER_NAME}/${patch-name}'
+    new_branch_name = f"{USER_NAME}/{patch_name}"
+
+    current_branch_info = git.get_branch_info("HEAD")
+
+    click.echo(f"Validating commit SHA... {commit_sha}")
+    git.validate_commit_exists(commit_sha)
+
+    click.echo(f"Creating new branch from HEAD... {new_branch_name}")
+    git.make_new_branch(new_branch_name, 'HEAD', force=force)
+
+    click.echo(f"Setting upstream for {new_branch_name} to {current_branch_info.name}")
+    git.set_branch_upstream(new_branch_name, current_branch_info.name)
+
+    click.echo(f"Switching to branch... {new_branch_name}")
+    git.switch_to_branch(new_branch_name)
+
+    click.echo(f"Merging commit {commit_sha}...")
+    git.merge_commit_with_soft_conflicts(commit_sha)
+
+
+# ------------------------------------------------------------
+
+
+class GitOps:
+    def __init__(self, repo_path: str):
+        self.repo_path = repo_path
+
+    @staticmethod
+    def _trace_cmd(cmd):
+        """Trace command execution if tracing is enabled."""
+        if TRACE_COMMANDS:
+            if isinstance(cmd, list):
+                click.echo(f"[TRACE] Running: {' '.join(cmd)}", err=True)
+            else:
+                click.echo(f"[TRACE] Running: {cmd}", err=True)
+
+    @staticmethod
+    def _run_output(*args, timeout=None, **kwargs) -> str:
+        """Run a command and return stdout as a stripped string."""
+        if args:
+            GitOps._trace_cmd(args[0])
+        return sp.check_output(*args, timeout=timeout, **kwargs).decode('utf-8').strip()
+
+    @classmethod
+    def new_from_dir(cls, dir: Path):
+        """Create a GitOps instance from the current working directory."""
+
+        try:
+            repo_root = cls._run_output('git rev-parse --show-toplevel', cwd=dir, shell=True)
+        except sp.CalledProcessError as e:
+            raise RuntimeError(f"Failed to find git repo root for: {dir}") from e
+        return cls(repo_root)
+
+    def ensure_clean(self):
+        """Ensure the working directory is clean."""
+        cmd = ["git", "status", "--porcelain"]
+        self._trace_cmd(cmd)
+        if sp.run(cmd, check=True).returncode != 0:
+            raise RuntimeError("Working directory is not clean.")
+
+    def switch_to_branch(self, branch_name: str):
+        """Switch to a branch."""
+        cmd = ["git", "switch", branch_name]
+        self._trace_cmd(cmd)
+        sp.run(cmd, check=True)
+
+    def make_new_branch(self, new_branch_name: str, ref_sha: str, force: bool = False):
+        """Make a new branch from a reference SHA."""
+        force_args = [ "--force" ] if force else []
+        cmd = ["git", "branch", *force_args, new_branch_name, ref_sha]
+        self._trace_cmd(cmd)
+        sp.run(cmd, check=True)
+        return new_branch_name
+
+    def get_branch_info(self, from_branch: str, target_ref: str = None):
+        """Get new commits from a branch."""
+        if target_ref is None:
+            target_ref = f"{from_branch}@{{upstream}}"
+
+        branch_name = self._run_output(f"git rev-parse --abbrev-ref {from_branch}", shell=True)
+        branch_sha = self._run_output(f"git rev-parse {from_branch}", shell=True)
+        merge_base = self._run_output(["git", "merge-base", from_branch, target_ref])
+        new_commits = self._run_output(["git", "rev-list", '--reverse', f"{merge_base}..{from_branch}"]).split('\n')
+        return GitBranchInfo(name=branch_name, sha=branch_sha, new_commits=new_commits)
+
+    def cherry_pick_commits(self, commits: list[str]):
+        """Cherry-pick commits from a branch to another branch."""
+        cmd = ["git", "cherry-pick", *commits]
+        self._trace_cmd(cmd)
+        sp.run(cmd, check=True)
+
+    def set_branch_upstream(self, branch_name: str, upstream_ref: str):
+        """Set the upstream for a branch."""
+        cmd = ["git", "branch", branch_name, "-u", upstream_ref]
+        self._trace_cmd(cmd)
+        sp.run(cmd, check=True)
+
+    def delete_branch(self, branch_name: str):
+        """Delete a branch."""
+        cmd = ["git", "branch", "-D", branch_name]
+        self._trace_cmd(cmd)
+        sp.run(cmd, check=True)
+
+    def get_stg_patch_sha(self, patch_name: str, branch: str = None) -> str:
+        """Get the commit SHA for a stacked git patch."""
+        if branch:
+            stg_cmd = ["stg", "id", "--branch", branch, patch_name]
+        else:
+            stg_cmd = ["stg", "id", patch_name]
+
+        try:
+            return self._run_output(stg_cmd)
+        except sp.CalledProcessError as e:
+            raise RuntimeError(f"Failed to get commit SHA for patch: {patch_name}") from e
+
+    def validate_commit_exists(self, commit_sha: str):
+        """Validate that a commit SHA exists in the repository."""
+        try:
+            cmd = ["git", "rev-parse", "--verify", commit_sha]
+            self._trace_cmd(cmd)
+            sp.run(cmd, check=True, capture_output=True)
+        except sp.CalledProcessError as e:
+            raise RuntimeError(f"Commit SHA does not exist: {commit_sha}") from e
+
+    def has_conflicts(self):
+        """Check if there are conflicts in the index."""
+        cmd = ["git", "diff", "--name-only", "--diff-filter=U"]
+        self._trace_cmd(cmd)
+        result = sp.run(cmd, capture_output=True)
+        return len(result.stdout.decode('utf-8').strip()) > 0
+
+    def commit_copy_with(self, commit_sha: str, tree_sha: str, parent_commit_sha: str):
+        """
+        Copy a commit with modifications.
+        Creates a new commit object with the same metadata as commit_sha but with
+        a different tree and parent. Copies git notes from all refs to the new commit.
+        Returns the new commit SHA.
+        """
+        # Get the raw commit object (no strip needed - we want the full content)
+        cmd = ["git", "cat-file", "commit", commit_sha]
+        self._trace_cmd(cmd)
+        commit_obj = sp.check_output(cmd).decode('utf-8')
+
+        # Replace the tree line
+        lines = commit_obj.split('\n')
+        is_editing = True
+        parent_handled = False
+        fixed_lines = []
+        for i, line in enumerate(lines):
+            if len(line) == 0:
+                is_editing = False
+
+            if is_editing and line.startswith('tree '):
+                fixed_lines.append(f'tree {tree_sha}')
+            elif is_editing and line.startswith('parent '):
+                if not parent_handled:
+                    fixed_lines.append(f'parent {parent_commit_sha}')
+                    parent_handled = True
+                else:
+                    # skip the parent line (only one parent is allowed)
+                    pass
+            else:
+                fixed_lines.append(line)
+
+        new_commit_obj = '\n'.join(fixed_lines)
+
+        # Write the new commit object
+        cmd = ["git", "hash-object", "-t", "commit", "-w", "--stdin"]
+        self._trace_cmd(cmd)
+        process = sp.Popen(cmd, stdin=sp.PIPE, stdout=sp.PIPE)
+        new_commit_sha = process.communicate(input=new_commit_obj.encode('utf-8'))[0].decode('utf-8').strip()
+
+        # Copy notes from all refs/notes/* to the new commit
+        self.copy_notes(commit_sha, new_commit_sha)
+
+        return new_commit_sha
+
+    def copy_notes(self, from_commit: str, to_commit: str):
+        """Copy git notes from all refs/notes/* from one commit to another."""
+        # Get all notes refs
+        cmd = ["git", "for-each-ref", "--format=%(refname)", "refs/notes/"]
+        self._trace_cmd(cmd)
+        result = sp.run(cmd, capture_output=True, check=True)
+        notes_refs = result.stdout.decode('utf-8').strip().split('\n')
+
+        for ref in notes_refs:
+            if not ref:  # Skip empty lines
+                continue
+            # Extract the notes name (e.g., refs/notes/commits -> commits)
+            notes_name = ref.replace('refs/notes/', '')
+            # Try to copy notes, ignore errors if no notes exist for this commit
+            cmd = ["git", "notes", "--ref", notes_name, "copy", "-f", from_commit, to_commit]
+            self._trace_cmd(cmd)
+            sp.run(cmd, capture_output=True)
+
+    def build_branch_tree(self) -> dict:
+        """Build a tree structure of branches based on upstream relationships."""
+        # Get current branch
+        current_branch = self._run_output(["git", "rev-parse", "--abbrev-ref", "HEAD"])
+
+        # Get all local branches
+        branches_output = self._run_output(["git", "branch", "--format=%(refname:short)"])
+        branches = branches_output.split('\n') if branches_output else []
+
+        # Build map of branch -> {upstream, commits_ahead, first_subject, sha, date}
+        branch_info = {}
+        for branch in branches:
+            if not branch:
+                continue
+
+            upstream = None
+            commits_ahead = 0
+            first_subject = None
+
+            # Get branch SHA and date
+            branch_sha = self._run_output(["git", "rev-parse", "--short", branch])
+            commit_date = self._run_output(["git", "log", "-1", "--format=%ar", branch])
+
+            try:
+                cmd = ["git", "rev-parse", "--abbrev-ref", f"{branch}@{{upstream}}"]
+                self._trace_cmd(cmd)
+                result = sp.run(cmd, capture_output=True, check=True)
+                upstream = result.stdout.decode('utf-8').strip()
+
+                # Get number of commits ahead (with aggressive timeout)
+                merge_base = self._run_output(["git", "merge-base", branch, upstream], timeout=0.1)
+                commits_output = self._run_output(["git", "rev-list", "--count", f"{merge_base}..{branch}"], timeout=0.1)
+                commits_ahead = int(commits_output) if commits_output else 0
+
+                # Get first commit subject if there are commits
+                if commits_ahead > 0:
+                    first_subject = self._run_output(["git", "log", "--format=%s", "-1", f"{merge_base}..{branch}"], timeout=1)
+
+            except (sp.CalledProcessError, sp.TimeoutExpired) as e:
+                # No upstream configured or command timed out (stderr suppressed)
+                #print("error: ", e)
+                pass
+
+            branch_info[branch] = {
+                'upstream': upstream,
+                'commits_ahead': commits_ahead,
+                'first_subject': first_subject,
+                'sha': branch_sha,
+                'date': commit_date,
+                'is_current': branch == current_branch
+            }
+
+        return branch_info
+
+    def print_branch_tree(self, branch_info: dict):
+        """Print a tree visualization of branches."""
+        # Find roots (branches with no upstream or upstream not in local branches)
+        local_branches = set(branch_info.keys())
+        roots = [b for b, info in branch_info.items()
+                 if info['upstream'] is None or info['upstream'] not in local_branches]
+
+        # Build children map
+        children = {b: [] for b in branch_info.keys()}
+        for branch, info in branch_info.items():
+            upstream = info['upstream']
+            if upstream and upstream in local_branches:
+                children[upstream].append(branch)
+
+        # Print tree
+        def print_node(branch: str, prefix: str = "", is_last: bool = True):
+            info = branch_info[branch]
+            commits_ahead = info['commits_ahead']
+            first_subject = info['first_subject']
+            sha = info['sha']
+            date = info['date']
+            is_current = info['is_current']
+
+            # Format branch info with colors
+            sha_colored = click.style(f"[{sha}]", fg='yellow')
+            if is_current:
+                branch_colored = click.style(f"* {branch}", fg='green', bold=True)
+            else:
+                branch_colored = click.style(branch, fg='cyan', bold=True)
+            date_colored = click.style(f"({date})", fg='green')
+
+            branch_display = f"{sha_colored} {branch_colored} {date_colored}"
+            if commits_ahead > 0:
+                commits_colored = click.style(f"(+{commits_ahead})", fg='blue')
+                branch_display += f" {commits_colored}"
+                if first_subject:
+                    subject_colored = click.style(first_subject, fg='white', dim=True)
+                    branch_display += f" {subject_colored}"
+            elif commits_ahead == 0 and info['upstream']:
+                empty_colored = click.style("(empty)", fg='white', dim=True)
+                branch_display += f" {empty_colored}"
+
+            tree_symbols = click.style('└── ' if is_last else '├── ', fg='white', dim=True)
+            click.echo(f"{prefix}{tree_symbols}{branch_display}")
+
+            child_list = sorted(children.get(branch, []))
+            for i, child in enumerate(child_list):
+                is_last_child = (i == len(child_list) - 1)
+                vertical_bar = click.style("│   ", fg='white', dim=True) if not is_last else "    "
+                new_prefix = prefix + vertical_bar
+                print_node(child, new_prefix, is_last_child)
+
+        sorted_roots = sorted(roots)
+        for i, root in enumerate(sorted_roots):
+            print_node(root, "", i == len(sorted_roots) - 1)
+
+    def merge_commit_with_soft_conflicts(self, commit_sha: str):
+        """
+        Merge a commit onto current branch with soft conflict handling.
+        - If no conflicts: creates commit with original metadata (like cherry-pick)
+        - If conflicts: creates empty commit with original metadata, leaves index/worktree in conflict state
+        """
+        # Create empty commit with original metadata and current tree
+        current_tree_sha = self._run_output(["git", "rev-parse", "HEAD^{tree}"])
+        parent_commit_sha = self._run_output(["git", "rev-parse", "HEAD"])
+        empty_commit_sha = self.commit_copy_with(commit_sha, current_tree_sha, parent_commit_sha)
+
+        click.echo(f"Current tree SHA: {current_tree_sha}")
+        click.echo(f"Created empty commit: {empty_commit_sha}")
+
+        # Move HEAD to the empty commit
+        cmd = ["git", "reset", "--soft", empty_commit_sha]
+        self._trace_cmd(cmd)
+        sp.run(cmd, check=True)
+
+        # Try cherry-picking without committing
+        click.echo("Attempting to apply changes...")
+        cmd = ["git", "cherry-pick", "--no-commit", commit_sha]
+        self._trace_cmd(cmd)
+        result = sp.run(cmd, capture_output=True)
+
+        if result.returncode == 0 and not self.has_conflicts():
+            # Success: amend the previous commit with --no-edit
+            click.echo("No conflicts detected. Amending commit...")
+            cmd = ["git", "commit", "--amend", "--no-edit"]
+            self._trace_cmd(cmd)
+            sp.run(cmd, check=True)
+            click.echo(f"✓ Successfully applied commit {commit_sha}")
+        else:
+            # Conflicts: already have empty commit, index/worktree in conflict state
+            click.echo("⚠ Conflicts detected.")
+            click.echo("")
+            click.echo("=" * 70)
+            click.echo("⚠ CONFLICTS DETECTED - Manual resolution required")
+            click.echo("=" * 70)
+            click.echo(f"An empty commit with metadata from {commit_sha} has been created.")
+            click.echo("The index and worktree are now in conflict state.")
+            click.echo("")
+            click.echo("To resolve conflicts:")
+            click.echo("  1. View conflicts: git status")
+            click.echo("  2. Resolve each file: git checkout --conflict=merge <file>")
+            click.echo("  3. Edit files to resolve conflicts")
+            click.echo("  4. Stage resolved files: git add <file>")
+            click.echo("  5. Amend the commit: git commit --amend --no-edit")
+            click.echo("=" * 70)
+
+# ------------------------------------------------------------
+
+if __name__ == "__main__":
+    main()
