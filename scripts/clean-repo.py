@@ -28,7 +28,7 @@ def main():
   args = argparse.ArgumentParser()
   args.add_argument('--force', action='store_true', help='Force the commit')
   args.add_argument('--dry-run', action='store_true', help='Dry run the commit')
-  args.parse_args()
+  args = args.parse_args()
 
   repo_filter = RepoFilter()
   repo_filter_args = []
