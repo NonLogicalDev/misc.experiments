@@ -10,3 +10,6 @@ git-sanitize:
 
 git-sanitize-commit:
     uv run scripts/clean-repo.py --force
+
+ensure-remote:
+    git remote add origin git@github.com:NonLogicalDev/misc.experiments
