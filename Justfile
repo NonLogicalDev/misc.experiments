@@ -11,5 +11,7 @@ git-sanitize:
 git-sanitize-commit:
     uv run scripts/clean-repo.py --force
 
-git-ensure-remote:
+git-configure:
     git remote add origin git@github.com:NonLogicalDev/misc.experiments
+    git fetch origin
+    git branch --set-upstream-to=origin/main main
