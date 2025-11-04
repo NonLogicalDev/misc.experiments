@@ -1,0 +1,8 @@
+_default:
+    @just --list
+
+vm-build VM_NAME:
+    ./scripts/qmgr.py vm-build . {{VM_NAME}}
+
+vm-run VM_NAME:
+    ./scripts/qmgr.py vm-run . {{VM_NAME}}
