@@ -1,0 +1,172 @@
+#!/usr/bin/env python3
+
+import os
+import sys
+import argparse
+import subprocess
+from pathlib import Path
+from typing import Optional
+import json
+import re
+from concurrent.futures import ThreadPoolExecutor
+
+def parse_repo_url(url: str) -> Optional[str]:
+    """Parse repository URL and return destination path."""
+    if r := re.match(r"(http|https)://(?P<host>.*?)/(?P<path>.*)(?:\.git)?", url):
+        return f"{r['host']}/{r['path']}"
+    elif r := re.match(r"(?P<user>.*?)@(?P<host>.*?):(?P<path>.*)(?:\.git)?", url):
+        return f"{r['host']}/{r['path']}"
+    return None
+
+def find_git_repos(root_dir):
+    """Find all Git repositories under the given root directory."""
+    repos = []
+    repo_markers = ['.git', '.idea', '.vscode']
+
+    for root, dirs, files in os.walk(root_dir, topdown=True, followlinks=True):
+        for m in repo_markers:
+            if m in dirs or m in files:
+                repos.append(root)
+                dirs.clear()
+    return repos
+
+def safe_get_git_info(repo_path):
+    """Get Git repository information: origin URL and current branch safely."""
+    try:
+        origin_url = subprocess.check_output(
+            ["git", "config", "--get", "remote.origin.url"],
+            stderr=subprocess.DEVNULL,
+            cwd=repo_path
+        ).decode('utf-8').strip()
+    except subprocess.CalledProcessError:
+        origin_url = "N/A"
+
+    try:
+        branch = subprocess.check_output(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            stderr=subprocess.DEVNULL,
+            cwd=repo_path
+        ).decode('utf-8').strip()
+    except subprocess.CalledProcessError:
+        branch = "N/A"
+
+    return {"path": repo_path, "upstream_url": origin_url, "branch": branch}
+
+def get_git_roots():
+    """Parse GIT_MIRROR_ROOTS environment variable and return a list of root paths."""
+    git_roots = os.environ.get('GIT_MIRROR_ROOTS', '')
+    if not git_roots:
+        print("Error: GIT_MIRROR_ROOTS environment variable is not set.")
+        sys.exit(1)
+    return git_roots.split(':')
+
+def list_repos(args):
+    root_paths = get_git_roots()
+    all_repos = []
+    for root_path in root_paths:
+        if os.path.isdir(root_path):
+            all_repos.extend(find_git_repos(root_path))
+
+    with ThreadPoolExecutor() as executor:
+        results = list(executor.map(safe_get_git_info, all_repos))
+
+    results = [r for r in results if r]
+    results.sort(key=lambda r: r["path"].lower())
+
+    if args.abspath:
+        for repo in results:
+            repo["path"] = os.path.abspath(repo["path"])
+    else:
+        for repo in results:
+            # replace $HOME with ~
+            repo["path"] = re.sub(r"^" + re.escape(str(Path.home())), "~", repo["path"])
+
+    if args.tsv:
+        for repo in results:
+            print(f"{repo['path']}\t{repo['upstream_url']}\t{repo['branch']}")
+    else:
+        # Find longest strings for column width
+        max_path = max(len("Path"), max([len(repo["path"]) for repo in results], default=0))
+        max_url = max(len("URL"), max([len(repo["upstream_url"]) for repo in results], default=0))
+        max_branch = max(len("Branch"), max([len(repo["branch"]) for repo in results], default=0))
+
+        # Print header
+        print(
+            "Path".ljust(max_path),
+            "URL".ljust(max_url),
+            "Branch".ljust(max_branch),
+            sep=" | "
+        )
+        print("-" * max_path, "-" * max_url, "-" * max_branch, sep=" | ")
+        # Print data rows
+        for repo in results:
+            print(
+                repo['path'].ljust(max_path),
+                repo['upstream_url'].ljust(max_url),
+                repo['branch'].ljust(max_branch),
+                sep=" | "
+            )
+
+def mirror_repo(args):
+    repo_storage_dir = Path(args.storage_dir).absolute()
+    repo_dst = parse_repo_url(args.repo_url)
+
+    if repo_dst is None:
+        print(f"Error: Could not parse repository URL: {args.repo_url}")
+        sys.exit(1)
+
+    git_cmd = [
+        'git', 'clone', *args.extra_args, '--', args.repo_url, str(repo_storage_dir / repo_dst),
+    ]
+    print("$", " ".join(map(repr, git_cmd)))
+    sys.exit(subprocess.run(git_cmd).returncode)
+
+def gen_workspace(args):
+    workspace_file = Path(args.workspace_file).absolute()
+    root_paths = get_git_roots()
+    all_repos = []
+    for root_path in root_paths:
+        if os.path.isdir(root_path):
+            all_repos.extend(find_git_repos(root_path))
+
+    folders = [{"name": f"R :: {repo}", "path": repo} for repo in all_repos]
+
+    if workspace_file.exists():
+        with open(workspace_file, 'r') as f:
+            data = json.load(f)
+        data['folders'] = [f for f in data.get('folders', []) if f['name'].startswith("~")] + folders
+    else:
+        data = {"folders": folders}
+
+    with open(workspace_file, 'w') as f:
+        json.dump(data, f, indent=2)
+
+    print(f"Workspace file generated: {workspace_file}")
+
+def main():
+    parser = argparse.ArgumentParser(description="Repo Tools: List, Mirror, and Generate Workspace")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    # List command
+    list_parser = subparsers.add_parser("list", help="List repositories")
+    list_parser.add_argument('--tsv', '-t', action='store_true', help='Output in tab-separated format')
+    list_parser.add_argument('--abspath', '-A', action='store_true', help='Print absolute paths in the path column')
+    list_parser.set_defaults(func=list_repos)
+
+    # Mirror command
+    mirror_parser = subparsers.add_parser("mirror", help="Mirror a repository")
+    mirror_parser.add_argument('--storage-dir', required=True, help='Directory to store repositories')
+    mirror_parser.add_argument('repo_url', help='Repository URL to clone')
+    mirror_parser.add_argument('extra_args', nargs=argparse.REMAINDER, help='Additional arguments for git clone')
+    mirror_parser.set_defaults(func=mirror_repo)
+
+    # Generate workspace command
+    gen_parser = subparsers.add_parser("gen-workspace", help="Generate a workspace file")
+    gen_parser.add_argument('workspace_file', help='Path to the workspace file')
+    gen_parser.set_defaults(func=gen_workspace)
+
+    args = parser.parse_args()
+    args.func(args)
+
+if __name__ == "__main__":
+    main()

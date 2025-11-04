@@ -1,0 +1,147 @@
+# ============================================================================
+# Example config using NEW SCHEMA (no vm: wrapper)
+# ============================================================================
+
+system:
+  cmd: qemu-system-x86_64
+  machine: q35
+  stdout_mode: monitor # Options: serial (serial+monitor), monitor, none (default: none)
+  display: default        # Options: default (auto), none, sdl, gtk, vnc, cocoa (default: none)
+  vga: std            # Options: std, virtio, qxl, cirrus, null (default: null)
+
+resources:
+  memory: 2G
+  smp: 2
+
+identity:
+  smbios: '00000000-0000-0000-0000-000000000003'
+  instance_id: '1111000000000000000000000000000000000003'
+
+# ============================================================================
+# Template Parameters
+# ============================================================================
+params:
+  hostname:
+    short: k8s-node-01
+    fqdn: k8s-node-01.test.com
+
+  users:
+    - name: admin
+      gecos: 'Admin User'
+      groups: [sudo, docker]
+      shell: /bin/bash
+      sudo: 'ALL=(ALL) NOPASSWD:ALL'
+      password_hash: '$5$1P0.YEaL.w4DN263$O85malA0pZ.N6cSjoR0mKvQSC8T0b4nisZLqjNN9083'  # insecure
+      ssh_authorized_keys:
+        - '{{ssh_key_pub}}'
+
+  network_primary:
+    interface: ens3
+    mac: 42:42:e5:5b:00:03
+    ipv4:
+      address: 192.168.15.3/24
+      gateway: 192.168.15.100
+    dns:
+      servers: [1.1.1.1, 1.0.0.1]
+      search: test.
+    dhcp:
+      net: 192.168.15.0/24
+      start: 192.168.15.101
+
+# ============================================================================
+# Disks
+# ============================================================================
+disks:
+  - id: disk_root
+    type: image
+    params:
+      file: vm.qcow2
+      format: qcow2
+      media: disk
+      bus: ahci.0
+    init:
+      url: https://cloud.debian.org/images/cloud/bookworm/20240702-1796/debian-12-generic-amd64-20240702-1796.qcow2
+      expand_size: true
+      size: 15G
+    device: ide-hd
+
+  - id: disk_cloud_init
+    type: cloud-init
+    params:
+      file: cloud-init.iso
+      format: raw
+      media: cdrom
+      bus: ide.1
+    device: ide-cd
+
+  - id: disk_extra
+    type: raw
+    params:
+      file: extra_disk.qcow2
+      format: qcow2
+      media: disk
+      bus: ahci.1
+    init:
+      create: true
+      size: 10G
+    device: ide-hd
+
+# ============================================================================
+# Virtio Shares
+# ============================================================================
+virtio_shares:
+  - tag: 'common-share'
+    path: '{{dir.project}}/share'
+    kind: '9p'
+
+# ============================================================================
+# Network Profiles
+# ============================================================================
+network:
+  default:
+    macos: dev_user_mode
+    linux: dev_user_mode
+
+  profiles:
+    dev_user_mode:
+      interfaces:
+        - id: net0
+          type: user
+          params:
+            mac: '{{params.network_primary.mac}}'
+            net: '{{params.network_primary.dhcp.net}}'
+            dhcpstart: '{{params.network_primary.dhcp.start}}'
+            gateway: '{{params.network_primary.ipv4.gateway}}'  # gateway is auto-converted to 'host' for QEMU
+            hostfwd:
+              - 'tcp::10022-{{params.network_primary.ipv4.address | replace("/24", "")}}:22'
+              - 'tcp::10080-{{params.network_primary.ipv4.address | replace("/24", "")}}:80'
+              - 'tcp::13000-{{params.network_primary.ipv4.address | replace("/24", "")}}:3000'
+
+    prod_vmnet:
+      interfaces:
+        - id: net0
+          type: vmnet-shared
+          params:
+            mac: '{{params.network_primary.mac}}'
+            dhcp_start: 192.168.15.100
+            dhcp_end: 192.168.15.200
+            subnet_mask: 255.255.255.0
+
+# ============================================================================
+# Cloud-Init (Optional - uses defaults from templates if not specified)
+# ============================================================================
+# cloud_init:
+#   user_data: |
+#     #cloud-config
+#     ...
+#   meta_data: |
+#     #cloud-config
+#     ...
+#   network_config: |
+#     #cloud-config
+#     ...
+
+# ============================================================================
+# Extra QEMU Args (Optional)
+# ============================================================================
+extra_args: []

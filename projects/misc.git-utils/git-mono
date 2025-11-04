@@ -12,6 +12,7 @@ import os
 import random
 import string
 import subprocess as sp
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 # Third Party
@@ -20,6 +21,7 @@ from pydantic import BaseModel
 
 USER_NAME = "oleg.utkin"
 TRACE_COMMANDS = os.environ.get("GIT_MONO_TRACE", "0") == "1"
+BRANCH_TREE_TIMEOUT = 0.5  # Timeout in seconds for branch tree operations
 
 # ------------------------------------------------------------
 # Models
@@ -46,11 +48,28 @@ def show_new_commits(branch: str):
     click.echo(f"New commits on {branch}: {branch_info.new_commits}")
 
 @main.command()
-def branch_tree():
+@click.pass_context
+def branch_tree(ctx):
     """Display a tree of branches based on their upstream relationships."""
     git = GitOps.new_from_dir(Path(os.getcwd()))
     tree = git.build_branch_tree()
     git.print_branch_tree(tree)
+
+@main.command()
+@click.pass_context
+def bt(ctx):
+    """Alias for branch-tree."""
+    ctx.invoke(branch_tree)
+
+@main.command()
+@click.argument("prefix", type=str)
+def gen_id(prefix: str):
+    """Generate an ID with format {prefix}@{random_5_chars}."""
+    # Generate random 5 lowercase alphanumeric chars
+    random_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=5))
+    generated_id = f"{prefix}@{random_suffix}"
+    click.echo(generated_id)
+
 
 @main.command()
 @click.argument("name", type=str)
@@ -241,6 +260,322 @@ def push_stg_patch(patch_name: str, force: bool, branch: str):
     git.merge_commit_with_soft_conflicts(commit_sha)
 
 
+@main.command()
+@click.option("--onto", type=str, default=None, help="Upstream for the first patch branch (defaults to current branch)")
+@click.option("--branch", "-b", type=str, default=None, help="Stacked git branch to get patches from")
+def stg_stack(onto: str, branch: str):
+    """Create git branches from currently applied stacked git patches with proper upstream relationships."""
+    git = GitOps.new_from_dir(Path(os.getcwd()))
+
+    git.ensure_clean()
+
+    # Get currently applied patches from stacked git
+    if branch:
+        click.echo(f"Getting applied patches from stacked git branch: {branch}")
+    else:
+        click.echo("Getting applied patches from current stacked git branch")
+
+    applied_patches = git.get_stg_applied_patches(branch)
+
+    if not applied_patches:
+        click.echo("No applied patches found in stacked git")
+        return
+
+    click.echo(f"Found {len(applied_patches)} applied patch(es): {', '.join(applied_patches)}")
+
+    # Determine root upstream
+    if onto:
+        root_upstream = onto
+        click.echo(f"Using specified upstream: {root_upstream}")
+    else:
+        root_upstream = git._run_output(["git", "rev-parse", "--abbrev-ref", "HEAD"])
+        click.echo(f"Using current branch as upstream: {root_upstream}")
+
+    # Create branches from patches
+    previous_branch = root_upstream
+    created_branches = []
+
+    for patch_name in applied_patches:
+        # Create branch name '${USER_NAME}/${patch-name}'
+        new_branch_name = f"{USER_NAME}/{patch_name}"
+
+        # Get commit SHA from stacked git
+        commit_sha = git.get_stg_patch_sha(patch_name, branch)
+
+        click.echo(f"\nProcessing patch: {patch_name}")
+        click.echo(f"  Commit SHA: {commit_sha}")
+        click.echo(f"  Branch name: {new_branch_name}")
+        click.echo(f"  Creating branch from {commit_sha}...")
+
+        # Force create branch from the patch commit
+        git.make_new_branch(new_branch_name, commit_sha, force=True)
+
+        # Set upstream to previous branch
+        click.echo(f"  Setting upstream to: {previous_branch}")
+        git.set_branch_upstream(new_branch_name, previous_branch)
+
+        created_branches.append(new_branch_name)
+        previous_branch = new_branch_name
+
+    click.echo(f"\n✓ Successfully created {len(created_branches)} branch(es) from stacked git patches")
+    click.echo("\nBranch chain:")
+    chain = [root_upstream] + created_branches
+    click.echo(f"  {' -> '.join(chain)}")
+
+
+@main.command()
+@click.argument("branch_target", type=str)
+@click.option("-n", "--num", type=int, default=None, help="Number of branches to convert (defaults to all local branches)")
+@click.option("--until", type=str, default=None, help="Stop at this branch (inclusive)")
+@click.option("--dry-run", is_flag=True, default=False, help="Show what would be done without making changes")
+def stg_unstack(branch_target: str, num: int, until: str, dry_run: bool):
+    """Convert git branch commits into stacked git patches."""
+    git = GitOps.new_from_dir(Path(os.getcwd()))
+
+    if not dry_run:
+        git.ensure_clean()
+
+    # Check if branch already exists and has stg patches
+    stack_info = git.get_stg_stack_info(branch_target)
+
+    if stack_info['has_patches']:
+        click.echo(f"⚠ Branch '{branch_target}' already exists with stacked git patches")
+        click.echo(f"  Applied patches ({len(stack_info['applied'])}): {', '.join(stack_info['applied']) if stack_info['applied'] else '(none)'}")
+        click.echo(f"  Unapplied patches ({len(stack_info['unapplied'])}): {', '.join(stack_info['unapplied']) if stack_info['unapplied'] else '(none)'}")
+        click.echo(f"  Hidden patches ({len(stack_info['hidden'])}): {', '.join(stack_info['hidden']) if stack_info['hidden'] else '(none)'}")
+
+        if dry_run:
+            click.echo("[DRY RUN] Would ask for confirmation to clean up stacked git patches and continue")
+        else:
+            if not click.confirm(f"\nDo you want to clean up stacked git patches on '{branch_target}' and continue?", default=False):
+                click.echo("Aborted.")
+                return
+
+            # Clean up the stg stack
+            click.echo(f"Cleaning up stacked git patches on '{branch_target}'...")
+            git.cleanup_stg_stack(branch_target)
+            click.echo("✓ Cleanup complete")
+
+        click.echo("")
+    elif git.branch_exists(branch_target):
+        # Branch exists but no patches - will be force created later
+        click.echo(f"⚠ Branch '{branch_target}' already exists (will be overwritten)")
+        click.echo("")
+
+    if dry_run:
+        click.echo("[DRY RUN MODE - No changes will be made]\n")
+
+    # Validate conflicting options
+    if num is not None and until is not None:
+        raise click.ClickException("Cannot specify both -n/--num and --until")
+
+    # If until is specified, get branches where until is the upstream limit (exclusive)
+    if until is not None:
+        click.echo(f"Getting branches with upstream after: {until}")
+        try:
+            current_branch = git._run_output(["git", "rev-parse", "--abbrev-ref", "HEAD"])
+            origin_ref, local_branches = git.get_parent_branches(current_branch)
+
+            # Add current branch to the list
+            all_branches = local_branches + [current_branch]
+
+            # Find branches that have 'until' as an ancestor but don't include 'until' itself
+            # We want all branches downstream of 'until'
+            branches = []
+            for branch in all_branches:
+                # Check if this branch has 'until' as its upstream (directly or indirectly)
+                try:
+                    branch_upstream = git._run_output(["git", "rev-parse", "--abbrev-ref", f"{branch}@{{upstream}}"])
+                    # If the branch's upstream is 'until', include this branch
+                    if branch_upstream == until:
+                        branches.append(branch)
+                        # Continue to get all branches downstream
+                    elif until in all_branches and all_branches.index(branch) > all_branches.index(until):
+                        branches.append(branch)
+                except sp.CalledProcessError:
+                    # No upstream, skip
+                    pass
+
+            if not branches:
+                raise click.ClickException(f"No branches found with upstream '{until}'")
+
+            num = len(branches)
+            upstream_of_oldest = until
+
+            click.echo(f"Found {num} branch(es) downstream of '{until}'")
+        except RuntimeError as e:
+            raise click.ClickException(str(e))
+    # If num is not specified, get all local branches
+    elif num is None:
+        click.echo("Getting all local branches from current commit...")
+        try:
+            current_branch = git._run_output(["git", "rev-parse", "--abbrev-ref", "HEAD"])
+            origin_ref, local_branches = git.get_parent_branches(current_branch)
+
+            if not local_branches:
+                raise click.ClickException("No local parent branches found")
+
+            # Add current branch to the list
+            branches = local_branches + [current_branch]
+            num = len(branches)
+            upstream_of_oldest = origin_ref if origin_ref else local_branches[0] if local_branches else None
+
+            if upstream_of_oldest is None:
+                raise click.ClickException("Could not determine upstream for the oldest branch")
+
+            click.echo(f"Found {num} local branch(es)")
+        except RuntimeError as e:
+            raise click.ClickException(str(e))
+    else:
+        click.echo(f"Getting branch chain ({num} levels deep) from current commit...")
+        try:
+            branches, upstream_of_oldest = git.get_branch_chain_from_current(num)
+        except RuntimeError as e:
+            raise click.ClickException(str(e))
+
+    click.echo(f"Found branches: {' -> '.join(branches)}")
+    click.echo(f"Upstream of oldest branch: {upstream_of_oldest}")
+
+    # Filter branches with commits (skip those with 0 commits)
+    click.echo("\nFiltering branches with commits...")
+    try:
+        branches_with_commits, skipped_branches = git.filter_branches_with_commits(branches)
+
+        if skipped_branches:
+            click.echo(f"Skipping {len(skipped_branches)} branch(es) with 0 commits: {', '.join(skipped_branches)}")
+
+        if not branches_with_commits:
+            raise click.ClickException("No branches with commits found")
+
+        click.echo(f"✓ Found {len(branches_with_commits)} branch(es) with exactly 1 commit each")
+        branches = branches_with_commits
+        num = len(branches)
+    except RuntimeError as e:
+        raise click.ClickException(str(e))
+
+    # Strip USERNAME/ prefix from branch names for patch names
+    username_prefix = f"{USER_NAME}/"
+    patch_names = []
+    for branch_name in branches:
+        if branch_name.startswith(username_prefix):
+            patch_names.append(branch_name[len(username_prefix):])
+        else:
+            patch_names.append(branch_name)
+    patch_names_r = list(reversed(patch_names))
+
+    click.echo(f"\nPatch names (after stripping '{username_prefix}' prefix): {' '.join(patch_names)}")
+
+    if dry_run:
+        click.echo(f"\n[DRY RUN] Would create new stacked git branch: {branch_target}")
+        click.echo(f"[DRY RUN] Would switch to: {branch_target}")
+        click.echo(f"[DRY RUN] Would uncommit {num} commits as patches: {' '.join(patch_names)}")
+        click.echo(f"[DRY RUN] Would set upstream to: {upstream_of_oldest}")
+        click.echo(f"\n[DRY RUN] Summary:")
+        click.echo(f"  Branch: {branch_target}")
+        click.echo(f"  Patches: {', '.join(patch_names)}")
+        click.echo(f"  Upstream: {upstream_of_oldest}")
+        return
+
+    # Force create new branch from current HEAD
+    click.echo(f"\nCreating new stacked git branch: {branch_target}")
+    git.make_new_branch(branch_target, 'HEAD', force=True)
+
+    # Switch to new branch
+    click.echo(f"Switching to: {branch_target}")
+    git.switch_to_branch(branch_target)
+
+    # Run stg uncommit with patch names (with username prefix stripped)
+    click.echo(f"\nUncommitting {num} commits as patches...")
+    click.echo(f"Patch names: {' '.join(patch_names)}")
+
+    stg_cmd = ["stg", "uncommit"] + patch_names_r
+    git._trace_cmd(stg_cmd)
+    try:
+        sp.run(stg_cmd, check=True)
+    except sp.CalledProcessError as e:
+        raise click.ClickException(f"Failed to uncommit patches: {e}")
+
+    # Set upstream to upstream of oldest branch
+    click.echo(f"\nSetting upstream to: {upstream_of_oldest}")
+    git.set_branch_upstream(branch_target, upstream_of_oldest)
+
+    click.echo(f"\n✓ Successfully created stacked git branch: {branch_target}")
+    click.echo(f"  Patches created: {', '.join(patch_names)}")
+    click.echo(f"  Upstream: {upstream_of_oldest}")
+
+
+@main.command()
+@click.option("--full", is_flag=True, default=False, help="Also rebase the root branch")
+@click.option("--branch", "-b", type=str, default=None, help="Branch to restack (defaults to current branch)")
+def restack_branch(full: bool, branch: str):
+    """Restack a branch by rebasing all parent branches in the chain."""
+    git = GitOps.new_from_dir(Path(os.getcwd()))
+
+    git.ensure_clean()
+
+    # Determine which branch to restack and switch to it if specified
+    if branch is None:
+        target_branch = git._run_output(["git", "rev-parse", "--abbrev-ref", "HEAD"])
+        click.echo(f"Restacking current branch: {target_branch}")
+    else:
+        target_branch = branch
+        click.echo(f"Switching to branch: {target_branch}")
+        git.switch_to_branch(target_branch)
+        click.echo(f"Restacking branch: {target_branch}")
+
+    # Find all parent branches
+    origin_ref, local_branches = git.get_parent_branches(target_branch)
+
+    if not local_branches:
+        click.echo("No parent branches found. Nothing to restack.")
+        return
+
+    # Build full chain for display: origin_ref -> local_branches
+    local_branches_full = local_branches + [target_branch]
+    if origin_ref:
+        full_chain = [origin_ref] + local_branches_full
+        click.echo(f"Found {len(local_branches)} local parent branch(es): {' -> '.join(full_chain)}")
+    else:
+        click.echo(f"Found {len(local_branches)} local parent branch(es): {' -> '.join(local_branches)}")
+
+    # Determine which branches to rebase
+    if full and origin_ref:
+        # Include the first local branch (downstream of origin_ref) when --full is used
+        branches_to_rebase = local_branches_full
+        click.echo("Running git pull -r on all parent branches (including root)")
+    elif full and not origin_ref:
+        # No origin ref, so rebase all local branches
+        branches_to_rebase = local_branches_full
+        click.echo("Running git pull -r on all parent branches")
+    else:
+        # Exclude the first local branch (the one directly downstream of origin_ref or root)
+        branches_to_rebase = local_branches_full[1:]
+        if not branches_to_rebase:
+            click.echo("Only root branch found. Use --full to rebase it.")
+            return
+        click.echo(f"Running git pull -r on {len(branches_to_rebase)} parent branch(es) (excluding root)")
+
+    # Save current branch
+    original_branch = git._run_output(["git", "rev-parse", "--abbrev-ref", "HEAD"])
+
+    # Rebase each parent branch
+    for parent in branches_to_rebase:
+        click.echo(f"\n{'='*60}")
+        click.echo(f"Restacking: {parent}")
+        click.echo(f"{'='*60}")
+
+        git.switch_to_branch(parent)
+        git.rebase_pull()
+
+    # Return to original branch
+    click.echo(f"\n{'='*60}")
+    click.echo(f"Returning to: {original_branch}")
+    click.echo(f"{'='*60}")
+    git.switch_to_branch(original_branch)
+
+    click.echo(f"\n✓ Successfully restacked all parent branches")
+
+
 # ------------------------------------------------------------
 
 
@@ -336,6 +671,75 @@ class GitOps:
         except sp.CalledProcessError as e:
             raise RuntimeError(f"Failed to get commit SHA for patch: {patch_name}") from e
 
+    def get_stg_applied_patches(self, branch: str = None) -> list[str]:
+        """Get the list of currently applied stacked git patches."""
+        if branch:
+            stg_cmd = ["stg", "series", "--branch", branch, "--applied", "--noprefix"]
+        else:
+            stg_cmd = ["stg", "series", "--applied", "--noprefix"]
+
+        try:
+            output = self._run_output(stg_cmd)
+            return output.split('\n') if output else []
+        except sp.CalledProcessError as e:
+            raise RuntimeError(f"Failed to get applied patches") from e
+
+    def branch_exists(self, branch: str) -> bool:
+        """Check if a git branch exists."""
+        try:
+            cmd = ["git", "rev-parse", "--verify", f"refs/heads/{branch}"]
+            self._trace_cmd(cmd)
+            sp.run(cmd, capture_output=True, check=True)
+            return True
+        except sp.CalledProcessError:
+            return False
+
+    def get_stg_stack_info(self, branch: str) -> dict:
+        """Get info about a stacked git stack (applied, unapplied, hidden patches)."""
+        try:
+            # Get applied patches
+            applied_cmd = ["stg", "series", "--branch", branch, "--applied", "--noprefix"]
+            self._trace_cmd(applied_cmd)
+            applied_output = sp.run(applied_cmd, capture_output=True, check=True).stdout.decode('utf-8').strip()
+            applied = applied_output.split('\n') if applied_output else []
+
+            # Get unapplied patches
+            unapplied_cmd = ["stg", "series", "--branch", branch, "--unapplied", "--noprefix"]
+            self._trace_cmd(unapplied_cmd)
+            unapplied_output = sp.run(unapplied_cmd, capture_output=True, check=True).stdout.decode('utf-8').strip()
+            unapplied = unapplied_output.split('\n') if unapplied_output else []
+
+            # Get hidden patches
+            hidden_cmd = ["stg", "series", "--branch", branch, "--hidden", "--noprefix"]
+            self._trace_cmd(hidden_cmd)
+            hidden_output = sp.run(hidden_cmd, capture_output=True, check=True).stdout.decode('utf-8').strip()
+            hidden = hidden_output.split('\n') if hidden_output else []
+
+            return {
+                'applied': applied,
+                'unapplied': unapplied,
+                'hidden': hidden,
+                'has_patches': len(applied) > 0 or len(unapplied) > 0 or len(hidden) > 0
+            }
+        except sp.CalledProcessError:
+            # No stg stack initialized
+            return {
+                'applied': [],
+                'unapplied': [],
+                'hidden': [],
+                'has_patches': False
+            }
+
+    def cleanup_stg_stack(self, branch: str):
+        """Clean up a stacked git stack."""
+        try:
+            cmd = ["stg", "branch", "--cleanup", "--force", branch]
+            self._trace_cmd(cmd)
+            sp.run(cmd, check=True, capture_output=True)
+        except sp.CalledProcessError as e:
+            # Ignore error if stack doesn't exist
+            pass
+
     def validate_commit_exists(self, commit_sha: str):
         """Validate that a commit SHA exists in the repository."""
         try:
@@ -416,6 +820,49 @@ class GitOps:
             self._trace_cmd(cmd)
             sp.run(cmd, capture_output=True)
 
+    def _fetch_branch_info(self, branch: str, current_branch: str) -> tuple[str, dict]:
+        """Fetch info for a single branch. Returns (branch_name, info_dict)."""
+        upstream = None
+        commits_ahead = 0
+        first_subject = None
+        timed_out = False
+
+        # Get branch SHA and date
+        branch_sha = self._run_output(["git", "rev-parse", "--short", branch])
+        commit_date = self._run_output(["git", "log", "-1", "--format=%ar", branch])
+
+        try:
+            cmd = ["git", "rev-parse", "--abbrev-ref", f"{branch}@{{upstream}}"]
+            self._trace_cmd(cmd)
+            result = sp.run(cmd, capture_output=True, check=True)
+            upstream = result.stdout.decode('utf-8').strip()
+
+            # Get number of commits ahead
+            merge_base = self._run_output(["git", "merge-base", branch, upstream], timeout=BRANCH_TREE_TIMEOUT)
+            commits_output = self._run_output(["git", "rev-list", "--count", f"{merge_base}..{branch}"], timeout=BRANCH_TREE_TIMEOUT)
+            commits_ahead = int(commits_output) if commits_output else 0
+
+            # Get first commit subject if there are commits
+            if commits_ahead > 0:
+                first_subject = self._run_output(["git", "log", "--format=%s", "-1", f"{merge_base}..{branch}"], timeout=BRANCH_TREE_TIMEOUT * 10)
+
+        except sp.TimeoutExpired:
+            # Command timed out
+            timed_out = True
+        except sp.CalledProcessError:
+            # No upstream configured or other error
+            pass
+
+        return (branch, {
+            'upstream': upstream,
+            'commits_ahead': commits_ahead,
+            'first_subject': first_subject,
+            'sha': branch_sha,
+            'date': commit_date,
+            'is_current': branch == current_branch,
+            'timed_out': timed_out
+        })
+
     def build_branch_tree(self) -> dict:
         """Build a tree structure of branches based on upstream relationships."""
         # Get current branch
@@ -423,50 +870,19 @@ class GitOps:
 
         # Get all local branches
         branches_output = self._run_output(["git", "branch", "--format=%(refname:short)"])
-        branches = branches_output.split('\n') if branches_output else []
+        branches = [b for b in branches_output.split('\n') if b]
 
-        # Build map of branch -> {upstream, commits_ahead, first_subject, sha, date}
+        # Fetch branch info in parallel with 5 workers
         branch_info = {}
-        for branch in branches:
-            if not branch:
-                continue
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            # Submit all branch info fetches
+            futures = {executor.submit(self._fetch_branch_info, branch, current_branch): branch
+                      for branch in branches}
 
-            upstream = None
-            commits_ahead = 0
-            first_subject = None
-
-            # Get branch SHA and date
-            branch_sha = self._run_output(["git", "rev-parse", "--short", branch])
-            commit_date = self._run_output(["git", "log", "-1", "--format=%ar", branch])
-
-            try:
-                cmd = ["git", "rev-parse", "--abbrev-ref", f"{branch}@{{upstream}}"]
-                self._trace_cmd(cmd)
-                result = sp.run(cmd, capture_output=True, check=True)
-                upstream = result.stdout.decode('utf-8').strip()
-
-                # Get number of commits ahead (with aggressive timeout)
-                merge_base = self._run_output(["git", "merge-base", branch, upstream], timeout=0.1)
-                commits_output = self._run_output(["git", "rev-list", "--count", f"{merge_base}..{branch}"], timeout=0.1)
-                commits_ahead = int(commits_output) if commits_output else 0
-
-                # Get first commit subject if there are commits
-                if commits_ahead > 0:
-                    first_subject = self._run_output(["git", "log", "--format=%s", "-1", f"{merge_base}..{branch}"], timeout=1)
-
-            except (sp.CalledProcessError, sp.TimeoutExpired) as e:
-                # No upstream configured or command timed out (stderr suppressed)
-                #print("error: ", e)
-                pass
-
-            branch_info[branch] = {
-                'upstream': upstream,
-                'commits_ahead': commits_ahead,
-                'first_subject': first_subject,
-                'sha': branch_sha,
-                'date': commit_date,
-                'is_current': branch == current_branch
-            }
+            # Collect results as they complete
+            for future in as_completed(futures):
+                branch_name, info = future.result()
+                branch_info[branch_name] = info
 
         return branch_info
 
@@ -496,13 +912,22 @@ class GitOps:
             # Format branch info with colors
             sha_colored = click.style(f"[{sha}]", fg='yellow')
             if is_current:
-                branch_colored = click.style(f"* {branch}", fg='green', bold=True)
+                branch_colored = click.style(branch, fg='magenta', bold=True)
             else:
                 branch_colored = click.style(branch, fg='cyan', bold=True)
             date_colored = click.style(f"({date})", fg='green')
 
+            # Add current branch indicator
+            if is_current:
+                indicator = click.style("* ", fg='green', bold=True)
+            else:
+                indicator = "  "
+
             branch_display = f"{sha_colored} {branch_colored} {date_colored}"
-            if commits_ahead > 0:
+            if info.get('timed_out'):
+                timeout_colored = click.style("(timeout)", fg='red', dim=True)
+                branch_display += f" {timeout_colored}"
+            elif commits_ahead > 0:
                 commits_colored = click.style(f"(+{commits_ahead})", fg='blue')
                 branch_display += f" {commits_colored}"
                 if first_subject:
@@ -513,7 +938,7 @@ class GitOps:
                 branch_display += f" {empty_colored}"
 
             tree_symbols = click.style('└── ' if is_last else '├── ', fg='white', dim=True)
-            click.echo(f"{prefix}{tree_symbols}{branch_display}")
+            click.echo(f"{indicator}{prefix}{tree_symbols}{branch_display}")
 
             child_list = sorted(children.get(branch, []))
             for i, child in enumerate(child_list):
@@ -575,6 +1000,100 @@ class GitOps:
             click.echo("  4. Stage resolved files: git add <file>")
             click.echo("  5. Amend the commit: git commit --amend --no-edit")
             click.echo("=" * 70)
+
+    def get_parent_branches(self, branch: str) -> tuple[str | None, list[str]]:
+        """
+        Get the chain of parent branches from the given branch up to the root.
+        Returns (origin_ref, local_branches) where:
+        - origin_ref: remote branch (e.g., 'origin/main') or None if no upstream configured
+        - local_branches: list starting from branch downstream of origin_ref and ending with the requested branch
+        """
+        local_branches = []
+        current = branch
+
+        while True:
+            try:
+                # Get upstream branch
+                cmd = ["git", "rev-parse", "--abbrev-ref", f"{current}@{{upstream}}"]
+                self._trace_cmd(cmd)
+                result = sp.run(cmd, capture_output=True, check=True)
+                upstream = result.stdout.decode('utf-8').strip()
+
+                # Check if upstream is a remote branch (contains '/')
+                if '/' in upstream and upstream.startswith(('origin/', 'upstream/')):
+                    # This is a remote branch, return it and the local branches
+                    return (upstream, local_branches[::-1])
+
+                local_branches.append(upstream)
+                current = upstream
+            except sp.CalledProcessError:
+                # No upstream configured, return None and the local branches
+                return (None, local_branches[::-1])
+
+    def get_branch_chain_from_current(self, num: int) -> tuple[list[str], str]:
+        """
+        Get the chain of branches from current HEAD up to num levels deep.
+        Returns (branches, upstream_of_oldest) where:
+        - branches: list of branch names from oldest to newest (current branch is last)
+        - upstream_of_oldest: upstream of the oldest branch in the chain
+        """
+        current_branch = self._run_output(["git", "rev-parse", "--abbrev-ref", "HEAD"])
+
+        branches = []
+        current = current_branch
+
+        for _ in range(num):
+            branches.append(current)
+            try:
+                # Get upstream branch
+                cmd = ["git", "rev-parse", "--abbrev-ref", f"{current}@{{upstream}}"]
+                self._trace_cmd(cmd)
+                result = sp.run(cmd, capture_output=True, check=True)
+                upstream = result.stdout.decode('utf-8').strip()
+                current = upstream
+            except sp.CalledProcessError:
+                raise RuntimeError(f"Branch {current} has no upstream configured")
+
+        # Get the upstream of the oldest branch (which is now in 'current')
+        upstream_of_oldest = current
+
+        # Return branches from oldest to newest
+        return (branches[::-1], upstream_of_oldest)
+
+    def filter_branches_with_commits(self, branches: list[str]) -> tuple[list[str], list[str]]:
+        """
+        Filter branches to only include those with exactly 1 commit ahead of upstream.
+        Returns (branches_with_commits, skipped_branches) where:
+        - branches_with_commits: list of branches with exactly 1 commit
+        - skipped_branches: list of branches with 0 commits (skipped) or errors
+        Raises RuntimeError if any branch has more than 1 commit.
+        """
+        branches_with_commits = []
+        skipped_branches = []
+
+        for branch in branches:
+            try:
+                upstream = self._run_output(["git", "rev-parse", "--abbrev-ref", f"{branch}@{{upstream}}"])
+                merge_base = self._run_output(["git", "merge-base", branch, upstream])
+                commits_output = self._run_output(["git", "rev-list", "--count", f"{merge_base}..{branch}"])
+                commits_count = int(commits_output)
+
+                if commits_count == 0:
+                    skipped_branches.append(branch)
+                elif commits_count == 1:
+                    branches_with_commits.append(branch)
+                else:
+                    raise RuntimeError(f"Branch {branch} has {commits_count} commit(s), expected 0 or 1")
+            except sp.CalledProcessError as e:
+                raise RuntimeError(f"Failed to check branch {branch}") from e
+
+        return (branches_with_commits, skipped_branches)
+
+    def rebase_pull(self):
+        """Run git pull --rebase on the current branch."""
+        cmd = ["git", "pull", "--rebase"]
+        self._trace_cmd(cmd)
+        sp.run(cmd, check=True)
 
 # ------------------------------------------------------------
 

@@ -1,0 +1,118 @@
+#!/bin/bash
+
+# This is a multicall script
+SRC_CALL=$(basename "$0")
+SRC_FILE=$(realpath "${BASH_SOURCE[0]}")
+SRC_NAME=$(basename "$SRC_FILE")
+SRC_DIR=$(dirname "$SRC_FILE")
+SRC_GIT_DATA_DIR=$(git rev-parse --git-dir 2>/dev/null)
+
+__main__() {
+    #---------------------------------------------------------------------------
+    # Install hooks: (dispatch.sh link) [exiting-hook]
+    #---------------------------------------------------------------------------
+
+    if [[ "$SRC_CALL" == "$SRC_NAME" && "$1" = "link" ]]; then
+        for f in /etc/git-hooks/*; do
+            echo "Linking $f"
+            __make_hook_stub "$(basename $f)"
+        done
+
+        return
+    fi
+
+    #---------------------------------------------------------------------------
+    # Dispatch existing hooks (Global hooks)
+    #---------------------------------------------------------------------------
+
+    if [[ -x /etc/git-hooks/$SRC_CALL ]]; then
+        "/etc/git-hooks/$SRC_CALL" "$@"
+    fi
+
+    #---------------------------------------------------------------------------
+    # Dispatch per-repo hooks (Local hooks)
+    #---------------------------------------------------------------------------
+
+    if [[ -x "$SRC_GIT_DATA_DIR/hooks/$SRC_CALL" ]]; then
+        "$SRC_GIT_DATA_DIR/hooks/$SRC_CALL" "$@"
+    fi
+
+    #---------------------------------------------------------------------------
+    # Log Usage
+    #---------------------------------------------------------------------------
+
+    echo "$(date) :: call($SRC_CALL)" >> /tmp/git-hooks.log
+
+    #---------------------------------------------------------------------------
+    # Pre-commit (extension)
+    #---------------------------------------------------------------------------
+
+    if [[ "$SRC_CALL" == "pre-commit" ]]; then
+        # validate stg
+        if [[ -n "$(stg top 2>/dev/null)" ]] && ! ( __ps_parent_has stg ); then
+            echo "error[stg]:: Cannot commit with stg patches applied"
+            exit 1
+        fi
+    fi
+}
+
+
+#-------------------------------------------------------------------------------
+# UTILS:
+#-------------------------------------------------------------------------------
+
+__make_hook_stub() {
+    local hookname=$1
+    ( set -e; cd "$SRC_DIR";
+        rm -rf "$hookname"
+        {
+            #echo "#!/bin/bash";
+            echo "X_SRC_CALL=$hookname \"$SRC_FILE\" \"\$@\"";
+        } >> "$hookname"
+        chmod u+x "$hookname"
+    )
+}
+
+__ps_parent_has() {
+    local search_cmd=$1
+    local current_pid=$$
+    local parent_pid
+    local os_type=$(uname -s)
+
+    # look at all parent processes and return 0 if one of them contains search_cmd
+    while [[ $current_pid -ne 1 ]]; do
+        if [[ "$os_type" = "Darwin" ]]; then
+            # macOS: use ps -o ppid= -p for parent PID and ps -o comm= for command
+            parent_pid=$(ps -o ppid= -p "$current_pid" | tr -d ' ')
+            if [[ -n "$parent_pid" ]]; then
+                local cmd=$(ps -o comm= -p "$parent_pid")
+                if [[ "$cmd" =~ $search_cmd ]]; then
+                    return 0
+                fi
+            fi
+        else
+            # Linux: similar approach but with slightly different ps syntax
+            parent_pid=$(ps -o ppid= -p "$current_pid" | tr -d ' ')
+            if [[ -n "$parent_pid" ]]; then
+                local cmd=$(ps -o comm= -p "$parent_pid")
+                if [[ "$cmd" =~ $search_cmd ]]; then
+                    return 0
+                fi
+            fi
+        fi
+
+        # Break if we can't find parent PID or reach init (PID 1)
+        if [[ -z "$parent_pid" ]] || [[ "$parent_pid" -eq 1 ]]; then
+            break
+        fi
+        current_pid=$parent_pid
+    done
+
+    return 1
+}
+
+#-------------------------------------------------------------------------------
+# Entrypoint
+#-------------------------------------------------------------------------------
+
+__main__ "$@"
