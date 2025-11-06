@@ -1,0 +1,63 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "crypto-tools"
+version = "0.1.0"
+description = "Horrible Cryptographic tools for deterministic key and certificate generation"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "bcrypt>=4.0.0,<5.0.0",
+    "argon2-cffi>=23.0.0",
+    "passlib>=1.7.4",
+    "click>=8.0.0",
+    "cryptography>=41.0.0",
+    "pydantic>=2.0.0",
+    "pycryptodome>=3.19.0",
+    "pgpy>=0.6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.0.0",
+    "ruff>=0.1.0",
+]
+
+[project.scripts]
+degen-crypto = "degen_crypto.__main__:main"
+
+[tool.uv]
+package = true
+
+[tool.uv.sources]
+
+[tool.hatch.build.targets.wheel]
+packages = ["pkg/degen_crypto"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+ignore = []
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pytest.ini_options]
+testpaths = ["pkg/degen_crypto/tests"]
+python_files = ["tool_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--strict-markers",
+    "--strict-config",
+    "--cov=degen_crypto",
+    "--cov-report=term-missing",
+]

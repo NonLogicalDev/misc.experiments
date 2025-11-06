@@ -1,0 +1,67 @@
+# Default recipe - show available commands
+default:
+    @just --list
+
+# Format code using ruff
+fmt:
+    @echo "Formatting code with ruff..."
+    uv run ruff format pkg/
+    @echo "✓ Formatting complete"
+
+# Check formatting without making changes
+fmt-check:
+    @echo "Checking code formatting..."
+    uv run ruff format --check pkg/
+    @echo "✓ Formatting check complete"
+
+# Lint code using ruff
+lint:
+    @echo "Linting code with ruff..."
+    uv run ruff check pkg/
+    @echo "✓ Linting complete"
+
+# Fix linting issues automatically
+lint-fix:
+    @echo "Fixing linting issues..."
+    uv run ruff check --fix pkg/
+    @echo "✓ Lint fixes complete"
+
+# Run tests with pytest
+test:
+    @echo "Running tests..."
+    uv run pytest
+    @echo "✓ Tests complete"
+
+# Run tests with coverage report
+test-cov:
+    @echo "Running tests with coverage..."
+    uv run pytest --cov-report=html --cov-report=term-missing
+    @echo "✓ Coverage report generated in htmlcov/"
+
+# Run all checks (format, lint, test)
+check: fmt-check lint test
+    @echo "✓ All checks passed"
+
+# Install/sync dependencies
+install:
+    @echo "Syncing dependencies..."
+    uv sync --extra dev
+    @echo "✓ Dependencies synced"
+
+# Clean build artifacts and cache
+clean:
+    @echo "Cleaning build artifacts..."
+    rm -rf build/
+    rm -rf dist/
+    rm -rf *.egg-info
+    rm -rf .pytest_cache/
+    rm -rf .ruff_cache/
+    rm -rf htmlcov/
+    rm -rf .coverage
+    find . -type d -name __pycache__ -exec rm -r {} + 2>/dev/null || true
+    find . -type f -name "*.pyc" -delete
+    @echo "✓ Clean complete"
+
+# Run the CLI tool
+run *args:
+    uv run python -m pkg.degen_crypto {{args}}
