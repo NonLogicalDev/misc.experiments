@@ -1,24 +1,42 @@
+//! Headless model evaluation and a local live viewer for Python model files.
 use solidrecipe_core::{build, display_mesh, Result};
 use std::{
     env, fs,
     fs::File,
     io::{BufWriter, Write},
-    path::{Path, PathBuf},
+    path::Path,
     process::Command,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 
-fn project_root(exe: &Path) -> Result<PathBuf> {
-    let cwd = env::current_dir()?;
-    for start in [cwd.as_path(), exe] {
-        for parent in start.ancestors() {
-            if parent.join("pyproject.toml").is_file()
-                && parent.join("src/solidrecipe-viewer").is_dir()
-            {
-                return Ok(parent.to_path_buf());
-            }
-        }
+// The web build and the two Python modules travel with the compiled executable. They are
+// extracted only into a private temporary directory for the lifetime of the preview server.
+include!(concat!(env!("OUT_DIR"), "/viewer_assets.rs"));
+const PYTHON_API: &str = include_str!("../../solidrecipe-core/python/solidrecipe.py");
+const PYTHON_RUNTIME: &str = include_str!("../../solidrecipe-core/python/solidrecipe_runtime.py");
+
+/// Extract the embedded assets into a private directory owned by this process.
+fn extract_resources() -> Result<tempfile::TempDir> {
+    let root = tempfile::Builder::new().prefix("solidrecipe-").tempdir()?;
+    // Set restrictive permissions before writing model support files or viewer assets.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700))?;
     }
-    Err("cannot locate the solidrecipe project; run from the project directory".into())
+    fs::write(root.path().join("solidrecipe.py"), PYTHON_API)?;
+    fs::write(root.path().join("solidrecipe_runtime.py"), PYTHON_RUNTIME)?;
+    for (name, bytes) in VIEWER_ASSETS {
+        let path = root.path().join("viewer").join(name);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(path, bytes)?;
+    }
+    Ok(root)
 }
 
 fn main() -> Result<()> {
@@ -28,20 +46,31 @@ fn main() -> Result<()> {
             return Err("usage: solidrecipe serve <model.py> [--port PORT] [--no-browser]".into());
         }
         let exe = env::current_exe()?;
-        let root = project_root(&exe)?;
+        // Resolve the model before starting uv; the caller's working directory owns this path.
         let model = fs::canonicalize(&args[2])?;
-        let mut command = Command::new("uv");
-        command
-            .arg("run")
-            .arg("--project")
-            .arg(&root)
-            .args(["python", "-m", "solidrecipe_runtime", "serve"])
+        let resources = extract_resources()?;
+        // The preview child also receives Ctrl+C. Keep the parent alive until it exits so
+        // TempDir can remove the extracted viewer and runtime instead of leaving them behind.
+        let interrupted = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&interrupted);
+        ctrlc::set_handler(move || flag.store(true, Ordering::SeqCst))?;
+        let status = Command::new("uv")
+            .args([
+                "run",
+                "--no-project",
+                "python",
+                "-m",
+                "solidrecipe_runtime",
+                "serve",
+            ])
             .arg(model)
             .arg(&exe)
-            .arg(root.join("src/solidrecipe-viewer/dist"));
-        command.args(&args[3..]);
-        let status = command.status()?;
-        if !status.success() {
+            .arg(resources.path().join("viewer"))
+            .args(&args[3..])
+            .env("PYTHONPATH", resources.path())
+            .env("PYTHONDONTWRITEBYTECODE", "1")
+            .status()?;
+        if !status.success() && !interrupted.load(Ordering::SeqCst) {
             return Err(format!("preview server exited with {status}").into());
         }
         return Ok(());
@@ -53,7 +82,7 @@ fn main() -> Result<()> {
     let body = build(&graph)?;
     let volume = body.volume(1e-6)?;
     let mesh = display_mesh(&body, 100.0)?;
-    let mut file = BufWriter::new(File::create(&args[2])?);
+    let mut file = BufWriter::new(File::create(Path::new(&args[2]))?);
     for p in &mesh.positions {
         writeln!(file, "v {} {} {}", p.x, p.y, p.z)?;
     }

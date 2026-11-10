@@ -4,7 +4,6 @@ import argparse
 import hashlib
 import json
 import mimetypes
-import runpy
 import subprocess
 import sys
 import tempfile
@@ -17,7 +16,14 @@ from urllib.parse import urlsplit
 
 
 def evaluate_model(path, output):
-    namespace = runpy.run_path(str(path))
+    """Run one model in a child process and write its declared shape as a graph."""
+    # Match normal Python script imports, so a model can import modules beside its source.
+    # Only the selected model file is watched; imported helpers do not yet trigger a rebuild.
+    sys.path.insert(0, str(path.resolve().parent))
+    # Compile the current bytes directly; timestamp-based pyc caches can otherwise reuse
+    # stale code after rapid edits of the same length.
+    namespace = {"__name__": "__solidrecipe_model__", "__file__": str(path)}
+    exec(compile(path.read_bytes(), str(path), "exec"), namespace)
     model = namespace.get("model")
     if model is None or not callable(getattr(model, "write_graph", None)):
         raise ValueError("Model file must define a solidrecipe shape named 'model'.")
@@ -25,6 +31,8 @@ def evaluate_model(path, output):
 
 
 class Preview:
+    """Own the last successful mesh and serialize rebuilds for one watched source file."""
+
     def __init__(self, model, cli, temp):
         self.model, self.cli, self.temp = model, cli, Path(temp)
         self.lock = threading.Lock()
@@ -38,6 +46,7 @@ class Preview:
         self.last_hash = None
 
     def watch(self):
+        """Poll content rather than timestamps, including atomic editor saves."""
         while True:
             try:
                 digest = hashlib.sha256(self.model.read_bytes()).digest()
@@ -51,10 +60,13 @@ class Preview:
             time.sleep(0.5)
 
     def rebuild(self):
+        """Publish a new revision only after both model evaluation and tessellation succeed."""
         with self.lock:
             self.snapshot.update(error=None, building=True)
         graph, mesh = self.temp / "graph.json", self.temp / "mesh.obj"
         try:
+            # Isolate arbitrary model code and kernel evaluation so a failure cannot replace
+            # the previous successful mesh or terminate the preview server.
             subprocess.run(
                 [
                     sys.executable,
@@ -91,6 +103,7 @@ class Preview:
 
 
 def serve(model, cli, assets, port, open_browser):
+    """Serve only embedded viewer files and the selected model's preview on loopback."""
     if not model.is_file():
         raise FileNotFoundError(f"Model file not found: {model}")
     if not (assets / "index.html").is_file():
@@ -102,6 +115,7 @@ def serve(model, cli, assets, port, open_browser):
 
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):
+                # Reject unexpected hostnames and paths outside the extracted asset directory.
                 if self.headers.get("Host", "").split(":")[0] not in (
                     "127.0.0.1",
                     "localhost",

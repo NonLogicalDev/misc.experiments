@@ -5,6 +5,8 @@ from pathlib import Path
 
 
 class Shape:
+    """Immutable-style expression node; operators compose graphs without evaluating geometry."""
+
     def __init__(self, node):
         self.node = node
 
@@ -18,8 +20,10 @@ class Shape:
         return Shape({"kind": "intersect", "left": self.node, "right": other.node})
 
     def write_graph(self, path):
+        """Serialize the graph for the CLI and SolidCore evaluator."""
         Path(path).write_text(json.dumps(self.node, indent=2) + "\n")
 
 
 def Box(x, y, z, origin=(0, 0, 0)):
+    """Create an axis-aligned box node from its size and minimum corner."""
     return Shape({"kind": "box", "size": [x, y, z], "origin": list(origin)})

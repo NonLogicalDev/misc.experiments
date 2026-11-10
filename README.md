@@ -4,20 +4,29 @@ A small experiment in code-driven CAD with SolidCore as its B-rep kernel. Python
 
 The initial example is a synthetic slotted block, not a verified cooler adapter.
 
-## Run
+## Build and run
 
-The prototype requires Rust, `uv`, pnpm, Node.js, and the SolidCore Git submodule. Initialize it with `git submodule update --init --recursive`. It was developed against SolidCore commit `ecd20d47c8e6a83fd7531da76f1cb3b7c7c74d34`; its API is experimental.
+Install Rust, `uv`, pnpm, Node.js, and Python. Initialize the SolidCore submodule and install the viewer dependencies, then build the embedded viewer and CLI:
 
 ```sh
-cargo build
-uv run python examples/slotted_block.py 4.6 graph.json
-cargo run -p solidrecipe -- graph.json bracket.obj
-cd src/solidrecipe-viewer
-pnpm install
-pnpm dev
+git submodule update --init --recursive
+pnpm -C src/solidrecipe-viewer install
+make build
+./target/debug/solidrecipe serve examples/slotted_block.py
 ```
 
-Open the local address printed by Vite, then use **Open OBJ** to select `bracket.obj`. Drag to orbit, right-drag to pan, and scroll to zoom. After changing the example, regenerate the graph and OBJ and open it again. The viewer currently reads a user-selected mesh; it does not watch files or run the model.
+The CLI opens a loopback viewer and rebuilds when the specified Python file changes. A model file defines a `solidrecipe` shape named `model`; see the example. If a rebuild fails, the previous preview remains visible and the error appears in the viewer. Only the selected file is watched; changes to imported modules do not trigger a rebuild. Model files run as Python code with your permissions.
+
+The compiled executable embeds the viewer and Python support modules, so it can run from any directory without the checkout. Python model execution still requires `uv` and a Python interpreter. Use `--port PORT` or `--no-browser` after the model path when needed. `Ctrl+C` stops the server.
+
+The original headless graph-to-OBJ workflow remains available:
+
+```sh
+uv run python examples/slotted_block.py 4.6 graph.json
+./target/debug/solidrecipe graph.json bracket.obj
+```
+
+Run `make format` to apply the Rust, Python and TypeScript formatters; `make format-check`, `make lint` and `make check` verify the project. See [architecture](docs/architecture.md) for the data flow and current limitations.
 
 ## Structure
 
@@ -28,7 +37,7 @@ Open the local address printed by Vite, then use **Open OBJ** to select `bracket
 
 ## Scope
 
-Box primitives and Boolean union, subtraction and intersection are implemented. The viewer does not support exact selection or measurements. STEP import/export, fillets, live reload, a persistent B-rep and a stable API are not implemented. Geometry has not been validated for manufacturing.
+Box primitives and Boolean union, subtraction and intersection are implemented. The viewer does not support exact selection or measurements. STEP import/export, fillets, watching imported files, a persistent B-rep and a stable API are not implemented. Geometry has not been validated for manufacturing.
 
 ## Direction
 

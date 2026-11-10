@@ -3,8 +3,10 @@ use serde_json::Value;
 use solidcore_ops::{boolean::boolean, make_box, Body, BooleanOp};
 use std::error::Error;
 
+/// Propagate kernel, graph, and tessellation errors to the calling interface.
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
+/// Parse the graph's three-dimensional coordinates without silently accepting bad data.
 fn vector(v: &Value) -> Result<[f64; 3]> {
     let a = v.as_array().ok_or("expected array")?;
     if a.len() != 3 {
@@ -17,7 +19,10 @@ fn vector(v: &Value) -> Result<[f64; 3]> {
     ])
 }
 
-/// Evaluate the graph into a SolidCore B-rep.
+/// Evaluate a prototype expression graph into a SolidCore B-rep.
+///
+/// Operands are evaluated independently because SolidCore booleans consume their input bodies.
+/// An empty Boolean result is reported as an error; the current graph API has no empty-shape type.
 pub fn build(node: &Value) -> Result<Body> {
     match node["kind"].as_str() {
         Some("box") => Ok(make_box(vector(&node["origin"])?, vector(&node["size"])?)?),
@@ -36,6 +41,8 @@ pub fn build(node: &Value) -> Result<Body> {
 
 /// Tessellate a B-rep for display, refusing an incomplete mesh.
 pub fn display_mesh(body: &Body, size: f64) -> Result<solidcore_tess::Mesh> {
+    // Tessellation consumes the neutral record representation for display. The original body
+    // remains the geometry authority; a partially meshed result must not look successful.
     let (record, _) = body.to_record()?;
     let tolerance = solidcore_tess::MeshTolerance::display_of(size);
     let (plan, _) = solidcore_tess::plan(&record, &tolerance, size)?;
@@ -55,6 +62,7 @@ mod tests {
     fn evaluates_a_slot_and_its_display_mesh() -> Result<()> {
         let graph = json!({"kind":"subtract", "left":{"kind":"box", "origin":[0,0,0], "size":[12,30,10]}, "right":{"kind":"box", "origin":[-1,5,2], "size":[9,20,4.6]}});
         let body = build(&graph)?;
+        // The cutter overlaps 8 × 20 × 4.6 of the 12 × 30 × 10 block.
         assert!((body.volume(1e-6)? - 2864.0).abs() < 1e-6);
         let mesh = display_mesh(&body, 100.0)?;
         assert!(!mesh.triangles.is_empty());
