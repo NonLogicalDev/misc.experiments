@@ -6,13 +6,13 @@ The initial example is a synthetic slotted block, not a verified cooler adapter.
 
 ## Run
 
-The prototype requires Rust, `uv`, pnpm, Node.js, and a SolidCore checkout at `../../../remote/github.com/tangency-labs/solidcore` relative to this project. It was developed against SolidCore commit `ecd20d47c8e6a83fd7531da76f1cb3b7c7c74d34`; its API is experimental.
+The prototype requires Rust, `uv`, pnpm, Node.js, and the SolidCore Git submodule. Initialize it with `git submodule update --init --recursive`. It was developed against SolidCore commit `ecd20d47c8e6a83fd7531da76f1cb3b7c7c74d34`; its API is experimental.
 
 ```sh
 cargo build
 uv run python examples/slotted_block.py 4.6 graph.json
 cargo run -p solidrecipe -- graph.json bracket.obj
-cd viewer
+cd src/solidrecipe-viewer
 pnpm install
 pnpm dev
 ```
@@ -21,9 +21,9 @@ Open the local address printed by Vite, then use **Open OBJ** to select `bracket
 
 ## Structure
 
-- `core/`: graph evaluation, SolidCore geometry, display tessellation, and the experimental Python authoring interface.
-- `cli/`: headless graph evaluation and OBJ output.
-- `viewer/`: React and TypeScript web UI with a Three.js OBJ mesh viewer.
+- `src/solidrecipe-core/`: graph evaluation, SolidCore geometry, display tessellation, and the experimental Python authoring interface.
+- `src/solidrecipe-cli/`: headless graph evaluation and OBJ output.
+- `src/solidrecipe-viewer/`: React and TypeScript web UI with a React Three Fiber OBJ mesh viewer.
 - `examples/`: runnable model examples.
 
 ## Scope

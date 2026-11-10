@@ -14,3 +14,5 @@ Use React Three Fiber and Drei controls for the React viewer while preserving lo
 ## Work log
 
 - 2026-11-10: User requested the migration and Tasker_Stream records in `docs/plans`. A staged implementation builds; browser validation and application to the project remain in progress.
+
+- 2026-11-10: Staged R3F viewer built; browser verified model loading, orbit, invalid-input handling, and loading the model again.

@@ -7,5 +7,5 @@ __pycache__/
 
 /.venv/
 *.egg-info/
-/viewer/node_modules/
-/viewer/dist/
+/src/solidrecipe-viewer/node_modules/
+/src/solidrecipe-viewer/dist/

@@ -1,0 +1,3 @@
+[submodule "vendor/solidcore"]
+	path = vendor/solidcore
+	url = https://github.com/tangency-labs/solidcore.git
