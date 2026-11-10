@@ -1,6 +1,8 @@
 """Experimental language frontend: write a graph; do not invoke a kernel or viewer."""
+
 import json
 from pathlib import Path
+
 
 class Shape:
     def __init__(self, node):

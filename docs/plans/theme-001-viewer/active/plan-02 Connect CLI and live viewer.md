@@ -17,3 +17,4 @@ Run the viewer from the CLI for a specific local Python model, and automatically
 - 2026-11-10: User requested the CLI-managed live viewer during the React Three Fiber migration. Python model files are the initial supported input; the current prototype's schema and interface remain experimental.
 - 2026-11-10: User requested component directories under `src/solidrecipe-core`, `src/solidrecipe-cli`, and `src/solidrecipe-viewer`; move them while preserving examples and plans at the root and update all references.
 - 2026-11-10: User requested source dependencies as Git submodules in `vendor/`. Vendor SolidCore, update Cargo paths, and retain registry package management for Python and JavaScript.
+- 2026-11-10: Implemented initial CLI server, file watcher, and R3F polling. Strict format and lint checks pass. End-to-end live update and failure recovery are not yet verified.

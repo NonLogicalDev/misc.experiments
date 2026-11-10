@@ -1,1 +1,101 @@
-:root{font-family:ui-sans-serif,system-ui,sans-serif;color:#e9edf5;background:#151a22;font-size:14px}*{box-sizing:border-box}body{margin:0}main{height:100vh;display:flex;flex-direction:column}header{height:62px;padding:0 22px;display:flex;align-items:center;justify-content:space-between;background:#1d2430;border-bottom:1px solid #303b4b}strong{font-size:18px;letter-spacing:.01em}.tag{margin-left:12px;color:#b8abd6;font-size:12px}.button{background:#9d83dd;color:#17121f;border-radius:6px;padding:9px 15px;cursor:pointer;font-weight:600}.button:focus-within{outline:2px solid #fff;outline-offset:3px}input[type=file]{position:absolute;width:1px;height:1px;overflow:hidden;opacity:0}.workspace{position:relative;flex:1;min-height:0}.viewport{position:absolute;inset:0}.viewport canvas{display:block;width:100%;height:100%}.empty{position:absolute;top:26px;left:24px;pointer-events:none;color:#d8dfea}.empty small{display:block;margin-top:5px;color:#98a5b6}footer{display:flex;gap:20px;justify-content:space-between;align-items:center;padding:9px 18px;background:#1d2430;color:#adb9c9;border-top:1px solid #303b4b;font-size:12px}footer span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}@media(max-width:700px){footer span:nth-child(2){display:none}}
+:root {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  color: #e9edf5;
+  background: #151a22;
+  font-size: 14px;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+main {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+header {
+  height: 62px;
+  padding: 0 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #1d2430;
+  border-bottom: 1px solid #303b4b;
+}
+strong {
+  font-size: 18px;
+  letter-spacing: 0.01em;
+}
+.tag {
+  margin-left: 12px;
+  color: #b8abd6;
+  font-size: 12px;
+}
+.button {
+  background: #9d83dd;
+  color: #17121f;
+  border-radius: 6px;
+  padding: 9px 15px;
+  cursor: pointer;
+  font-weight: 600;
+}
+.button:focus-within {
+  outline: 2px solid #fff;
+  outline-offset: 3px;
+}
+input[type="file"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+}
+.workspace {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+.viewport {
+  position: absolute;
+  inset: 0;
+}
+.viewport canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.empty {
+  position: absolute;
+  top: 26px;
+  left: 24px;
+  pointer-events: none;
+  color: #d8dfea;
+}
+.empty small {
+  display: block;
+  margin-top: 5px;
+  color: #98a5b6;
+}
+footer {
+  display: flex;
+  gap: 20px;
+  justify-content: space-between;
+  align-items: center;
+  padding: 9px 18px;
+  background: #1d2430;
+  color: #adb9c9;
+  border-top: 1px solid #303b4b;
+  font-size: 12px;
+}
+footer span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 700px) {
+  footer span:nth-child(2) {
+    display: none;
+  }
+}

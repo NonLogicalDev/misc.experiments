@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview --host 127.0.0.1"
+    "preview": "vite preview --host 127.0.0.1",
+    "format": "biome format --write src vite.config.ts",
+    "format:check": "biome format src vite.config.ts",
+    "lint": "biome lint --error-on-warnings src vite.config.ts"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.9",
@@ -16,6 +19,7 @@
     "three": "^0.180.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.6.6",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@types/three": "^0.180.0",
