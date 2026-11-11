@@ -13,3 +13,11 @@ The server listens only on loopback. It serves the extracted viewer and a read-o
 The viewer is built with pnpm and Vite before Cargo compiles the CLI. Cargo embeds the resulting assets and the Python frontend and runtime. `make build` enforces that order. The resulting binary does not need a project checkout at runtime, though running Python models requires `uv` and a Python interpreter on the machine.
 
 The web UI uses React Three Fiber and Drei controls on top of Three.js. It renders on demand and fetches preview revisions from the local server. CAD-exact selection, measurements, STEP exchange, language plugins, and general dependency tracking remain future work.
+
+## Parameters and presets
+
+A Python model declares parameters with `sr.parameter`. The evaluation subprocess records each declaration and applies the preview server's current overrides. The server publishes those declarations alongside the successful preview; failed evaluations retain the last good mesh and expose their error. A parameter update schedules a rebuild without editing the source model.
+
+Named presets are JSON sidecars next to the model, written atomically only when the user saves. They hold parameter values rather than geometry, so model validation still runs when a preset is loaded. The preview server accepts JSON writes only from its own loopback origin and limits request size. Imported helper files are still not watched.
+
+`sr.inspect` evaluates its shape through the CLI and emits one JSON record per call on stderr. Successful preview evaluations forward those records to the terminal. Shape-node metadata is preserved in the graph; B-rep entity indices are temporary. See [feature tracking](feature-tracking.md) for the kernel's current provenance boundary.

@@ -80,3 +80,88 @@ def inspect(shape, name=None):
         file=sys.stderr,
         flush=True,
     )
+
+
+# A fresh evaluation process owns this registry; it is reset for direct evaluator calls too.
+_parameter_values = {}
+_parameter_specs = {}
+
+
+def _begin_parameters(values):
+    global _parameter_values, _parameter_specs
+    _parameter_values = values
+    _parameter_specs = {}
+
+
+def _parameter_definitions():
+    return list(_parameter_specs.values())
+
+
+def parameter(
+    name,
+    default,
+    *,
+    description="",
+    unit=None,
+    minimum=None,
+    maximum=None,
+    step=None,
+    options=None,
+):
+    """Declare a model parameter and return its current value.
+
+    Values can be bool, number or string. Bounds and units describe numeric values;
+    options restrict a value to one of the provided choices. `step` is a UI hint.
+    Names are unique within a model and remain the key used by saved presets.
+    """
+    if not isinstance(name, str) or not name or name in _parameter_specs:
+        raise ValueError(f"parameter name must be nonempty and unique: {name!r}")
+    if type(default) not in (bool, int, float, str):
+        raise TypeError(f"unsupported default for parameter {name!r}")
+    numeric = type(default) in (int, float)
+    if any(x is not None for x in (minimum, maximum, step)) and not numeric:
+        raise ValueError(f"bounds and step require a numeric parameter: {name}")
+    if step is not None and (
+        not isinstance(step, (int, float)) or isinstance(step, bool) or step <= 0
+    ):
+        raise ValueError(f"step must be positive: {name}")
+    if minimum is not None and maximum is not None and minimum > maximum:
+        raise ValueError(f"minimum exceeds maximum: {name}")
+    if options is not None and (
+        not isinstance(options, list) or not options or default not in options
+    ):
+        raise ValueError(
+            f"options must be a nonempty list containing the default: {name}"
+        )
+    value = _parameter_values.get(name, default)
+    if type(default) is bool:
+        valid_type = type(value) is bool
+    elif numeric:
+        valid_type = type(value) in (int, float) and not (
+            type(default) is int and type(value) is float and not value.is_integer()
+        )
+        if valid_type and type(default) is int:
+            value = int(value)
+    else:
+        valid_type = isinstance(value, str)
+    if (
+        not valid_type
+        or (minimum is not None and value < minimum)
+        or (maximum is not None and value > maximum)
+        or (options is not None and value not in options)
+    ):
+        raise ValueError(f"invalid value for parameter {name!r}: {value!r}")
+    spec = {
+        "name": name,
+        "default": default,
+        "value": value,
+        "description": description,
+        "unit": unit,
+        "minimum": minimum,
+        "maximum": maximum,
+        "step": step,
+        "options": options,
+    }
+    json.dumps(spec, allow_nan=False)
+    _parameter_specs[name] = spec
+    return value

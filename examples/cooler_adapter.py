@@ -1,6 +1,6 @@
 """Exploratory NH-L12S adapter reconstruction; do not manufacture this model.
 
-Change SIDE and SLOT_HEIGHT to inspect either bracket and the three slot variants.
+Use the viewer parameters to inspect either bracket and the three slot variants.
 The source of truth remains homelab-cooler-adapters' slot-height-variants-label-08.
 This first SolidRecipe model omits the original chamfer, fillets, rounded outside
 corners and engraved labels; it does not establish fit or safe mounting pressure.
@@ -9,8 +9,19 @@ corners and engraved labels; it does not establish fit or safe mounting pressure
 import solidrecipe as sr
 
 # The submitted designs differ in slot height and in the handed screw positions.
-SIDE = "left"  # "left" or "right"
-SLOT_HEIGHT = 4.6  # mm; submitted variants: 4.5, 4.6, 4.7
+SIDE = sr.parameter(
+    "side", "left", description="Bracket half", options=["left", "right"]
+)
+SLOT_HEIGHT = sr.parameter(
+    "slot_height",
+    4.6,
+    description="Cooler lip slot height",
+    unit="mm",
+    minimum=4.5,
+    maximum=4.7,
+    step=0.1,
+    options=[4.5, 4.6, 4.7],
+)
 
 
 def adapter(side, slot_height):

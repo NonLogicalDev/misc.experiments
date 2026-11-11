@@ -55,10 +55,16 @@ The intended experience includes a responsive preview, useful parameter controls
 
 ### Cooler adapter experiment
 
-`examples/cooler_adapter.py` reconstructs the main dimensions of either NH-L12S adapter in SolidRecipe. Edit `SIDE` and `SLOT_HEIGHT` to inspect the left or right half and the 4.5, 4.6, or 4.7 mm slot. It is a development comparison, not a manufacturing model: the chamfer, fillets, rounded corners, and recessed labels are not yet reproduced. The authoritative submitted design remains in the separate homelab cooler adapters project.
+`examples/cooler_adapter.py` reconstructs the main dimensions of either NH-L12S adapter in SolidRecipe. Use the viewer parameters to inspect the left or right half and the 4.5, 4.6, or 4.7 mm slot. It is a development comparison, not a manufacturing model: the chamfer, fillets, rounded corners, and recessed labels are not yet reproduced. The authoritative submitted design remains in the separate homelab cooler adapters project.
 
 ### Inspecting a shape
 
 Call `sr.inspect(model, name="bracket")` in a model to write one JSON object per call to stderr. In a live preview, records appear in the CLI's terminal. A record includes the construction graph, node metadata, B-rep bounds and volume, face surfaces and areas, and edge curves, endpoints, lengths and adjacent faces. Face and edge indices refer only to that particular evaluated B-rep; they are not persistent references.
 
 Use `shape.with_metadata(name="stock", role="bracket")` to attach JSON-serializable author metadata to a graph node. Metadata stays with that node in the graph; it is not yet tracked onto resulting B-rep faces or edges. When running a Python model directly, make `solidrecipe` available on `PATH` or set `SOLIDRECIPE_CLI` to the executable so inspection can evaluate the graph.
+
+### Model parameters and presets
+
+Declare parameters in the model with `sr.parameter("slot_height", 4.6, description="Slot height", unit="mm", minimum=4.5, maximum=4.7, step=0.1, options=[4.5, 4.6, 4.7])`. Supported values are numbers, strings, and booleans. Names must be unique; options restrict the allowed values and step is an input hint. The viewer applies a set of values and keeps the last successful mesh if a rebuild fails.
+
+Save a named preset in the viewer and load it later. Presets are written as JSON beside the source model, named `<model>.py.presets.json`. Saving an existing name replaces it. Presets contain values, not geometry, and are evaluated against the current model when loaded.
