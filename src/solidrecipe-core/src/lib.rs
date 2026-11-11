@@ -1,7 +1,7 @@
 //! Evaluate a small model graph using SolidCore. Display meshes are not CAD geometry.
 use serde_json::Value;
 use solidcore_ops::{
-    blend_ordered, boolean::boolean, make_box, make_cylinder, Blend, Body, BooleanOp, Corners, Turn,
+    blend_ordered, boolean::boolean, make_box, make_cylinder, Blend, Body, BooleanOp, Corners,
 };
 use solidcore_record::brep::Loop;
 use std::{
@@ -121,7 +121,7 @@ fn blend_edges(body: Body, node: &Value, kind: &str) -> Result<Body> {
         &[size],
         &[],
         Corners::Filled,
-        Turn::Mitre,
+        Default::default(),
     )?;
     Ok(body)
 }
