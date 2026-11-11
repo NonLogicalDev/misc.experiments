@@ -7,3 +7,5 @@ The product is file-first and agent-first: model source in ordinary files; Pytho
 Keep a high density of useful documentation and inline comments in project code. Explain public interfaces, invariants, failure and recovery behavior, and non-obvious decisions; update comments when behavior changes.
 
 Keep these Tasker_Stream records current as the project evolves. Before substantial work, update the relevant active plan; record verified results, current limitations, and the next action in the matching plan and execution state. Use the modeling domain for geometry and topology work, and the viewer domain for presentation and preview work. Preserve history and the owner register.
+
+Tasker_Stream is the project's live working memory, not a point-in-time report. Keep the active plan and execution state ahead of substantive work and update them as evidence, decisions, failures, checkpoints, and next actions change.

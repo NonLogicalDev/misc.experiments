@@ -15,3 +15,4 @@ Active. The user requested this location on 2026-11-10. The project has an initi
 
 - 2026-11-11: Reconcile the project map and checkout inventory with the in-process preview, parameter controls, reusable Python modules, adapter example, and initial topology work. Broaden the existing viewer record and add a modeling domain with a completed implementation record and an active plan for general face/edge identity. Keep historical plans intact.
 - 2026-11-11: Updated the project map, owner guidance, checkout inventory and execution states; recorded the completed viewer and modeling work and the active topology plan. The Tasker_Stream doctor reports 3 groups, 6 plans, 0 errors and 0 warnings; all local plan links resolve.
+- 2026-11-11: User clarified that Tasker_Stream is live working memory. Update the active plan before substantial work and throughout changes in evidence, decisions, errors, and next actions, rather than reconstructing the record only at the end.
