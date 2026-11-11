@@ -6,4 +6,6 @@ Last audited: 2026-11-11. Evidence: user direction, current checkout and upstrea
 
 2026-11-11: User redirected the layer-format work toward multiple repositories and `git-clone` base operations. See the active plan; prior Codex-specific upstream model is being reassessed.
 
-DelugeFirmware conversion is active; see [its plan](theme-002-deluge-conversion/EXEC_STATE.md). The fork is cloned with its original refs intact. The user also requested a practical authoring, management, and update walkthrough in the layerctl skill.
+DelugeFirmware conversion is complete locally; see [its plan](theme-002-deluge-conversion/EXEC_STATE.md). The fork retains its original refs, and local branch `layerctl-conversion` holds the verified definitions.
+
+The layerctl authoring and management walkthrough is in `../../skills/layerctl/references/authoring.md`; checkpoint `ff16948` includes it. Deluge reconstruction requires a case-sensitive workspace and temporary directory; see its plan for the tree-by-tree verification.
