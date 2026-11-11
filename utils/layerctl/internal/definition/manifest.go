@@ -33,11 +33,12 @@ type manifest struct {
 			Args []string `toml:"args"`
 		} `toml:"script"`
 		GitClone *struct {
-			URL    *string `toml:"url"`
-			Dir    *string `toml:"dir"`
-			Ref    string  `toml:"ref"`
-			Commit string  `toml:"commit"`
-			Depth  *int    `toml:"depth"`
+			URL              *string `toml:"url"`
+			Dir              *string `toml:"dir"`
+			Ref              string  `toml:"ref"`
+			Commit           string  `toml:"commit"`
+			Depth            *int    `toml:"depth"`
+			PreCheckoutPatch *string `toml:"pre-checkout-patch"`
 		} `toml:"git-clone"`
 	} `toml:"operation"`
 }
@@ -159,7 +160,17 @@ func loadManifest(id, directory string, entries []os.DirEntry) (Unit, error) {
 				}
 				depth = *clone.Depth
 			}
-			unit.Operations = append(unit.Operations, Operation{Kind: "git-clone", URL: *clone.URL, Dir: *clone.Dir, Ref: clone.Ref, Commit: clone.Commit, Depth: depth})
+			var preCheckoutPatch string
+			if clone.PreCheckoutPatch != nil {
+				preCheckoutPatch, err = manifestPath(absDir, *clone.PreCheckoutPatch, false, false)
+				if err != nil {
+					return Unit{}, fmt.Errorf("layer %q operation %d git-clone pre-checkout-patch: %w", id, i+1, err)
+				}
+				if preCheckoutPatch == filepath.Join(absDir, "layer.toml") {
+					return Unit{}, fmt.Errorf("layer.toml cannot be an operation input")
+				}
+			}
+			unit.Operations = append(unit.Operations, Operation{Kind: "git-clone", URL: *clone.URL, Dir: *clone.Dir, Ref: clone.Ref, Commit: clone.Commit, Depth: depth, PreCheckoutPatch: preCheckoutPatch})
 		}
 	}
 	if err := rejectUnreferencedFiles(absDir, unit.Operations); err != nil {
@@ -181,7 +192,11 @@ func rejectUnreferencedFiles(directory string, operations []Operation) error {
 	parents := map[string]bool{".": true}
 	for _, operation := range operations {
 		if operation.Kind == "git-clone" {
-			continue
+			if operation.PreCheckoutPatch == "" {
+				continue
+			}
+			operation.Path = operation.PreCheckoutPatch
+			operation.Kind = "patch"
 		}
 		relative, err := filepath.Rel(directory, operation.Path)
 		if err != nil {

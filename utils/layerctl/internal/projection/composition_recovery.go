@@ -38,6 +38,8 @@ type fingerprintOperation struct {
 	Depth                       int
 	Patch                       []byte
 	Overlay                     []definition.OverlayEntry
+	PreCheckoutPatchPath        string `json:",omitempty"`
+	PreCheckoutPatch            []byte `json:",omitempty"`
 }
 type fingerprintAsset struct {
 	Path string
@@ -80,6 +82,18 @@ func fingerprintUnits(units []definition.Unit) (string, error) {
 		} else {
 			for _, o := range u.Operations {
 				op := fingerprintOperation{Kind: o.Kind, URL: o.URL, Dir: o.Dir, Ref: o.Ref, Commit: o.Commit, Depth: o.Depth, Args: o.Args, Overlay: o.Overlay}
+				if o.PreCheckoutPatch != "" {
+					var err error
+					op.PreCheckoutPatchPath, err = filepath.Rel(u.Directory, o.PreCheckoutPatch)
+					if err != nil {
+						return "", fmt.Errorf("fingerprint pre-checkout patch path: %w", err)
+					}
+					op.PreCheckoutPatchPath = filepath.ToSlash(op.PreCheckoutPatchPath)
+					op.PreCheckoutPatch, err = os.ReadFile(o.PreCheckoutPatch)
+					if err != nil {
+						return "", fmt.Errorf("fingerprint pre-checkout patch: %w", err)
+					}
+				}
 				if o.Kind == "patch" || o.Kind == "script" {
 					var err error
 					op.Patch, err = os.ReadFile(o.Path)
@@ -345,7 +359,7 @@ func (s *CompositionService) runComposition(ctx context.Context, dir string, rec
 			if unit.Message != nil && unit.Operations[index].Kind == "git-clone" {
 				op := unit.Operations[index]
 				var source string
-				source, err = composition.Import(ctx, record.Workspace, composition.CloneRequest{URL: op.URL, Dir: op.Dir, Ref: op.Ref, Commit: op.Commit, Depth: op.Depth})
+				source, err = composition.Import(ctx, record.Workspace, composition.CloneRequest{URL: op.URL, Dir: op.Dir, Ref: op.Ref, Commit: op.Commit, Depth: op.Depth, PreCheckoutPatch: op.PreCheckoutPatch})
 				if err == nil {
 					duplicate := false
 					for _, p := range record.Parents {

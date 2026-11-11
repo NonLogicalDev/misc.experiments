@@ -269,3 +269,95 @@ func TestImportRollsBackWhenIndexIsLocked(t *testing.T) {
 		t.Fatalf("failed import changed shallow state: %q", got)
 	}
 }
+
+func TestImportPreCheckoutPatchPreparesCaseCollisionsAndBlobs(t *testing.T) {
+	src := repo(t)
+	git(t, src, "commit", "--allow-empty", "-qm", "ancestor")
+	ancestor := git(t, src, "rev-parse", "HEAD")
+	// Build a tree with case-colliding directories entirely in the Git index;
+	// this fixture also works on a case-insensitive filesystem.
+	git(t, src, "-c", "core.ignorecase=false", "update-index", "--add", "--cacheinfo", "100644,"+hashBlob(t, src, "old upper\n")+",KORG/one")
+	git(t, src, "-c", "core.ignorecase=false", "update-index", "--add", "--cacheinfo", "100644,"+hashBlob(t, src, "old lower\n")+",Korg/two")
+	git(t, src, "commit", "-qm", "case-colliding source")
+	base := git(t, src, "rev-parse", "HEAD")
+	git(t, src, "-c", "core.ignorecase=false", "update-index", "--force-remove", "KORG/one")
+	git(t, src, "-c", "core.ignorecase=false", "update-index", "--add", "--cacheinfo", "100644,"+hashBlob(t, src, "new upper\n")+",Korg/one")
+	git(t, src, "-c", "core.ignorecase=false", "update-index", "--add", "--cacheinfo", "100644,"+hashBlob(t, src, "changed lower\n")+",Korg/two")
+	git(t, src, "-c", "core.ignorecase=false", "update-index", "--add", "--cacheinfo", "100644,"+hashBlob(t, src, "brand new\n")+",Korg/new")
+	cmd := exec.Command("git", "diff", "--cached", "--binary", "--full-index", base)
+	cmd.Dir = src
+	patch, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	patchFile := filepath.Join(t.TempDir(), "prepare.patch")
+	if err := os.WriteFile(patchFile, patch, 0644); err != nil {
+		t.Fatal(err)
+	}
+	work := repo(t)
+	got, err := composition.Import(context.Background(), work, composition.CloneRequest{URL: fileURL(src), Commit: base, Depth: 2, PreCheckoutPatch: patchFile})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != base || git(t, work, "cat-file", "-t", got) != "commit" {
+		t.Fatalf("original parent not imported: %q", got)
+	}
+	if actual := git(t, work, "rev-parse", base+"^1"); actual != ancestor {
+		t.Fatalf("original ancestry = %s, want %s", actual, ancestor)
+	}
+	for path, want := range map[string]string{"Korg/one": "new upper", "Korg/two": "changed lower", "Korg/new": "brand new"} {
+		if got := git(t, work, "show", ":"+path); got != want {
+			t.Fatalf("staged %s = %q, want %q", path, got, want)
+		}
+		if content, err := os.ReadFile(filepath.Join(work, path)); err != nil || strings.TrimSpace(string(content)) != want {
+			t.Fatalf("installed %s = %q, %v", path, content, err)
+		}
+	}
+	if paths := git(t, work, "ls-files", "KORG/one"); paths != "" {
+		t.Fatalf("old case remains in index: %s", paths)
+	}
+	tree := git(t, work, "write-tree")
+	composed := git(t, work, "commit-tree", tree, "-p", base, "-m", "composed")
+	if parent := git(t, work, "rev-parse", composed+"^1"); parent != base {
+		t.Fatalf("composed parent = %s, want %s", parent, base)
+	}
+}
+
+func hashBlob(t *testing.T, dir, contents string) string {
+	t.Helper()
+	cmd := exec.Command("git", "hash-object", "-w", "--stdin")
+	cmd.Dir = dir
+	cmd.Stdin = strings.NewReader(contents)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("hash object: %v: %s", err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func TestImportRejectsInvalidPreCheckoutPatchWithoutWorkspaceMutation(t *testing.T) {
+	src := repo(t)
+	write(t, src, "source.txt", "source\n", 0644)
+	commit(t, src, "source")
+	work := repo(t)
+	write(t, work, "existing.txt", "keep\n", 0644)
+	git(t, work, "add", "existing.txt")
+	before := git(t, work, "write-tree")
+	patchFile := filepath.Join(t.TempDir(), "invalid.patch")
+	if err := os.WriteFile(patchFile, []byte("not a patch\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := composition.Import(context.Background(), work, composition.CloneRequest{URL: fileURL(src), Dir: "nested", Depth: 1, PreCheckoutPatch: patchFile})
+	if err == nil || !strings.Contains(err.Error(), "pre-checkout patch") {
+		t.Fatalf("expected pre-checkout patch error: %v", err)
+	}
+	if after := git(t, work, "write-tree"); after != before {
+		t.Fatalf("workspace index changed: %s != %s", after, before)
+	}
+	if _, err := os.Stat(filepath.Join(work, "nested")); !os.IsNotExist(err) {
+		t.Fatalf("failed import created destination: %v", err)
+	}
+	if shallow := git(t, work, "rev-parse", "--is-shallow-repository"); shallow != "false" {
+		t.Fatalf("failed import changed shallow boundary: %s", shallow)
+	}
+}

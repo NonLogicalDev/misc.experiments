@@ -256,6 +256,13 @@ func refreshWriteManifest(directory string, unit definition.Unit, message []byte
 		switch op.Kind {
 		case "git-clone":
 			fmt.Fprintf(&out, "[operation.git-clone]\nurl = %s\ndir = %s\n", quote(op.URL), quote(op.Dir))
+			if op.PreCheckoutPatch != "" {
+				rel, err := filepath.Rel(unit.Directory, op.PreCheckoutPatch)
+				if err != nil {
+					return err
+				}
+				fmt.Fprintf(&out, "pre-checkout-patch = %s\n", quote(filepath.ToSlash(rel)))
+			}
 			if op.Ref != "" {
 				fmt.Fprintf(&out, "ref = %s\n", quote(op.Ref))
 			}

@@ -21,16 +21,19 @@ type entry struct{ path, mode, object string }
 
 // CloneRequest identifies a Git source and its destination in the workspace.
 type CloneRequest struct {
-	URL    string
-	Dir    string
-	Ref    string
-	Commit string
-	Depth  int
+	URL              string
+	Dir              string
+	Ref              string
+	Commit           string
+	Depth            int
+	PreCheckoutPatch string
 }
 
 // Import copies the tracked source tree into the destination relative to
 // workspace, and imports its commit ancestry into the workspace object store.
 // An empty Dir means the workspace root; absent Ref and Commit select HEAD.
+// PreCheckoutPatch, when set, prepares the imported tree in a private index;
+// the returned parent remains the original, unmodified source commit.
 // Existing leaves are never replaced. The returned commit can be used as a
 // parent of a composed commit; no ref is created and no commit is made here.
 func Import(ctx context.Context, workspace string, req CloneRequest) (resultCommit string, resultErr error) {
@@ -119,7 +122,40 @@ func Import(ctx context.Context, workspace string, req CloneRequest) (resultComm
 			}
 		}
 	}
-	tree, err := git(ctx, source, "ls-tree", "-rz", "--full-tree", commit)
+	treeish := commit
+	if req.PreCheckoutPatch != "" {
+		if !filepath.IsAbs(req.PreCheckoutPatch) {
+			return "", fmt.Errorf("pre-checkout patch path must be absolute")
+		}
+		info, err := os.Stat(req.PreCheckoutPatch)
+		if err != nil || !info.Mode().IsRegular() {
+			return "", fmt.Errorf("pre-checkout patch must be a readable regular file")
+		}
+		index := filepath.Join(temp, "source.index")
+		runIndex := func(args ...string) ([]byte, error) {
+			cmd := exec.CommandContext(ctx, "git", append([]string{"-c", "core.ignorecase=false"}, args...)...)
+			cmd.Dir = source
+			cmd.Env = append(os.Environ(), "GIT_INDEX_FILE="+index, "GIT_TERMINAL_PROMPT=0")
+			cmd.Stderr = io.Discard
+			return cmd.Output()
+		}
+		if _, err := runIndex("read-tree", commit); err != nil {
+			return "", fmt.Errorf("prepare source index: %w", err)
+		}
+		if _, err := runIndex("apply", "--cached", "--3way", "--", req.PreCheckoutPatch); err != nil {
+			return "", fmt.Errorf("apply pre-checkout patch: %w", err)
+		}
+		prepared, err := runIndex("write-tree")
+		if err != nil {
+			return "", fmt.Errorf("write pre-checkout tree: %w", err)
+		}
+		treeish = strings.TrimSpace(string(prepared))
+		// A temporary ref makes new blobs reachable during the later fetch.
+		if _, err := git(ctx, source, "update-ref", "refs/layerctl/prepared", treeish); err != nil {
+			return "", fmt.Errorf("retain pre-checkout tree: %w", err)
+		}
+	}
+	tree, err := git(ctx, source, "ls-tree", "-rz", "--full-tree", treeish)
 	if err != nil {
 		return "", fmt.Errorf("list source tree: %w", err)
 	}
@@ -176,7 +212,11 @@ func Import(ctx context.Context, workspace string, req CloneRequest) (resultComm
 			resultErr = errors.Join(resultErr, fmt.Errorf("restore workspace shallow state: %w", err))
 		}
 	}()
-	if _, err := git(ctx, workspace, "-c", "protocol.file.allow=always", "fetch", "--update-shallow", "--no-tags", "--no-write-fetch-head", "--", source, commit); err != nil {
+	fetchObjects := []string{"-c", "protocol.file.allow=always", "fetch", "--update-shallow", "--no-tags", "--no-write-fetch-head", "--", source, commit}
+	if req.PreCheckoutPatch != "" {
+		fetchObjects = append(fetchObjects, "refs/layerctl/prepared")
+	}
+	if _, err := git(ctx, workspace, fetchObjects...); err != nil {
 		return "", fmt.Errorf("import source commit objects: %w", err)
 	}
 	var createdFiles, createdDirs []string

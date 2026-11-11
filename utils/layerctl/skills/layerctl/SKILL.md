@@ -47,6 +47,8 @@ Replace the example URL and commit with an accessible source and revision. `ref`
 
 Layers are enabled by default. Disabled layers are skipped; an enabled layer's dependencies must exist earlier in the numbered order and be enabled. When `depends-on` is omitted, the previous enabled layer is the default dependency. An explicit list replaces that default; `depends-on = []` declares no dependencies. Layers still execute in numbered order. `vcs.co-authors` adds standard `Co-authored-by` trailers. Without co-authors, the exact commit message is retained.
 
+A `git-clone` may specify `pre-checkout-patch = "prepare.patch"` to apply a layer-relative patch to the source-root tree in a temporary Git index before writing files. This permits case normalization on a case-insensitive filesystem. The source commit remains the imported parent.
+
 A script-bearing layer can include supporting files accessible through `LAYERCTL_LAYER_DIR`. A script is a trusted executable run directly with the workspace as its current directory. It receives `LAYERCTL_WORKTREE_DIR`, `LAYERCTL_DEFINITION_DIR`, `LAYERCTL_LAYER_DIR`, `LAYERCTL_LAYER_ID`, and one-based `LAYERCTL_OPERATION_INDEX`. On success, tracked changes and non-ignored new files are staged. Scripts can access and change resources outside the workspace. Inspect them and establish permission for their effects before running a projection or `check`.
 
 ## Work on layers

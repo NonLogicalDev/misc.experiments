@@ -79,3 +79,25 @@ func TestRefreshWriteManifestRetainsCoAuthors(t *testing.T) {
 		t.Fatalf("coauthors = %#v", got.CoAuthors)
 	}
 }
+
+func TestRefreshWriteManifestRetainsPreCheckoutPatch(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "patches", "rename.patch")
+	if err := os.MkdirAll(filepath.Dir(input), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(input, []byte("patch\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	unit := definition.Unit{ID: "0001-test", Directory: dir, Operations: []definition.Operation{{Kind: "git-clone", URL: "repo", PreCheckoutPatch: input}}}
+	if err := refreshWriteManifest(dir, unit, []byte("message\n"), ""); err != nil {
+		t.Fatal(err)
+	}
+	got, err := definition.LoadUnit(unit.ID, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Operations) != 1 || got.Operations[0].PreCheckoutPatch != input {
+		t.Fatalf("operations = %#v", got.Operations)
+	}
+}

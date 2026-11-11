@@ -30,6 +30,8 @@ commit = "0123456789abcdef0123456789abcdef01234567"
 
 The commit is a placeholder: replace it and the URL. `dir = ""` places the source at the workspace root; use a relative directory for another source. Add optional `ref = "refs/heads/main"` to require the selected commit to be reachable from that ref, or `depth = 20` to limit imported history. A shallow clone can prevent reachability checks, and overlapping shallow histories are rejected. An unpinned ref can move. Each imported commit becomes a parent of the layer's workspace commit. See the README for clone overlap and submodule limits.
 
+To prepare a clone before it writes files, add `pre-checkout-patch = "prepare.patch"` under `[operation.git-clone]` and place that patch in the layer directory. Its paths are relative to the source repository root, even when the clone destination is nested. Layerctl applies it to a temporary Git index after fetch, so case-only directory fixes can run on a case-insensitive filesystem. The original source commit remains the parent.
+
 ## Create a layer from an edit
 
 Create a projection through the last layer that should precede the new one. The worktree path must not already exist. Edit the workspace, commit the intended result, and capture it as the next layer:

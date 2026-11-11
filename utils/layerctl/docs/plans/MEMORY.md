@@ -11,3 +11,5 @@ DelugeFirmware conversion is complete locally; see [its plan](theme-002-deluge-c
 The layerctl authoring and management walkthrough is in `../../skills/layerctl/references/authoring.md`; checkpoint `ff16948` includes it. Deluge reconstruction requires a case-sensitive workspace and temporary directory; see its plan for the tree-by-tree verification.
 
 2026-11-11: Generated commit messages now use multiline TOML while retaining exact bytes. Graphs show explicit dependencies or the preceding enabled layer when omitted; `depends-on = []` declares none. Deluge manifests declare dependencies validated by isolated patch replay; see the [conversion plan](theme-002-deluge-conversion/completed/plan-01%20Convert%20JJ%20layers.md).
+
+Active Deluge follow-up: expand each layer commit message from source evidence; see [execution state](theme-002-deluge-conversion/EXEC_STATE.md).

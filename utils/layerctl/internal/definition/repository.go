@@ -46,6 +46,8 @@ type Operation struct {
 	Commit  string
 	Depth   int
 	Args    []string
+	// PreCheckoutPatch is an absolute layer-relative input path for git-clone.
+	PreCheckoutPatch string
 }
 
 // Unit is one generated commit, in legacy or manifest form.

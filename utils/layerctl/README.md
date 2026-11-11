@@ -52,6 +52,8 @@ file = "scripts/configure.sh"
 args = ["example"]
 ```
 
+A clone can set `pre-checkout-patch = "prepare.patch"` to apply a layer-relative patch to its source tree in an isolated Git index after fetch and before files are written. Patch paths are relative to the source repository root, even for a nested clone destination. This can normalize case-colliding paths on a case-insensitive filesystem. The imported commit remains the layer commit’s parent.
+
 When both `ref` and `commit` are set, the commit must be reachable from the ref. A shallow depth can prevent this verification. Pin `commit` for reproducible results; otherwise the selected ref or default HEAD can move. Git shallow boundaries apply to the entire workspace object database, so overlapping source histories are rejected when either import is shallow. Clone imports refuse to overwrite existing files or index entries, and sources containing Git submodules are not supported. Paths must be workspace-relative and may not traverse symlinks or Git metadata.
 
 ```sh
