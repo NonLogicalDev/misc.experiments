@@ -36,3 +36,5 @@ Completed locally: layerctl was tested and checkpointed at `334770a513e65ebbe9c0
 - Exposed the completed conversion in the clean linked worktree `/Users/nonlogical/Projects/remote/github.com/NonLogicalDev/fork.DelugeFirmware-layerctl`. The shared Git common directory is the original fork checkout. Unmounted the case-sensitive validation image and retained it in temporary storage.
 
 - Added the generated Mermaid layer graph to the conversion README. Verified its contents exactly match `layerctl graph --format mermaid` and saved local checkpoint `7f7c7bdfd83dfc537972268a888b43c46d297053`.
+
+- Declared Deluge dependencies using feature and patch-context evidence, retained the JJ change IDs and branch-tip provenance, converted commit messages to multiline TOML without changing their bytes, and regenerated the README graph. Saved local checkpoint `e8c71d7b103e95a050e51c0c759308e512f27038`. All 34 dependency closures replayed from an isolated base; three representative subsets and the full stack passed through layerctl, with all trees and original messages matching. These checks validate patch replay, not firmware compilation.
