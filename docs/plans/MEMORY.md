@@ -2,11 +2,11 @@
 
 Read this map first, then [owner guidance](AGENTS.md), [owners](OWNERS.md), and the relevant execution state.
 
-- Project: `../../README.md` describes the file-first, agent-first code-driven CAD experiment.
-- Rust core and CLI: `../../src/solidrecipe-core/` and `../../src/solidrecipe-cli/`; Python authoring interface: `../../src/solidrecipe-core/python/`.
-- Viewer: `../../src/solidrecipe-viewer/`; runnable example: `../../examples/`.
-- [Viewer work](theme-001-viewer/EXEC_STATE.md): scene, model presentation, and interaction.
-- [Planning maintenance](theme-000-meta/EXEC_STATE.md): upkeep of these records.
-- [Checkout inventory](_owner/state/worktrees.md): local checkout and recovery limits.
+- [Project overview](../../README.md): file-first, agent-first code-driven CAD; Python is the first modeling language.
+- Rust core and CLI: `../../src/solidrecipe-core/` and `../../src/solidrecipe-cli/`; Python authoring API: `../../src/solidrecipe-core/python/`; React Three Fiber viewer: `../../src/solidrecipe-viewer/`.
+- [Modeling and topology](theme-002-modeling/EXEC_STATE.md): modules, adapter prototype, geometric operations and unfinished general identity propagation.
+- [Viewer](theme-001-viewer/EXEC_STATE.md): in-process preview, parameters, presets and interaction.
+- [Architecture](../../docs/architecture.md) and [feature tracking](../../docs/feature-tracking.md): authoritative technical details and explicit topology limits.
+- [Planning maintenance](theme-000-meta/EXEC_STATE.md) and [checkout inventory](_owner/state/worktrees.md): owner records and local recovery boundaries.
 
-Last audited: 2026-11-10. Evidence: project files and `git status`; the repository has local checkpoints; consult Git for the current HEAD and worktree state. Recheck the source and checkout state before resuming; earlier prototype claims should not replace current validation.
+Last audited: 2026-11-11. Evidence: source, project documentation, Git status, the adapter and viewer checks. Re-audit after an architecture or ownership change, before a handoff, or after 30 minutes of sustained work. Runtime viewer state, physical adapter fit and any external backup remain unverified until checked again.

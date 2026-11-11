@@ -5,3 +5,5 @@ Read [MEMORY.md](MEMORY.md) and verify [OWNERS.md](OWNERS.md) before changing ow
 The product is file-first and agent-first: model source in ordinary files; Python is the first of potentially multiple language interfaces; the core, CLI and viewer remain separate. The geometry kernel is SolidCore under evaluation. Keep CAD geometry and exact measurements distinct from display meshes. Preserve existing changes and do not publish or commit without authorization.
 
 Keep a high density of useful documentation and inline comments in project code. Explain public interfaces, invariants, failure and recovery behavior, and non-obvious decisions; update comments when behavior changes.
+
+Keep these Tasker_Stream records current as the project evolves. Before substantial work, update the relevant active plan; record verified results, current limitations, and the next action in the matching plan and execution state. Use the modeling domain for geometry and topology work, and the viewer domain for presentation and preview work. Preserve history and the owner register.

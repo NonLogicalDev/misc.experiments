@@ -12,3 +12,6 @@ Active. The user requested this location on 2026-11-10. The project has an initi
 - 2026-11-10: Chose Biome rather than Prettier after the user requested the best practical option. Use Biome for TypeScript, Ruff for Python, and rustfmt plus Clippy for Rust; checks must fail on lint or formatting violations.
 
 - 2026-11-10: Verified recursive Python cache ignores and amended the checkpoint to remove bytecode. Added rustfmt, Clippy, Ruff and Biome with strict checks; `make check` passes. Local checkpoint b969da1c51d3a584b4ac17a8dc9594fb5c408de8 saved the preceding work.
+
+- 2026-11-11: Reconcile the project map and checkout inventory with the in-process preview, parameter controls, reusable Python modules, adapter example, and initial topology work. Broaden the existing viewer record and add a modeling domain with a completed implementation record and an active plan for general face/edge identity. Keep historical plans intact.
+- 2026-11-11: Updated the project map, owner guidance, checkout inventory and execution states; recorded the completed viewer and modeling work and the active topology plan. The Tasker_Stream doctor reports 3 groups, 6 plans, 0 errors and 0 warnings; all local plan links resolve.
