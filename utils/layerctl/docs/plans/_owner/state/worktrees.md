@@ -10,3 +10,5 @@
 - Latest task checkpoint: `e001b8a9438826f207afeb22cc0399c5df44e453` on local `main` (2026-11-11); contains the initial manifest/migration draft, not complete ordered recovery. Local object storage is on this Mac; survival of host replacement is unverified. Additional uncheckpointed implementation is in `/private/tmp/layerctl-manifest-work`, which is temporary.
 
 - Verified implementation checkpoint: `a65ce88fad31098d7d4349da4613ef0fe2e7d820` on local `main`, 2026-11-11. Full tests and CLI smoke passed. Local Git storage is on this Mac; survival after host replacement is unverified. This implementation is not pushed.
+
+- Current verified checkout (2026-11-11): HEAD `35f0928713e7e5cd3ec5a53ba0fb3fdb49a370dd`, origin/main and merge base `efaeddf8595378c181d1ea98c06426228f1ce7bf`, ahead 6, behind 0, non-sparse. Source checkout is clean aside from this task's owner-plan changes. Active work: [repository composition](../../theme-001-layer-format/active/plan-02%20Repository%20composition.md).
