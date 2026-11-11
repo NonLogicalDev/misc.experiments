@@ -40,6 +40,12 @@ type Operation struct {
 	Kind    string
 	Path    string
 	Overlay []OverlayEntry
+	URL     string
+	Dir     string
+	Ref     string
+	Commit  string
+	Depth   int
+	Args    []string
 }
 
 // Unit is one generated commit, in legacy or manifest form.
@@ -47,6 +53,9 @@ type Unit struct {
 	ID          string
 	Directory   string
 	Message     []byte
+	CoAuthors   []string
+	Disabled    bool
+	DependsOn   []string
 	Operations  []Operation
 	MessagePath string
 	PatchPath   string
@@ -61,17 +70,52 @@ func Load(root string) (*Repository, error) {
 		return nil, fmt.Errorf("resolve repository root %q: %w", root, err)
 	}
 
-	upstream, err := loadUpstream(filepath.Join(absRoot, "upstream.json"))
-	if err != nil {
-		return nil, err
+	// An absent upstream file selects repository-neutral composition. A file
+	// that exists but cannot be read or decoded must never select that mode.
+	var upstream Upstream
+	upstreamPath := filepath.Join(absRoot, "upstream.json")
+	_, statErr := os.Lstat(upstreamPath)
+	legacy := statErr == nil
+	if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+		return nil, fmt.Errorf("inspect upstream definition: %w", statErr)
+	}
+	if legacy {
+		upstream, err = loadUpstream(upstreamPath)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	layers, err := loadLayers(filepath.Join(absRoot, "layers"))
 	if err != nil {
 		return nil, err
 	}
-	if len(layers) == 0 || layers[0].ID != FoundationLayerID {
+	if len(layers) == 0 {
+		return nil, errors.New("at least one layer is required")
+	}
+	if legacy && layers[0].ID != FoundationLayerID {
 		return nil, fmt.Errorf("first layer must be %q", FoundationLayerID)
+	}
+	seen := make(map[string]Unit, len(layers))
+	for _, unit := range layers {
+		deps := map[string]bool{}
+		for _, id := range unit.DependsOn {
+			if err := ValidateLayerID(id); err != nil {
+				return nil, fmt.Errorf("layer %q dependency: %w", unit.ID, err)
+			}
+			if deps[id] {
+				return nil, fmt.Errorf("layer %q repeats dependency %q", unit.ID, id)
+			}
+			deps[id] = true
+			dependency, ok := seen[id]
+			if !ok {
+				return nil, fmt.Errorf("layer %q dependency %q must be an existing earlier layer", unit.ID, id)
+			}
+			if !unit.Disabled && dependency.Disabled {
+				return nil, fmt.Errorf("enabled layer %q depends on disabled layer %q", unit.ID, id)
+			}
+		}
+		seen[unit.ID] = unit
 	}
 
 	return &Repository{

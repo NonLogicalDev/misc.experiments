@@ -13,25 +13,65 @@ go install ./cmd/layerctl
 
 Run the installed `layerctl` from the root or a subdirectory of the repository containing the layer definitions. `go install` places it in `GOBIN`, or `$(go env GOPATH)/bin` when `GOBIN` is unset.
 
-## Repository format and usage
+## Composition
 
-The target repository has `upstream.json` with an exact Git tag and commit, plus ordered `layers/NNNN-slug/` directories. The first layer must be `0000-foundation`. Each layer describes one generated commit in `layer.toml`:
+A definition repository contains ordered `layers/NNNN-slug/layer.toml` files. Each layer runs its operations in order and creates one commit in the composed workspace. `git-clone` imports a source tree and makes its selected source commit a parent of that layer's commit; the preceding workspace commit is the first parent when present. Source Git metadata is not copied into the workspace tree.
 
 ```toml
+[layer]
+enabled = true
+# depends-on = ["0001-base"] # optional; each dependency must be earlier and enabled
+
 [vcs]
-commit-msg = "Add a feature\n\nExplain the change.\n"
+commit-msg = "Compose tools\n"
+co-authors = ["Example Contributor <contributor@example.com>"] # optional
+
+[[operation]]
+[operation.git-clone]
+url = "https://example.com/project.git"
+dir = "" # empty means the workspace root
+ref = "refs/heads/main" # optional branch, tag, or other ref
+# commit = "0123456789abcdef0123456789abcdef01234567" # optional exact commit
+# depth = 20 # optional positive history depth
+
+[[operation]]
+[operation.git-clone]
+url = "https://example.com/other.git"
+dir = "vendor/other"
+ref = "refs/tags/v1.0.0"
 
 [[operation]]
 [operation.patch]
 file = "changes.patch"
 
 [[operation]]
-[operation.overlay]
-directory = "overlay"
+[operation.script]
+file = "scripts/configure.sh"
+args = ["example"]
 ```
 
-Operations run in the order listed and create one commit per layer. The commit message must be nonempty UTF-8 without NUL; its exact bytes, including trailing newlines, are preserved. Patch paths and overlay directories are relative to the layer directory. An overlay holds complete added files, including executable files and symlinks. An overlay cannot silently replace a path that exists at that point in the sequence. Paths may not escape the layer or traverse symlinks. Unknown operations and unreferenced layer files are rejected. See [the upstream guide](UPSTREAM_GUIDE.md) for the original workflow and conflict model; its `go run ./cmd/layerctl` examples assume the original source checkout, so use the installed `layerctl` binary instead.
+When both `ref` and `commit` are set, the commit must be reachable from the ref. A shallow depth can prevent this verification. Pin `commit` for reproducible results; otherwise the selected ref or default HEAD can move. Git shallow boundaries apply to the entire workspace object database, so overlapping source histories are rejected when either import is shallow. Clone imports refuse to overwrite existing files or index entries, and sources containing Git submodules are not supported. Paths must be workspace-relative and may not traverse symlinks or Git metadata.
 
-If an operation conflicts during an upstream advance, resolve that operation in the reported worktree and run `layerctl upstream continue`; remaining operations run before the layer is committed. If a process stops while an operation is running, its outcome may be uncertain; the tool requires `layerctl upstream abort` instead of guessing whether to replay it. Legacy patch and overlay changes continue to apply together. Existing `COMMIT_EDITMSG`/`patch`/`overlay` layers remain readable. Convert a legacy layer with `layerctl layer migrate 0001-example`. `layerctl layer add` and `layerctl layer refresh` generate manifests and may rewrite a layer's operation structure; both verify the generated tree and commit message before replacing a layer.
+```sh
+layerctl graph                    # Graphviz DOT on stdout
+layerctl graph --format mermaid   # Mermaid source on stdout
+layerctl projection create demo --worktree /path/to/new-workspace
+layerctl projection list
+layerctl projection path demo
+# After resolving a reported conflict:
+layerctl projection continue demo
+layerctl check
+layerctl projection delete demo
+```
 
-This extraction retains Saffrodex-specific behavior: `upstream advance` accepts Codex `rust-v...` release tags, and `check` requires and validates the upstream `codex-rs/Cargo.lock`. It is not yet a general-purpose layer manager for arbitrary upstream projects. Projection refs and worktrees are local. **`layerctl projection delete` deletes the named projection without checking whether work was captured.**
+After a conflict, resolve the affected files in the reported workspace and run `projection continue`; remaining operations run before the commit. If a process stops during an operation, layerctl refuses to guess whether it completed; delete the owned projection and recreate it. If a process terminates while holding a projection lock, verify that no layerctl command is still operating on that projection before running `layerctl projection unlock NAME`. Refreshing a manifest layer preserves the original operations and appends a patch, but currently refuses manifests with comments rather than discarding them. Refresh verification replays its operations, including scripts.
+
+The graph includes all layers, including disabled ones, with dashed ordering edges and solid dependency edges.
+
+A script-bearing layer may include supporting files, which scripts can read through `LAYERCTL_LAYER_DIR`. A script operation executes the layer-relative executable directly, with the workspace as its working directory. It receives `LAYERCTL_WORKTREE_DIR`, `LAYERCTL_DEFINITION_DIR`, `LAYERCTL_LAYER_DIR`, `LAYERCTL_LAYER_ID`, and the one-based `LAYERCTL_OPERATION_INDEX`. A successful script stages tracked changes and non-ignored new files; a nonzero exit stops the projection. Scripts are trusted programs and can have side effects outside the workspace. `layerctl check` also runs them.
+
+The workspace path must not already exist. Without `--worktree`, layerctl creates a workspace in its local Git state directory. `projection delete` removes the owned workspace, including uncaptured changes. Patch files and overlay directories are relative to the layer directory. An overlay adds files without silently replacing an existing path. Commit messages must be nonempty UTF-8 without NUL. Without co-authors their exact bytes, including trailing newlines, are preserved; configured co-authors are added as standard `Co-authored-by` trailers.
+
+## Legacy definitions
+
+Definitions with `upstream.json` use the original single-repository format and its Codex-specific advance workflow. They remain readable; see [the upstream guide](UPSTREAM_GUIDE.md). `upstream.json` records a tag and commit but no source URL, so conversion to `git-clone` requires choosing the source URL rather than guessing it. Legacy `COMMIT_EDITMSG`/`patch`/`overlay` layers can be converted individually with `layerctl layer migrate <layer-id>`.

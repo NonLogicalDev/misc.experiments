@@ -5,3 +5,5 @@ Read [owner instructions](AGENTS.md) and [ownership](OWNERS.md) before owner wor
 Last audited: 2026-11-11. Evidence: user direction, current checkout and upstream guide. Audited after implementation against the plan, source, and validation; audit on the next material change.
 
 2026-11-11: User redirected the layer-format work toward multiple repositories and `git-clone` base operations. See the active plan; prior Codex-specific upstream model is being reassessed.
+
+DelugeFirmware conversion is pending; see [its plan](theme-002-deluge-conversion/EXEC_STATE.md). Verify the local checkout and JJ state after the tool is ready.

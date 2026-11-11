@@ -24,7 +24,9 @@ import (
 type Service struct {
 	Definition *definition.Repository // required
 	Git        *gitrepo.Repository    // required
-	Projection *projection.Service    // required
+	Projection interface {
+		Get(context.Context, string) (projection.Projection, error)
+	} // required
 }
 
 // AddRequest describes a new numbered layer captured from a projection.
@@ -45,16 +47,53 @@ func (s *Service) Add(ctx context.Context, req AddRequest) error {
 		return strings.Compare(unit.ID, id)
 	})
 	if position == 0 {
-		return fmt.Errorf("new layer %q must sort after %q", req.ID, definition.FoundationLayerID)
+		return fmt.Errorf("new layer %q requires an enabled predecessor", req.ID)
 	}
 	source, err := s.Projection.Get(ctx, req.Projection)
 	if err != nil {
 		return err
 	}
+	if source.WorktreePath != "" {
+		workspaceGit, err := gitrepo.Discover(ctx, source.WorktreePath)
+		if err != nil {
+			return fmt.Errorf("open projection repository: %w", err)
+		}
+		copy := *s
+		copy.Git = workspaceGit
+		s = &copy
+	}
 	if source.Base == source.Head {
 		return fmt.Errorf("projection %q has no changes to capture", req.Projection)
 	}
-	predecessor := s.Definition.Layers[position-1]
+	previous := position - 1
+	for previous >= 0 && s.Definition.Layers[previous].Disabled {
+		previous--
+	}
+	if previous < 0 {
+		return fmt.Errorf("new layer %q requires an enabled predecessor", req.ID)
+	}
+	predecessor := s.Definition.Layers[previous]
+	if composer, ok := s.Projection.(interface {
+		Through(context.Context, string) (string, error)
+	}); ok {
+		through, err := composer.Through(ctx, req.Projection)
+		if err != nil {
+			return err
+		}
+		if through != predecessor.ID {
+			return fmt.Errorf("projection %q was created through %q, not the enabled predecessor %q", req.Projection, through, predecessor.ID)
+		}
+	}
+	if err := s.Git.Run(ctx, s.Git.Root, "merge-base", "--is-ancestor", source.Base, source.Head); err != nil {
+		return fmt.Errorf("projection %q head must descend from its base: %w", req.Projection, err)
+	}
+	merges, err := s.Git.Output(ctx, s.Git.Root, "rev-list", "--merges", source.Base+".."+source.Head)
+	if err != nil {
+		return fmt.Errorf("inspect projection ancestry: %w", err)
+	}
+	if merges != "" {
+		return fmt.Errorf("projection %q contains merge commits that capture would flatten; represent source imports with git-clone operations", req.Projection)
+	}
 	if err := s.requireGeneratedUnit(ctx, source.Base, predecessor); err != nil {
 		return fmt.Errorf("projection %q base: %w", req.Projection, err)
 	}
@@ -75,6 +114,20 @@ func (s *Service) Refresh(ctx context.Context, id, projectionName string) error 
 	source, err := s.Projection.Get(ctx, projectionName)
 	if err != nil {
 		return err
+	}
+	if source.WorktreePath != "" {
+		workspaceGit, err := gitrepo.Discover(ctx, source.WorktreePath)
+		if err != nil {
+			return fmt.Errorf("open projection repository: %w", err)
+		}
+		copy := *s
+		copy.Git = workspaceGit
+		s = &copy
+	}
+	for _, operation := range current.Operations {
+		if operation.Kind == "git-clone" {
+			return fmt.Errorf("cannot refresh layer %q with git-clone operations without preserving its source ancestry", id)
+		}
 	}
 	baseMatches, err := s.isGeneratedUnit(ctx, source.Base, *current)
 	if err != nil {
@@ -147,7 +200,11 @@ func (s *Service) writeLayer(ctx context.Context, id, before, after string, repl
 		return fmt.Errorf("create temporary layer directory: %w", err)
 	}
 	defer os.RemoveAll(temporaryPath)
-	if err := writeManifestLayer(temporaryPath, captured); err != nil {
+	var metadata *definition.Unit
+	if replaceExisting {
+		metadata = s.findUnit(id)
+	}
+	if err := writeManifestLayer(temporaryPath, captured, metadata); err != nil {
 		return fmt.Errorf("write captured layer %q: %w", id, err)
 	}
 	temporaryUnit, err := definition.LoadUnit(id, temporaryPath)
@@ -167,7 +224,7 @@ func (s *Service) writeLayer(ctx context.Context, id, before, after string, repl
 
 // writeManifestLayer writes an exact UTF-8 commit message and the canonical
 // patch-then-overlay representation produced by Capture.
-func writeManifestLayer(directory string, captured layercommit.Captured) error {
+func writeManifestLayer(directory string, captured layercommit.Captured, metadata *definition.Unit) error {
 	if len(captured.Message) == 0 || !utf8.Valid(captured.Message) || bytes.ContainsRune(captured.Message, 0) {
 		return fmt.Errorf("commit message must be nonempty UTF-8 without NUL")
 	}
@@ -176,7 +233,28 @@ func writeManifestLayer(directory string, captured layercommit.Captured) error {
 		return err
 	}
 	var manifest bytes.Buffer
+	if metadata != nil && (metadata.Disabled || len(metadata.DependsOn) > 0) {
+		manifest.WriteString("[layer]\n")
+		if metadata.Disabled {
+			manifest.WriteString("enabled = false\n")
+		}
+		if len(metadata.DependsOn) > 0 {
+			dependencies, err := json.Marshal(metadata.DependsOn)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(&manifest, "depends-on = %s\n", dependencies)
+		}
+		manifest.WriteByte('\n')
+	}
 	fmt.Fprintf(&manifest, "[vcs]\ncommit-msg = %s\n", quoted)
+	if metadata != nil && len(metadata.CoAuthors) > 0 {
+		authors, err := json.Marshal(metadata.CoAuthors)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(&manifest, "co-authors = %s\n", authors)
+	}
 	if len(captured.Patch) > 0 {
 		manifest.WriteString("\n[[operation]]\n[operation.patch]\nfile = \"patch\"\n")
 		if err := os.WriteFile(filepath.Join(directory, "patch"), captured.Patch, 0o644); err != nil {
@@ -219,7 +297,7 @@ func (s *Service) Migrate(id string) error {
 		return err
 	}
 	defer os.RemoveAll(temporary)
-	if err := writeManifestLayer(temporary, layercommit.Captured{Message: message, Patch: patch, Overlay: unit.Overlay}); err != nil {
+	if err := writeManifestLayer(temporary, layercommit.Captured{Message: message, Patch: patch, Overlay: unit.Overlay}, nil); err != nil {
 		return fmt.Errorf("write migrated layer: %w", err)
 	}
 	if _, err := definition.LoadUnit(id, temporary); err != nil {

@@ -9,11 +9,14 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
+	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/commitauthors"
 	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/definition"
 	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/gitrepo"
+	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/scriptop"
 )
 
 // Service captures, applies, and verifies generated layer commits.
@@ -136,6 +139,8 @@ func (s *Service) ApplyStep(ctx context.Context, worktree string, unit definitio
 		unit.PatchPath = ""
 		unit.Overlay = nil
 		switch op.Kind {
+		case "script":
+			return scriptop.Run(ctx, worktree, filepath.Dir(filepath.Dir(unit.Directory)), unit.ID, unit.Directory, index, op)
 		case "patch":
 			unit.PatchPath = op.Path
 		case "overlay":
@@ -219,13 +224,13 @@ func (s *Service) HasConflicts(ctx context.Context, worktree string) (bool, erro
 // Message reads the exact generated commit message from unit.
 func (s *Service) Message(unit definition.Unit) ([]byte, error) {
 	if unit.Message != nil {
-		return unit.Message, nil
+		return commitauthors.Message(unit, unit.Message)
 	}
 	message, err := os.ReadFile(unit.MessagePath)
 	if err != nil {
 		return nil, fmt.Errorf("read layer message %q: %w", unit.MessagePath, err)
 	}
-	return message, nil
+	return commitauthors.Message(unit, message)
 }
 
 // Matches applies unit from before in a disposable worktree and reports

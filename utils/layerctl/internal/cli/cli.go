@@ -15,6 +15,7 @@ import (
 
 	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/definition"
 	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/gitrepo"
+	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/graph"
 	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/layer"
 	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/projection"
 	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/upstream"
@@ -37,6 +38,33 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	canonical, err := definition.Load(git.Root)
 	if err != nil {
 		return fmt.Errorf("load canonical definition: %w", err)
+	}
+	if args[0] == "graph" {
+		flags := flag.NewFlagSet("graph", flag.ContinueOnError)
+		flags.SetOutput(stderr)
+		format := flags.String("format", "dot", "graph output format: dot or mermaid")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if flags.NArg() != 0 {
+			return errors.New("usage: layerctl graph [--format dot|mermaid]")
+		}
+		return graph.Write(stdout, canonical.Layers, *format)
+	}
+	if canonical.Upstream.Tag == "" {
+		return runComposition(ctx, canonical, git, args, stdout, stderr)
+	}
+	// Legacy execution must also skip disabled layers. Keep all definitions
+	// for the explicit migrate command so disabled layers remain migratable.
+	if !(len(args) > 1 && args[0] == "layer" && args[1] == "migrate") {
+		active := *canonical
+		active.Layers = nil
+		for _, unit := range canonical.Layers {
+			if !unit.Disabled {
+				active.Layers = append(active.Layers, unit)
+			}
+		}
+		canonical = &active
 	}
 	service := &projection.Service{
 		Definition: canonical,
@@ -141,7 +169,14 @@ func runLayer(ctx context.Context, service *layer.Service, args []string, stderr
 	}
 }
 
-func runProjection(ctx context.Context, service *projection.Service, args []string, stdout, stderr io.Writer) error {
+type projectionRunner interface {
+	Create(context.Context, projection.CreateRequest) (projection.Projection, error)
+	List(context.Context) ([]projection.Projection, error)
+	Path(context.Context, string) (string, error)
+	Delete(context.Context, string) error
+}
+
+func runProjection(ctx context.Context, service projectionRunner, args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
 		return errors.New("usage: layerctl projection <create|list|path|checkout|delete> ...")
 	}
@@ -182,7 +217,7 @@ func runProjection(ctx context.Context, service *projection.Service, args []stri
 	}
 }
 
-func runProjectionCreate(ctx context.Context, service *projection.Service, args []string, stdout, stderr io.Writer) error {
+func runProjectionCreate(ctx context.Context, service projectionRunner, args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
 		return errors.New("usage: layerctl projection create NAME [--worktree PATH] [--through LAYER]")
 	}
@@ -212,7 +247,7 @@ func runProjectionCreate(ctx context.Context, service *projection.Service, args 
 	return nil
 }
 
-func runProjectionCheckout(ctx context.Context, service *projection.Service, args []string, stdout, stderr io.Writer) error {
+func runProjectionCheckout(ctx context.Context, service projectionRunner, args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
 		return errors.New("usage: layerctl projection checkout NAME --worktree PATH")
 	}
@@ -225,7 +260,13 @@ func runProjectionCheckout(ctx context.Context, service *projection.Service, arg
 	if flags.NArg() != 0 || *worktree == "" {
 		return errors.New("usage: layerctl projection checkout NAME --worktree PATH")
 	}
-	path, err := service.Checkout(ctx, projection.CheckoutRequest{
+	checkout, ok := service.(interface {
+		Checkout(context.Context, projection.CheckoutRequest) (string, error)
+	})
+	if !ok {
+		return errors.New("composition projections are already checked out; use projection path")
+	}
+	path, err := checkout.Checkout(ctx, projection.CheckoutRequest{
 		Name:         args[0],
 		WorktreePath: *worktree,
 	})

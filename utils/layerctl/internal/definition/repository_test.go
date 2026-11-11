@@ -133,3 +133,43 @@ func writeFile(t *testing.T, path, content string) {
 		t.Fatalf("WriteFile(%q) error = %v", path, err)
 	}
 }
+
+func TestLoadCompositionWithoutUpstreamUsesNumberedOrder(t *testing.T) {
+	root := t.TempDir()
+	writeLayer(t, root, "0008-second", false)
+	writeLayer(t, root, "0001-first", false)
+	repo, err := definition.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repo.Upstream != (definition.Upstream{}) {
+		t.Fatalf("unexpected upstream: %#v", repo.Upstream)
+	}
+	if len(repo.Layers) != 2 || repo.Layers[0].ID != "0001-first" || repo.Layers[1].ID != "0008-second" {
+		t.Fatalf("layer order = %#v", repo.Layers)
+	}
+}
+
+func TestLoadCompositionRequiresAtLeastOneLayer(t *testing.T) {
+	if _, err := definition.Load(t.TempDir()); err == nil {
+		t.Fatal("expected empty composition to fail")
+	}
+}
+
+func TestLoadRejectsInvalidExistingUpstream(t *testing.T) {
+	root := t.TempDir()
+	writeLayer(t, root, "0001-first", false)
+	writeFile(t, filepath.Join(root, "upstream.json"), "invalid")
+	if _, err := definition.Load(root); err == nil {
+		t.Fatal("invalid upstream must not select composition mode")
+	}
+}
+
+func TestLoadLegacyStillRequiresFoundation(t *testing.T) {
+	root := t.TempDir()
+	writeLayer(t, root, "0001-first", false)
+	writeFile(t, filepath.Join(root, "upstream.json"), `{"tag":"v1","commit":"abc123"}`)
+	if _, err := definition.Load(root); err == nil {
+		t.Fatal("legacy mode must require foundation")
+	}
+}

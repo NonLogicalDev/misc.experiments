@@ -10,6 +10,7 @@ import (
 	"os"
 
 	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/definition"
+	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/projection"
 )
 
 // unitFingerprint binds an in-flight advance to the message and ordered data
@@ -26,6 +27,24 @@ func unitFingerprint(unit definition.Unit) (string, error) {
 		}
 	}
 	write(message)
+	for _, op := range unit.Operations {
+		if op.Kind == "script" {
+			assets, err := projection.FingerprintScriptAssets(unit.Directory)
+			if err != nil {
+				return "", fmt.Errorf("fingerprint script assets: %w", err)
+			}
+			write([]byte("script-assets"))
+			write([]byte(assets))
+			break
+		}
+	}
+	if len(unit.CoAuthors) > 0 {
+		write([]byte("co-authors"))
+		for _, author := range unit.CoAuthors {
+			write([]byte(author))
+		}
+		write(nil)
+	}
 	overlay := func(entries []definition.OverlayEntry) {
 		for _, entry := range entries {
 			write([]byte(entry.Path))
@@ -57,7 +76,11 @@ func unitFingerprint(unit definition.Unit) (string, error) {
 		for _, op := range unit.Operations {
 			write([]byte(op.Kind))
 			switch op.Kind {
-			case "patch":
+			case "patch", "script":
+				for _, arg := range op.Args {
+					write([]byte(arg))
+				}
+				write(nil)
 				if err := patch(op.Path); err != nil {
 					return "", err
 				}

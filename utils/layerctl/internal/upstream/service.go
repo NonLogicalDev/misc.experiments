@@ -190,20 +190,12 @@ func (s *Service) Check(ctx context.Context) error {
 		return fmt.Errorf("close check identity: %w", err)
 	}
 	_ = os.Remove(temporary.Name())
-	generated, err := s.Projection.Create(ctx, projection.CreateRequest{Name: name})
+	_, err = s.Projection.Create(ctx, projection.CreateRequest{Name: name})
 	if err != nil {
 		return err
 	}
-	checkErr := s.checkCargoLockVersions(ctx, generated.Head)
-	deleteErr := s.Projection.Delete(ctx, name)
-	if checkErr != nil {
-		if deleteErr != nil {
-			return errors.Join(checkErr, fmt.Errorf("delete check projection: %w", deleteErr))
-		}
-		return checkErr
-	}
-	if deleteErr != nil {
-		return fmt.Errorf("delete check projection: %w", deleteErr)
+	if err := s.Projection.Delete(ctx, name); err != nil {
+		return fmt.Errorf("delete check projection: %w", err)
 	}
 	return nil
 }
