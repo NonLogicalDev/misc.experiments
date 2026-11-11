@@ -1,6 +1,6 @@
 //! Evaluate a small model graph using SolidCore. Display meshes are not CAD geometry.
 use serde_json::Value;
-use solidcore_ops::{boolean::boolean, make_box, Body, BooleanOp};
+use solidcore_ops::{boolean::boolean, make_box, make_cylinder, Body, BooleanOp};
 use std::error::Error;
 
 /// Propagate kernel, graph, and tessellation errors to the calling interface.
@@ -26,6 +26,11 @@ fn vector(v: &Value) -> Result<[f64; 3]> {
 pub fn build(node: &Value) -> Result<Body> {
     match node["kind"].as_str() {
         Some("box") => Ok(make_box(vector(&node["origin"])?, vector(&node["size"])?)?),
+        Some("cylinder") => Ok(make_cylinder(
+            vector(&node["origin"])?,
+            node["radius"].as_f64().ok_or("invalid cylinder radius")?,
+            node["height"].as_f64().ok_or("invalid cylinder height")?,
+        )?),
         Some(kind @ ("subtract" | "union" | "intersect")) => {
             let op = match kind {
                 "subtract" => BooleanOp::Subtract,
@@ -57,6 +62,17 @@ pub fn display_mesh(body: &Body, size: f64) -> Result<solidcore_tess::Mesh> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn evaluates_round_screw_hole() -> Result<()> {
+        let graph = json!({"kind":"subtract", "left":{"kind":"box", "origin":[0,0,0], "size":[10,10,5]}, "right":{"kind":"cylinder", "origin":[5,5,-1], "radius":1.75, "height":7}});
+        let body = build(&graph)?;
+        // This analytic volume checks the cylinder's radius, axis and through-cut.
+        let expected = 500.0 - std::f64::consts::PI * 1.75_f64.powi(2) * 5.0;
+        assert!((body.volume(1e-6)? - expected).abs() < 1e-3);
+        assert!(!display_mesh(&body, 100.0)?.triangles.is_empty());
+        Ok(())
+    }
 
     #[test]
     fn evaluates_a_slot_and_its_display_mesh() -> Result<()> {

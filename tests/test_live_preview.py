@@ -16,10 +16,10 @@ class PreviewTest(unittest.TestCase):
         with TemporaryDirectory() as temp:
             root = Path(temp)
             source, graph = root / "model.py", root / "graph.json"
-            source.write_text("from solidrecipe import Box\nmodel = Box(1, 2, 3)\n")
+            source.write_text("import solidrecipe as sr\nmodel = sr.Box(1, 2, 3)\n")
             timestamp = source.stat().st_mtime_ns
             py_compile.compile(str(source), doraise=True)
-            source.write_text("from solidrecipe import Box\nmodel = Box(2, 2, 3)\n")
+            source.write_text("import solidrecipe as sr\nmodel = sr.Box(2, 2, 3)\n")
             os.utime(source, ns=(timestamp, timestamp))
             evaluate_model(source, graph)
             self.assertEqual(json.loads(graph.read_text())["size"][0], 2)
@@ -30,7 +30,7 @@ class PreviewTest(unittest.TestCase):
             root = Path(temp)
             source = root / "model.py"
             preview = Preview(source, cli, root)
-            source.write_text("from solidrecipe import Box\nmodel = Box(1, 2, 3)\n")
+            source.write_text("import solidrecipe as sr\nmodel = sr.Box(1, 2, 3)\n")
             preview.rebuild()
             self.assertIsNone(preview.snapshot["error"])
             first_mesh = preview.snapshot["mesh"]
@@ -44,7 +44,7 @@ class PreviewTest(unittest.TestCase):
             self.assertEqual(preview.snapshot["revision"], 1)
             self.assertEqual(preview.snapshot["mesh"], first_mesh)
 
-            source.write_text("from solidrecipe import Box\nmodel = Box(2, 2, 3)\n")
+            source.write_text("import solidrecipe as sr\nmodel = sr.Box(2, 2, 3)\n")
             preview.rebuild()
             self.assertIsNone(preview.snapshot["error"])
             self.assertEqual(preview.snapshot["revision"], 2)

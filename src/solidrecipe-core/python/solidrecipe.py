@@ -27,3 +27,10 @@ class Shape:
 def Box(x, y, z, origin=(0, 0, 0)):
     """Create an axis-aligned box node from its size and minimum corner."""
     return Shape({"kind": "box", "size": [x, y, z], "origin": list(origin)})
+
+
+def Cylinder(radius, height, origin=(0, 0, 0)):
+    """Create a Z-axis cylinder whose origin is the center of its bottom face."""
+    return Shape(
+        {"kind": "cylinder", "radius": radius, "height": height, "origin": list(origin)}
+    )

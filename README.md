@@ -52,3 +52,7 @@ The intended experience includes a responsive preview, useful parameter controls
 - The project and its model source live in ordinary local files. A human or an agent can read and edit them with standard tools; the application must not require a hidden database or cloud service as the authoritative copy.
 - Agent workflows are a primary interface, alongside the human editor. Provide documented, scriptable operations to evaluate models, inspect results and errors, and export artifacts without driving the GUI.
 - The interactive editor and headless interfaces should share the same modeling behavior and report failures clearly. The exact command and plugin protocols remain to be designed.
+
+### Cooler adapter experiment
+
+`examples/cooler_adapter.py` reconstructs the main dimensions of either NH-L12S adapter in SolidRecipe. Edit `SIDE` and `SLOT_HEIGHT` to inspect the left or right half and the 4.5, 4.6, or 4.7 mm slot. It is a development comparison, not a manufacturing model: the chamfer, fillets, rounded corners, and recessed labels are not yet reproduced. The authoritative submitted design remains in the separate homelab cooler adapters project.
