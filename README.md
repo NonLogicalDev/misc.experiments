@@ -4,6 +4,9 @@ A ragtag collection of projects I am working on but am not yet ready to fully re
 
 ## Projects
 
+- [cli.macctl](projects/cli.macctl)
+  - A macOS command-line tool for brightness and sleep controls.
+
 - [vscode.nonlogical.stacked-git](projects/vscode.nonlogical.stacked-git)
   - A VSCode extension for stacked git.
   - Provides just enough UI to observe and lightly tend to Git Patch Stacks.

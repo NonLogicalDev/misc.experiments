@@ -1,0 +1,5 @@
+/macctl
+/macctl-nosleepd
+/nosleepd/bindings.zig
+/.zig-cache/
+/zig-out/
