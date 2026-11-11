@@ -375,3 +375,281 @@ func writeLayerDefinition(t *testing.T, root, id string, captured layercommit.Ca
 		writeFile(t, filepath.Join(directory, "patch"), string(captured.Patch))
 	}
 }
+
+// A conflict in the first operation must not cause later operations to be
+// dropped when a newly started process continues the advance.
+func TestAdvanceManifestConflictContinuesLaterOperationsAfterRestart(t *testing.T) {
+	root := newCanonicalRepository(t)
+	// Capture a second patch against the overlay result; this proves the
+	// remaining operations run in order after recovery, not just that a file exists.
+	_, _, projections := newServices(t, root)
+	seed := filepath.Join(t.TempDir(), "seed")
+	if _, err := projections.Create(t.Context(), projection.CreateRequest{Name: "seed", WorktreePath: seed}); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(seed, "feature.txt"), "changed by later patch\n")
+	secondPatch := gitOutput(t, seed, "diff", "--binary", "--full-index") + "\n"
+	if err := projections.Delete(t.Context(), "seed"); err != nil {
+		t.Fatal(err)
+	}
+	layerDir := filepath.Join(root, "layers", "0001-feature")
+	writeFile(t, filepath.Join(layerDir, "second.patch"), secondPatch)
+	if err := os.Remove(filepath.Join(layerDir, "COMMIT_EDITMSG")); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(layerDir, "layer.toml"), `[vcs]
+commit-msg = "saffrodex: feature\n"
+
+[[operation]]
+[operation.patch]
+file = "patch"
+
+[[operation]]
+[operation.overlay]
+directory = "overlay"
+
+[[operation]]
+[operation.patch]
+file = "second.patch"
+`)
+	service, _, _ := newServices(t, root)
+	worktree := filepath.Join(t.TempDir(), "manifest-conflict")
+	if _, err := service.Advance(t.Context(), upstream.AdvanceRequest{Tag: "rust-v1.2.0", WorktreePath: worktree}); err == nil || !strings.Contains(err.Error(), `unit "0001-feature" requires resolution`) {
+		t.Fatalf("Advance() = %v, want patch conflict", err)
+	}
+	if _, err := os.Stat(filepath.Join(worktree, "feature.txt")); !os.IsNotExist(err) {
+		t.Fatalf("later overlay ran before patch resolution: %v", err)
+	}
+	writeFile(t, filepath.Join(worktree, "base.txt"), "resolved feature\n")
+	service, _, _ = newServices(t, root) // A fresh service reads persisted progress.
+	if _, err := service.Continue(t.Context()); err == nil || !strings.Contains(err.Error(), "layerctl layer refresh 0001-feature") {
+		t.Fatalf("Continue() = %v, want refresh request", err)
+	}
+	assertFile(t, filepath.Join(worktree, "base.txt"), "resolved feature\n")
+	assertFile(t, filepath.Join(worktree, "feature.txt"), "changed by later patch\n")
+	if got := gitOutput(t, worktree, "show", "HEAD:feature.txt"); got != "changed by later patch" {
+		t.Fatalf("later overlay missing from resolved commit: %q", got)
+	}
+	_, layers, _ := newServices(t, root)
+	if err := layers.Refresh(t.Context(), "0001-feature", "upstream-advance"); err != nil {
+		t.Fatalf("Refresh() = %v", err)
+	}
+	service, _, _ = newServices(t, root)
+	if _, err := service.Continue(t.Context()); err != nil {
+		t.Fatalf("Continue(refreshed) = %v", err)
+	}
+	assertUpstreamTag(t, root, "rust-v1.2.0")
+}
+
+func TestContinueRefusesChangedInFlightLayer(t *testing.T) {
+	root := newCanonicalRepository(t)
+	service, _, _ := newServices(t, root)
+	worktree := filepath.Join(t.TempDir(), "modified-definition")
+	if _, err := service.Advance(t.Context(), upstream.AdvanceRequest{Tag: "rust-v1.2.0", WorktreePath: worktree}); err == nil {
+		t.Fatal("Advance() unexpectedly succeeded")
+	}
+	writeFile(t, filepath.Join(worktree, "base.txt"), "resolved\n")
+	writeFile(t, filepath.Join(root, "layers", "0001-feature", "COMMIT_EDITMSG"), "different message\n")
+	service, _, _ = newServices(t, root)
+	if _, err := service.Continue(t.Context()); err == nil || !strings.Contains(err.Error(), "changed during advance") {
+		t.Fatalf("Continue() = %v, want changed layer rejection", err)
+	}
+	assertUpstreamTag(t, root, "rust-v1.0.0")
+	if err := service.Abort(t.Context()); err != nil {
+		t.Fatalf("Abort() = %v", err)
+	}
+}
+
+func TestContinueRefusesInterruptedOperation(t *testing.T) {
+	root := newCanonicalRepository(t)
+	service, _, _ := newServices(t, root)
+	worktree := filepath.Join(t.TempDir(), "interrupted")
+	if _, err := service.Advance(t.Context(), upstream.AdvanceRequest{Tag: "rust-v1.2.0", WorktreePath: worktree}); err == nil {
+		t.Fatal("Advance() unexpectedly succeeded")
+	}
+	statePath := filepath.Join(root, ".git", "layerctl", "upstream.json")
+	content, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state map[string]any
+	if err := json.Unmarshal(content, &state); err != nil {
+		t.Fatal(err)
+	}
+	// Model a crash after writing intent, before the operation outcome was saved.
+	state["stepInProgress"] = true
+	state["resolving"] = false
+	content, err = json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(statePath, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	service, _, _ = newServices(t, root)
+	if _, err := service.Continue(t.Context()); err == nil || !strings.Contains(err.Error(), "was interrupted") {
+		t.Fatalf("Continue() = %v, want interrupted operation rejection", err)
+	}
+	assertUpstreamTag(t, root, "rust-v1.0.0")
+	if err := service.Abort(t.Context()); err != nil {
+		t.Fatalf("Abort() = %v", err)
+	}
+}
+
+func TestContinueRefusesManualCommitBeforeRemainingOperation(t *testing.T) {
+	root := newCanonicalRepository(t)
+	layerDir := filepath.Join(root, "layers", "0001-feature")
+	if err := os.Remove(filepath.Join(layerDir, "COMMIT_EDITMSG")); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(layerDir, "layer.toml"), `[vcs]
+commit-msg = "saffrodex: feature\n"
+[[operation]]
+[operation.patch]
+file = "patch"
+[[operation]]
+[operation.overlay]
+directory = "overlay"
+`)
+	service, _, _ := newServices(t, root)
+	worktree := filepath.Join(t.TempDir(), "manual-commit")
+	if _, err := service.Advance(t.Context(), upstream.AdvanceRequest{Tag: "rust-v1.2.0", WorktreePath: worktree}); err == nil {
+		t.Fatal("Advance() unexpectedly succeeded")
+	}
+	writeFile(t, filepath.Join(worktree, "base.txt"), "resolved\n")
+	gitRun(t, worktree, "add", "-A")
+	gitRun(t, worktree, "commit", "-m", "premature manual commit")
+	service, _, _ = newServices(t, root)
+	if _, err := service.Continue(t.Context()); err == nil || !strings.Contains(err.Error(), "before all operations completed") {
+		t.Fatalf("Continue() = %v, want premature commit rejection", err)
+	}
+	if _, err := os.Stat(filepath.Join(worktree, "feature.txt")); !os.IsNotExist(err) {
+		t.Fatalf("later operation unexpectedly applied: %v", err)
+	}
+	assertUpstreamTag(t, root, "rust-v1.0.0")
+	if err := service.Abort(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFailedOperationRequiresAbortBeforeRetry(t *testing.T) {
+	root := newCanonicalRepository(t)
+	writeFile(t, filepath.Join(root, "layers", "0001-feature", "patch"), "not a patch\n")
+	service, _, _ := newServices(t, root)
+	worktree := filepath.Join(t.TempDir(), "failed-operation")
+	if _, err := service.Advance(t.Context(), upstream.AdvanceRequest{Tag: "rust-v1.1.0", WorktreePath: worktree}); err == nil || !strings.Contains(err.Error(), "state is uncertain") {
+		t.Fatalf("Advance() = %v, want failed operation", err)
+	}
+	service, _, _ = newServices(t, root)
+	if _, err := service.Continue(t.Context()); err == nil || !strings.Contains(err.Error(), "was interrupted") {
+		t.Fatalf("Continue() = %v, want interruption rejection", err)
+	}
+	assertUpstreamTag(t, root, "rust-v1.0.0")
+	if err := service.Abort(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Deleting the currently conflicted last layer must not make UnitIndex look
+// complete and publish the new upstream without that layer.
+func TestContinueRefusesDeletedLayer(t *testing.T) {
+	root := newCanonicalRepository(t)
+	service, _, _ := newServices(t, root)
+	worktree := filepath.Join(t.TempDir(), "deleted-layer")
+	if _, err := service.Advance(t.Context(), upstream.AdvanceRequest{Tag: "rust-v1.2.0", WorktreePath: worktree}); err == nil {
+		t.Fatal("Advance() unexpectedly succeeded")
+	}
+	if err := os.RemoveAll(filepath.Join(root, "layers", "0001-feature")); err != nil {
+		t.Fatal(err)
+	}
+	service, _, _ = newServices(t, root)
+	if _, err := service.Continue(t.Context()); err == nil || !strings.Contains(err.Error(), "layer sequence changed") {
+		t.Fatalf("Continue() = %v, want changed layer sequence rejection", err)
+	}
+	assertUpstreamTag(t, root, "rust-v1.0.0")
+	if err := service.Abort(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestContinueRejectsInvalidStateIndexesAndVersion(t *testing.T) {
+	for _, scenario := range []struct {
+		name, field string
+		value       int
+	}{
+		{"negative layer", "unitIndex", -1},
+		{"negative operation", "stepIndex", -1},
+		{"future version", "version", 999},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			root := newCanonicalRepository(t)
+			service, _, _ := newServices(t, root)
+			worktree := filepath.Join(t.TempDir(), "invalid-state")
+			if _, err := service.Advance(t.Context(), upstream.AdvanceRequest{Tag: "rust-v1.2.0", WorktreePath: worktree}); err == nil {
+				t.Fatal("Advance() unexpectedly succeeded")
+			}
+			statePath := filepath.Join(root, ".git", "layerctl", "upstream.json")
+			content, err := os.ReadFile(statePath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var state map[string]any
+			if err := json.Unmarshal(content, &state); err != nil {
+				t.Fatal(err)
+			}
+			state[scenario.field] = scenario.value
+			content, err = json.Marshal(state)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(statePath, content, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			service, _, _ = newServices(t, root)
+			if _, err := service.Continue(t.Context()); err == nil {
+				t.Fatal("Continue() accepted invalid state")
+			}
+			assertUpstreamTag(t, root, "rust-v1.0.0")
+			if err := service.Abort(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+// Refresh verifies the commit message as well as its tree: an edited manifest
+// must not silently replace the message that was approved in the worktree.
+func TestContinueRejectsRefreshedLayerWithDifferentCommitMessage(t *testing.T) {
+	root := newCanonicalRepository(t)
+	service, _, _ := newServices(t, root)
+	worktree := filepath.Join(t.TempDir(), "message-changed")
+	if _, err := service.Advance(t.Context(), upstream.AdvanceRequest{Tag: "rust-v1.2.0", WorktreePath: worktree}); err == nil {
+		t.Fatal("Advance() unexpectedly succeeded")
+	}
+	writeFile(t, filepath.Join(worktree, "base.txt"), "resolved feature\n")
+	if _, err := service.Continue(t.Context()); err == nil || !strings.Contains(err.Error(), "layer refresh") {
+		t.Fatalf("Continue() = %v", err)
+	}
+	_, layers, _ := newServices(t, root)
+	if err := layers.Refresh(t.Context(), "0001-feature", "upstream-advance"); err != nil {
+		t.Fatal(err)
+	}
+	manifest := filepath.Join(root, "layers", "0001-feature", "layer.toml")
+	content, err := os.ReadFile(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := strings.Replace(string(content), "saffrodex: feature", "different message", 1)
+	if changed == string(content) {
+		t.Fatal("expected commit message missing from manifest")
+	}
+	writeFile(t, manifest, changed)
+	service, _, _ = newServices(t, root)
+	if _, err := service.Continue(t.Context()); err == nil || !strings.Contains(err.Error(), "is not refreshed") {
+		t.Fatalf("Continue() = %v, want changed-message rejection", err)
+	}
+	assertUpstreamTag(t, root, "rust-v1.0.0")
+	if err := service.Abort(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+}

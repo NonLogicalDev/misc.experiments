@@ -1,4 +1,4 @@
-// Modified from abg-OAI/codex: module import path changed for this extraction.
+// Modified from abg-OAI/codex: module path and resumable ordered operations.
 // Package upstream advances canonical Saffrodex definitions to another exact
 // Codex release through one resumable local projection.
 package upstream
@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 
 	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/definition"
 	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/gitrepo"
@@ -89,6 +90,8 @@ func (s *Service) Advance(ctx context.Context, req AdvanceRequest) (string, erro
 	}
 
 	state := advanceState{
+		Version:      1,
+		LayerIDs:     s.layerIDs(),
 		TargetTag:    req.Tag,
 		TargetCommit: commit,
 		WorktreePath: worktreePath,
@@ -115,13 +118,28 @@ func (s *Service) Continue(ctx context.Context) (string, error) {
 		return "", err
 	}
 	units := s.Definition.Layers
-	if state.UnitIndex >= len(units) {
+	if err := s.validateLayerSequence(state); err != nil {
+		return state.WorktreePath, err
+	}
+	if state.UnitIndex < 0 || state.UnitIndex > len(units) {
+		return state.WorktreePath, errors.New("invalid upstream layer index; use layerctl upstream abort")
+	}
+	if state.UnitIndex == len(units) {
 		return state.WorktreePath, s.finish(statePath, state)
 	}
 	unit := units[state.UnitIndex]
+	if state.Version == 1 {
+		count := (&layercommit.Service{Git: s.Git}).StepCount(unit)
+		if state.StepIndex < 0 || state.StepIndex > count || ((state.Resolving || state.StepInProgress) && state.StepIndex == count) {
+			return state.WorktreePath, errors.New("invalid upstream operation index; use layerctl upstream abort")
+		}
+	}
 
 	if state.ApplyingHead != "" {
-		return state.WorktreePath, s.continueUnit(ctx, statePath, &state, unit)
+		if state.Version == 0 {
+			return state.WorktreePath, s.continueUnit(ctx, statePath, &state, unit)
+		}
+		return state.WorktreePath, s.continueOperations(ctx, statePath, &state, unit)
 	}
 	if state.NeedsRefresh {
 		matches, err := s.refreshedUnitMatches(ctx, state.WorktreePath, unit)
@@ -133,6 +151,7 @@ func (s *Service) Continue(ctx context.Context) (string, error) {
 		}
 		state.NeedsRefresh = false
 		state.Resolving = false
+		state.HadConflict = false
 		state.UnitIndex++
 		if err := writeState(statePath, state); err != nil {
 			return state.WorktreePath, err
@@ -189,45 +208,151 @@ func (s *Service) Check(ctx context.Context) error {
 	return nil
 }
 
+// process persists intent before each operation. If a process dies during a
+// step, its effects are unknown and continuation refuses to guess or replay.
 func (s *Service) process(ctx context.Context, statePath string, state *advanceState) error {
-	units := s.Definition.Layers
-	for state.UnitIndex < len(units) {
-		unit := units[state.UnitIndex]
-		head, err := s.Git.Output(ctx, state.WorktreePath, "rev-parse", "HEAD")
-		if err != nil {
-			return fmt.Errorf("resolve advance head: %w", err)
-		}
-		state.ApplyingHead = head
-		state.Resolving = false
-		if err := writeState(statePath, *state); err != nil {
-			return err
-		}
-		if err := s.Projection.ApplyUnit(ctx, state.WorktreePath, unit); err != nil {
-			hasConflicts, inspectErr := s.Projection.UnitHasConflicts(ctx, state.WorktreePath)
-			if inspectErr != nil {
-				return errors.Join(err, inspectErr)
+	operations := &layercommit.Service{Git: s.Git}
+	if err := s.validateLayerSequence(*state); err != nil {
+		return err
+	}
+	for state.UnitIndex < len(s.Definition.Layers) {
+		unit := s.Definition.Layers[state.UnitIndex]
+		if state.ApplyingHead == "" {
+			head, err := s.Git.Output(ctx, state.WorktreePath, "rev-parse", "HEAD")
+			if err != nil {
+				return fmt.Errorf("resolve advance head: %w", err)
 			}
-			var collision *layercommit.OverlayCollisionError
-			if !hasConflicts && !errors.As(err, &collision) {
-				state.ApplyingHead = ""
+			fingerprint, err := unitFingerprint(unit)
+			if err != nil {
+				return fmt.Errorf("fingerprint unit %q: %w", unit.ID, err)
+			}
+			if state.Version == 0 {
+				state.LayerIDs = s.layerIDs()
+			}
+			state.Version = 1
+			state.UnitFingerprint = fingerprint
+			state.ApplyingHead = head
+			state.StepIndex = 0
+			state.HadConflict = false
+			if err := writeState(statePath, *state); err != nil {
+				return err
+			}
+		}
+		fingerprint, err := unitFingerprint(unit)
+		if err != nil {
+			return fmt.Errorf("fingerprint unit %q: %w", unit.ID, err)
+		}
+		if fingerprint != state.UnitFingerprint {
+			return fmt.Errorf("unit %q changed during advance; use layerctl upstream abort", unit.ID)
+		}
+		for state.StepIndex < operations.StepCount(unit) {
+			state.StepInProgress = true
+			if err := writeState(statePath, *state); err != nil {
+				return err
+			}
+			err := operations.ApplyStep(ctx, state.WorktreePath, unit, state.StepIndex)
+			if err != nil {
+				hasConflicts, inspectErr := s.Projection.UnitHasConflicts(ctx, state.WorktreePath)
+				if inspectErr != nil {
+					return errors.Join(err, inspectErr)
+				}
+				var collision *layercommit.OverlayCollisionError
+				if !hasConflicts && !errors.As(err, &collision) {
+					return fmt.Errorf("unit %q operation %d failed; its state is uncertain, use layerctl upstream abort: %w", unit.ID, state.StepIndex+1, err)
+				}
+				state.StepInProgress = false
+				state.Resolving = true
+				state.HadConflict = true
 				if writeErr := writeState(statePath, *state); writeErr != nil {
 					return errors.Join(err, writeErr)
 				}
-				return fmt.Errorf("apply unit %q: %w", unit.ID, err)
+				return fmt.Errorf("unit %q requires resolution in %q: %w; resolve operation %d, then run layerctl upstream continue", unit.ID, state.WorktreePath, err, state.StepIndex+1)
 			}
-			state.Resolving = true
-			if writeErr := writeState(statePath, *state); writeErr != nil {
-				return errors.Join(err, writeErr)
+			state.StepIndex++
+			state.StepInProgress = false
+			if err := writeState(statePath, *state); err != nil {
+				return err
 			}
-			return fmt.Errorf("unit %q requires resolution in %q: %w; resolve the desired tree, then run layerctl upstream continue", unit.ID, state.WorktreePath, err)
 		}
-		state.UnitIndex++
-		state.ApplyingHead = ""
+		state.CommitInProgress = true
 		if err := writeState(statePath, *state); err != nil {
+			return err
+		}
+		if err := s.Projection.CommitUnit(ctx, state.WorktreePath, unit); err != nil {
+			return fmt.Errorf("commit unit %q: %w; use layerctl upstream abort if the commit cannot be recovered", unit.ID, err)
+		}
+		if err := s.finishOperations(statePath, state, unit); err != nil {
 			return err
 		}
 	}
 	return s.finish(statePath, *state)
+}
+
+func (s *Service) finishOperations(statePath string, state *advanceState, unit definition.Unit) error {
+	state.ApplyingHead = ""
+	state.UnitFingerprint = ""
+	state.CommitInProgress = false
+	state.StepIndex = 0
+	if state.HadConflict {
+		state.NeedsRefresh = true
+		if err := writeState(statePath, *state); err != nil {
+			return err
+		}
+		return refreshRequiredError(unit)
+	}
+	state.UnitIndex++
+	return writeState(statePath, *state)
+}
+
+func (s *Service) continueOperations(ctx context.Context, statePath string, state *advanceState, unit definition.Unit) error {
+	operations := &layercommit.Service{Git: s.Git}
+	fingerprint, err := unitFingerprint(unit)
+	if err != nil {
+		return fmt.Errorf("fingerprint unit %q: %w", unit.ID, err)
+	}
+	if fingerprint != state.UnitFingerprint {
+		return fmt.Errorf("unit %q changed during advance; use layerctl upstream abort", unit.ID)
+	}
+	if state.StepInProgress {
+		return fmt.Errorf("unit %q operation %d was interrupted and may have partially applied; use layerctl upstream abort", unit.ID, state.StepIndex+1)
+	}
+	head, err := s.Git.Output(ctx, state.WorktreePath, "rev-parse", "HEAD")
+	if err != nil {
+		return fmt.Errorf("resolve advance head: %w", err)
+	}
+	if head != state.ApplyingHead {
+		// A commit may have completed immediately before interruption, or the
+		// operator may have committed a resolved final operation manually.
+		if !state.CommitInProgress && !(state.Resolving && state.StepIndex+1 == operations.StepCount(unit)) {
+			return fmt.Errorf("unit %q HEAD changed before all operations completed; use layerctl upstream abort", unit.ID)
+		}
+		parent, err := s.Git.Output(ctx, state.WorktreePath, "rev-parse", "HEAD^")
+		if err != nil || parent != state.ApplyingHead {
+			return fmt.Errorf("unit %q changed advance HEAD unexpectedly; use layerctl upstream abort", unit.ID)
+		}
+		if state.Resolving {
+			state.HadConflict = true
+			state.Resolving = false
+		}
+		if err := s.finishOperations(statePath, state, unit); err != nil {
+			return err
+		}
+		return s.process(ctx, statePath, state)
+	}
+	if state.CommitInProgress {
+		return fmt.Errorf("unit %q commit was interrupted and may be incomplete; use layerctl upstream abort", unit.ID)
+	}
+	if state.Resolving {
+		if err := s.Git.Run(ctx, state.WorktreePath, "add", "-A"); err != nil {
+			return fmt.Errorf("stage resolved unit %q: %w", unit.ID, err)
+		}
+		state.Resolving = false
+		state.StepIndex++
+		if err := writeState(statePath, *state); err != nil {
+			return err
+		}
+	}
+	return s.process(ctx, statePath, state)
 }
 
 func (s *Service) continueUnit(
@@ -332,7 +457,23 @@ func (s *Service) refreshedUnitMatches(ctx context.Context, worktree string, uni
 	if err != nil {
 		return false, err
 	}
-	return generatedTree == resolvedTree, nil
+	if generatedTree != resolvedTree {
+		return false, nil
+	}
+	generatedCommit, err := s.Git.Bytes(ctx, temporaryPath, "cat-file", "commit", "HEAD")
+	if err != nil {
+		return false, fmt.Errorf("read generated commit: %w", err)
+	}
+	resolvedCommit, err := s.Git.Bytes(ctx, worktree, "cat-file", "commit", "HEAD")
+	if err != nil {
+		return false, fmt.Errorf("read resolved commit: %w", err)
+	}
+	_, generatedMessage, generatedOK := bytes.Cut(generatedCommit, []byte("\n\n"))
+	_, resolvedMessage, resolvedOK := bytes.Cut(resolvedCommit, []byte("\n\n"))
+	if !generatedOK || !resolvedOK {
+		return false, errors.New("generated or resolved commit has no message separator")
+	}
+	return bytes.Equal(generatedMessage, resolvedMessage), nil
 }
 
 func (s *Service) finish(statePath string, state advanceState) error {
@@ -380,14 +521,41 @@ func (s *Service) statePath(ctx context.Context) (string, error) {
 	return filepath.Join(directory, "upstream.json"), nil
 }
 
+// The entire layer sequence is fixed for an advance; otherwise deleting an
+// unfinished layer could make its index look complete on the next invocation.
+func (s *Service) layerIDs() []string {
+	ids := make([]string, len(s.Definition.Layers))
+	for i, unit := range s.Definition.Layers {
+		ids[i] = unit.ID
+	}
+	return ids
+}
+
+func (s *Service) validateLayerSequence(state advanceState) error {
+	if state.Version != 0 && state.Version != 1 {
+		return fmt.Errorf("unsupported upstream state version %d", state.Version)
+	}
+	if state.Version == 1 && !slices.Equal(state.LayerIDs, s.layerIDs()) {
+		return errors.New("layer sequence changed during advance; restore it or use layerctl upstream abort")
+	}
+	return nil
+}
+
 type advanceState struct {
-	TargetTag    string `json:"targetTag"`
-	TargetCommit string `json:"targetCommit"`
-	WorktreePath string `json:"worktreePath"`
-	UnitIndex    int    `json:"unitIndex"`
-	NeedsRefresh bool   `json:"needsRefresh"`
-	ApplyingHead string `json:"applyingHead,omitempty"`
-	Resolving    bool   `json:"resolving,omitempty"`
+	Version          int      `json:"version,omitempty"`
+	LayerIDs         []string `json:"layerIds,omitempty"`
+	UnitFingerprint  string   `json:"unitFingerprint,omitempty"`
+	StepIndex        int      `json:"stepIndex,omitempty"`
+	StepInProgress   bool     `json:"stepInProgress,omitempty"`
+	CommitInProgress bool     `json:"commitInProgress,omitempty"`
+	HadConflict      bool     `json:"hadConflict,omitempty"`
+	TargetTag        string   `json:"targetTag"`
+	TargetCommit     string   `json:"targetCommit"`
+	WorktreePath     string   `json:"worktreePath"`
+	UnitIndex        int      `json:"unitIndex"`
+	NeedsRefresh     bool     `json:"needsRefresh"`
+	ApplyingHead     string   `json:"applyingHead,omitempty"`
+	Resolving        bool     `json:"resolving,omitempty"`
 }
 
 func writeState(path string, state advanceState) error {
@@ -396,8 +564,26 @@ func writeState(path string, state advanceState) error {
 		return fmt.Errorf("encode upstream state: %w", err)
 	}
 	content = append(content, '\n')
-	if err := os.WriteFile(path, content, 0o600); err != nil {
+	// Never truncate the previous progress marker: a crash during an update
+	// must leave either the old or the new complete record.
+	temporary, err := os.CreateTemp(filepath.Dir(path), ".layerctl-state-")
+	if err != nil {
+		return fmt.Errorf("create upstream state: %w", err)
+	}
+	defer os.Remove(temporary.Name())
+	if _, err := temporary.Write(content); err != nil {
+		_ = temporary.Close()
 		return fmt.Errorf("write upstream state: %w", err)
+	}
+	if err := temporary.Sync(); err != nil {
+		_ = temporary.Close()
+		return fmt.Errorf("sync upstream state: %w", err)
+	}
+	if err := temporary.Close(); err != nil {
+		return fmt.Errorf("close upstream state: %w", err)
+	}
+	if err := os.Rename(temporary.Name(), path); err != nil {
+		return fmt.Errorf("replace upstream state: %w", err)
 	}
 	return nil
 }

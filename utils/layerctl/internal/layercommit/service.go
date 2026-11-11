@@ -106,19 +106,49 @@ func (s *Service) diff(ctx context.Context, before, after string) ([]byte, error
 	return patch, nil
 }
 
-// Apply applies the patch followed by its disjoint overlay and commits once.
-// Git stages clean changes during conflicts; callers retain the worktree for
-// resolution. Overlay collisions require refresh, including identical additions.
+// Apply executes each operation in order and creates exactly one commit.
 func (s *Service) Apply(ctx context.Context, worktree string, unit definition.Unit) error {
-	unit, err := normalizedUnit(unit)
-	if err != nil {
-		return err
+	for index := 0; index < s.StepCount(unit); index++ {
+		if err := s.ApplyStep(ctx, worktree, unit, index); err != nil {
+			return err
+		}
+	}
+	return s.Commit(ctx, worktree, unit)
+}
+
+// StepCount includes the legacy patch and overlay as one step, preserving its
+// single three-way application and its staged additions during conflicts.
+func (s *Service) StepCount(unit definition.Unit) int {
+	if unit.Message == nil {
+		return 1
+	}
+	return len(unit.Operations)
+}
+
+// ApplyStep stages one operation. Its caller must not commit until all steps
+// have succeeded or all interrupted steps have been explicitly resolved.
+func (s *Service) ApplyStep(ctx context.Context, worktree string, unit definition.Unit, index int) error {
+	if index < 0 || index >= s.StepCount(unit) {
+		return fmt.Errorf("invalid operation index %d for layer %q", index, unit.ID)
+	}
+	if unit.Message != nil {
+		op := unit.Operations[index]
+		unit.PatchPath = ""
+		unit.Overlay = nil
+		switch op.Kind {
+		case "patch":
+			unit.PatchPath = op.Path
+		case "overlay":
+			unit.Overlay = op.Overlay
+		default:
+			return fmt.Errorf("unsupported operation %q", op.Kind)
+		}
 	}
 	patch, err := s.applicationPatch(ctx, unit)
 	if err != nil {
 		return err
 	}
-	predecessor, err := s.Git.Output(ctx, worktree, "rev-parse", "HEAD")
+	predecessor, err := s.Git.Output(ctx, worktree, "write-tree")
 	if err != nil {
 		return err
 	}
@@ -136,9 +166,8 @@ func (s *Service) Apply(ctx context.Context, worktree string, unit definition.Un
 		}
 	}
 	if len(patch) != 0 {
-		// A single Git application includes the patch followed by disjoint
-		// additions. Git stages clean additions even when inherited edits
-		// conflict, so continuation cannot omit a pending overlay phase.
+		// Legacy patch and overlay are combined so clean additions are staged
+		// even if the patch conflicts. Manifest operations run individually.
 		_, err = s.Git.Invoke(ctx, worktree, gitrepo.Invocation{
 			Arguments: []string{"-c", "rerere.enabled=false", "apply", "--3way", "--index", "--whitespace=nowarn", "-"},
 			Stdin:     patch,
@@ -161,7 +190,7 @@ func (s *Service) Apply(ctx context.Context, worktree string, unit definition.Un
 	if len(inherited) != 0 {
 		return &OverlayCollisionError{Paths: inherited}
 	}
-	return s.Commit(ctx, worktree, unit)
+	return nil
 }
 
 // Commit records the staged tree using unit's exact commit message. It is also

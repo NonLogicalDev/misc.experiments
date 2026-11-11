@@ -342,3 +342,23 @@ func TestMigrateRejectsNonUTF8MessageWithoutChangingLegacyLayer(t *testing.T) {
 		t.Fatalf("unexpected manifest: %v", err)
 	}
 }
+
+func TestMigratePreservesMessageBytes(t *testing.T) {
+	root := newCanonicalRepository(t)
+	messagePath := filepath.Join(root, "layers", "0001-feature", "COMMIT_EDITMSG")
+	message := "Quoted \"message\" <tag>\n\nUnicode: café 雪\n\tindented\n\n"
+	if err := os.WriteFile(messagePath, []byte(message), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	layers, _ := newServices(t, root)
+	if err := layers.Migrate("0001-feature"); err != nil {
+		t.Fatal(err)
+	}
+	unit, err := definition.LoadUnit("0001-feature", filepath.Dir(messagePath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(unit.Message) != message {
+		t.Fatalf("message = %q, want %q", unit.Message, message)
+	}
+}
