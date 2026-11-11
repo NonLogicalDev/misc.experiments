@@ -9,5 +9,7 @@ Status: active; repository composition re-architecture. [Active plan](active/pla
 - /root/manifest: completed; manifest definition and ordered-operation tests reviewed.
 - /root/review_design: completed; recovery implementation and tests reviewed.
 
-- /root/model: active, repository model analysis.
-- /root/workflow: active, capture and recovery analysis.
+- /root/model: active, git-clone manifest parsing.
+- /root/workflow: active, clone materialization and history-depth behavior.
+
+- /root/projection: active, isolated composition projections and merge parents.
