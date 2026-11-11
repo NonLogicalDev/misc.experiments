@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import mimetypes
+import os
 import subprocess
 import sys
 import tempfile
@@ -67,7 +68,7 @@ class Preview:
         try:
             # Isolate arbitrary model code and kernel evaluation so a failure cannot replace
             # the previous successful mesh or terminate the preview server.
-            subprocess.run(
+            evaluation = subprocess.run(
                 [
                     sys.executable,
                     "-m",
@@ -80,7 +81,12 @@ class Preview:
                 capture_output=True,
                 text=True,
                 timeout=120,
+                env={**os.environ, "SOLIDRECIPE_CLI": str(self.cli)},
             )
+            # Forward successful inspection JSONL; capture errors for the viewer.
+            if evaluation.stderr:
+                sys.stderr.write(evaluation.stderr)
+                sys.stderr.flush()
             subprocess.run(
                 [str(self.cli), str(graph), str(mesh)],
                 check=True,

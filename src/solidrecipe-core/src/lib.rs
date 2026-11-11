@@ -44,6 +44,54 @@ pub fn build(node: &Value) -> Result<Body> {
     }
 }
 
+/// Describe a built B-rep for inspection; record indices apply only to this result.
+pub fn inspect(body: &Body) -> Result<Value> {
+    let (record, order) = body.to_record()?;
+    let (min, max) = body.bounds()?;
+    let mut edges = Vec::with_capacity(record.edges.len());
+    for (index, edge) in record.edges.iter().enumerate() {
+        // Indexes follow this record's canonical order, not a persistent naming scheme.
+        let faces: Vec<_> = edge.uses.iter().map(|use_| use_.face).collect();
+        edges.push(serde_json::json!({
+            "index": index,
+            "curve": edge.curve,
+            "interval": edge.interval,
+            "start": record.vertices[edge.vertices[0] as usize].point,
+            "end": record.vertices[edge.vertices[1] as usize].point,
+            "midpoint": body.edge_middle(&order, index)?,
+            "length": body.edge_length(&order, index, 1e-6)?,
+            "adjacent_faces": faces,
+        }));
+    }
+    let mut faces = Vec::with_capacity(record.faces.len());
+    for (index, face) in record.faces.iter().enumerate() {
+        // A failed optional measurement remains visible instead of hiding the entire body.
+        let area = body.face_area(&order, index, 1e-6);
+        let (area, area_error) = match area {
+            Ok(value) => (Some(value), None),
+            Err(error) => (None, Some(error.to_string())),
+        };
+        let edges: Vec<_> = record
+            .edges
+            .iter()
+            .enumerate()
+            .filter_map(|(edge_index, edge)| {
+                edge.uses
+                    .iter()
+                    .any(|use_| use_.face as usize == index)
+                    .then_some(edge_index)
+            })
+            .collect();
+        faces.push(serde_json::json!({"index": index, "surface": face.surface,
+            "area": area, "area_error": area_error, "edges": edges}));
+    }
+    Ok(serde_json::json!({
+        "schema": "solidrecipe.inspect.v1", "units": "mm", "indices": "temporary",
+        "bounds": {"min": min, "max": max}, "volume": body.volume(1e-6)?,
+        "edges": edges, "faces": faces,
+    }))
+}
+
 /// Tessellate a B-rep for display, refusing an incomplete mesh.
 pub fn display_mesh(body: &Body, size: f64) -> Result<solidcore_tess::Mesh> {
     // Tessellation consumes the neutral record representation for display. The original body

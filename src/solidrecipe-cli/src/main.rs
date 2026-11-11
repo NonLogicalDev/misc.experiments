@@ -1,9 +1,9 @@
 //! Headless model evaluation and a local live viewer for Python model files.
-use solidrecipe_core::{build, display_mesh, Result};
+use solidrecipe_core::{build, display_mesh, inspect, Result};
 use std::{
     env, fs,
     fs::File,
-    io::{BufWriter, Write},
+    io::{BufWriter, Read, Write},
     path::Path,
     process::Command,
     sync::{
@@ -41,6 +41,16 @@ fn extract_resources() -> Result<tempfile::TempDir> {
 
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
+    if args.get(1).map(String::as_str) == Some("inspect-graph") {
+        if args.len() != 2 {
+            return Err("usage: solidrecipe inspect-graph < graph.json".into());
+        }
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input)?;
+        let graph = serde_json::from_str(&input)?;
+        println!("{}", inspect(&build(&graph)?)?);
+        return Ok(());
+    }
     if args.get(1).map(String::as_str) == Some("serve") {
         if args.len() < 3 {
             return Err("usage: solidrecipe serve <model.py> [--port PORT] [--no-browser]".into());
