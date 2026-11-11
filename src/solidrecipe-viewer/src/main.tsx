@@ -20,7 +20,8 @@ type Parameter = {
   options: ParameterValue[] | null
 }
 type Values = Record<string, ParameterValue>
-type Presets = Record<string, Values>
+type Preset = Values | { output: string; values: Values }
+type Presets = Record<string, Preset>
 
 type LoadedMesh = { name: string; object: THREE.Group; bounds: THREE.Box3; frame: boolean }
 
@@ -123,6 +124,8 @@ function App() {
   const revision = useRef(0)
   const parameterKey = useRef('')
   const [parameters, setParameters] = useState<Parameter[]>([])
+  const [outputs, setOutputs] = useState<string[]>([])
+  const [selectedOutput, setSelectedOutput] = useState('')
   const [values, setValues] = useState<Values>({})
   const [presets, setPresets] = useState<Presets>({})
   const [presetName, setPresetName] = useState('')
@@ -152,19 +155,23 @@ function App() {
           error: string | null
           building: boolean
           parameters: Parameter[]
+          outputs: string[]
+          output: string | null
         } = await response.json()
         if (stopped) return
         const specs = data.parameters ?? []
-        const key = JSON.stringify(specs.map(({ value: _value, ...spec }) => spec))
+        const key = JSON.stringify([data.output, specs.map(({ value: _value, ...spec }) => spec)])
         if (key !== parameterKey.current) {
           parameterKey.current = key
           setValues(Object.fromEntries(specs.map((p) => [p.name, p.value])))
         }
         setParameters(specs)
+        setOutputs(data.outputs ?? [])
         if (data.mesh && data.revision !== revision.current) {
           const loaded = parseMesh(data.name, data.mesh, revision.current === 0)
           setModel(loaded)
           revision.current = data.revision
+          setSelectedOutput(data.output ?? '')
         }
         if (data.error) {
           setErrorDetails(data.error)
@@ -185,7 +192,7 @@ function App() {
               : 'Preview unavailable.',
           )
       } finally {
-        if (!stopped && shouldContinue) timer = setTimeout(poll, 1000)
+        if (!stopped && shouldContinue) timer = setTimeout(poll, 250)
       }
     }
     void poll()
@@ -218,18 +225,32 @@ function App() {
     return response.json()
   }
 
-  async function applyValues(nextValues: Values) {
+  async function applyValues(nextValues: Values, output?: string) {
     try {
-      await post('/api/parameters', { values: nextValues })
+      await post('/api/parameters', { values: nextValues, output })
       setParameterMessage('Updating preview…')
     } catch (error) {
       setParameterMessage(error instanceof Error ? error.message : 'Could not update parameters.')
     }
   }
 
+  async function chooseOutput(name: string) {
+    setSelectedOutput(name)
+    try {
+      await post('/api/output', { name })
+      setParameterMessage('Updating preview…')
+    } catch (error) {
+      setParameterMessage(error instanceof Error ? error.message : 'Could not select output.')
+    }
+  }
+
   async function savePreset() {
     try {
-      const saved: Presets = await post('/api/presets', { name: presetName, values })
+      const saved: Presets = await post('/api/presets', {
+        name: presetName,
+        values,
+        output: selectedOutput,
+      })
       setPresets(saved)
       setSelectedPreset(presetName.trim())
       setParameterMessage('Preset saved beside the model.')
@@ -265,9 +286,24 @@ function App() {
       </header>
       <section className="workspace">
         <Viewport model={model} />
-        {parameters.length > 0 && (
+        {(parameters.length > 0 || outputs.length > 1) && (
           <aside className="parameters" aria-label="Model parameters">
-            <strong>Parameters</strong>
+            <strong>Model</strong>
+            {outputs.length > 1 && (
+              <label className="parameter">
+                Output
+                <select
+                  value={selectedOutput}
+                  onChange={(event) => void chooseOutput(event.target.value)}
+                >
+                  {outputs.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             {parameters.map((parameter) => (
               <label className="parameter" key={parameter.name} htmlFor={`param-${parameter.name}`}>
                 <span>
@@ -322,47 +358,66 @@ function App() {
                 )}
               </label>
             ))}
-            <button type="button" onClick={() => void applyValues(values)}>
-              Apply
-            </button>
-            <div className="preset-controls">
-              <label>
-                Preset name
-                <input value={presetName} onChange={(event) => setPresetName(event.target.value)} />
-              </label>
-              <button type="button" disabled={!presetName.trim()} onClick={() => void savePreset()}>
-                Save preset
+            {parameters.length > 0 && (
+              <button type="button" onClick={() => void applyValues(values)}>
+                Apply
               </button>
-              <label>
-                Saved presets
-                <select
-                  value={selectedPreset}
-                  onChange={(event) => setSelectedPreset(event.target.value)}
+            )}
+            {parameters.length > 0 && (
+              <div className="preset-controls">
+                <label>
+                  Preset name
+                  <input
+                    value={presetName}
+                    onChange={(event) => setPresetName(event.target.value)}
+                  />
+                </label>
+                <button
+                  type="button"
+                  disabled={!presetName.trim()}
+                  onClick={() => void savePreset()}
                 >
-                  <option value="">Choose a preset</option>
-                  {Object.keys(presets)
-                    .sort()
-                    .map((name) => (
-                      <option key={name} value={name}>
-                        {name}
-                      </option>
-                    ))}
-                </select>
-              </label>
-              <button
-                type="button"
-                disabled={!selectedPreset}
-                onClick={() => {
-                  const saved = presets[selectedPreset]
-                  if (saved) {
-                    setValues(saved)
-                    void applyValues(saved)
-                  }
-                }}
-              >
-                Load preset
-              </button>
-            </div>
+                  Save preset
+                </button>
+                <label>
+                  Saved presets
+                  <select
+                    value={selectedPreset}
+                    onChange={(event) => setSelectedPreset(event.target.value)}
+                  >
+                    <option value="">Choose a preset</option>
+                    {Object.keys(presets)
+                      .sort()
+                      .map((name) => (
+                        <option key={name} value={name}>
+                          {name}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  disabled={!selectedPreset}
+                  onClick={() => {
+                    const saved = presets[selectedPreset]
+                    if (saved) {
+                      // Earlier sidecars stored only a value map.
+                      const modern =
+                        typeof saved.output === 'string' &&
+                        typeof saved.values === 'object' &&
+                        saved.values !== null
+                      const savedValues = modern ? (saved.values as Values) : (saved as Values)
+                      const savedOutput = modern ? (saved.output as string) : undefined
+                      setValues(savedValues)
+                      if (savedOutput) setSelectedOutput(savedOutput)
+                      void applyValues(savedValues, savedOutput)
+                    }
+                  }}
+                >
+                  Load preset
+                </button>
+              </div>
+            )}
             <small role="status">{parameterMessage}</small>
           </aside>
         )}

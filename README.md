@@ -1,29 +1,29 @@
 # solidrecipe
 
-A small experiment in code-driven CAD with SolidCore as its B-rep kernel. Python builds an expression graph; a Rust evaluator constructs the solids, computes volume, and tessellates the result for a standalone browser preview. The mesh is for display only and cannot provide exact B-rep measurements.
+A small experiment in code-driven CAD with SolidCore as its B-rep kernel. Embedded Python builds an expression graph; Rust evaluates the solids and tessellates them for a browser preview. The mesh is for display only and cannot provide exact B-rep measurements.
 
 The initial example is a synthetic slotted block, not a verified cooler adapter.
 
 ## Build and run
 
-Install Rust, `uv`, pnpm, Node.js, and Python. Initialize the SolidCore submodule and install the viewer dependencies, then build the embedded viewer and CLI:
+Install Rust, `uv`, pnpm, Node.js, and Python. Initialize the SolidCore submodule and install the viewer dependencies, then build the embedded viewer and optimized CLI (the first build can take a few minutes):
 
 ```sh
 git submodule update --init --recursive
 pnpm -C src/solidrecipe-viewer install
 make build
-./target/debug/solidrecipe serve examples/slotted_block.py
+./target/release/solidrecipe serve examples/slotted_block.py
 ```
 
-The CLI opens a loopback viewer and rebuilds when the specified Python file changes. A model file defines a `solidrecipe` shape named `model`; see the example. If a rebuild fails, the previous preview remains visible and the error appears in the viewer. Only the selected file is watched; changes to imported modules do not trigger a rebuild. Model files run as Python code with your permissions.
+The CLI opens a loopback viewer and rebuilds when the selected Python file or a file loaded via `sr.load` changes. A model can call `sr.export(shape)` to provide a default output; the legacy variable `model` is also supported. If a rebuild fails, the previous preview remains visible and the error appears in the viewer. Ordinary Python imports are not watched. Model files run as Python code with your permissions.
 
-The compiled executable embeds the viewer and Python support modules, so it can run from any directory without the checkout. Python model execution still requires `uv` and a Python interpreter. Use `--port PORT` or `--no-browser` after the model path when needed. `Ctrl+C` stops the server.
+The compiled executable embeds the viewer and Python support code, so it can run from any directory without the checkout. It dynamically links the Python shared library used at build time and needs that compatible Python installation and standard library at runtime; `uv` is only needed for project development tools. Use `--port PORT` or `--no-browser` after the model path when needed. `Ctrl+C` stops the server.
 
 The original headless graph-to-OBJ workflow remains available:
 
 ```sh
 uv run python examples/slotted_block.py 4.6 graph.json
-./target/debug/solidrecipe graph.json bracket.obj
+./target/release/solidrecipe graph.json bracket.obj
 ```
 
 Run `make format` to apply the Rust, Python and TypeScript formatters; `make format-check`, `make lint` and `make check` verify the project. See [architecture](docs/architecture.md) for the data flow and current limitations.
@@ -37,7 +37,7 @@ Run `make format` to apply the Rust, Python and TypeScript formatters; `make for
 
 ## Scope
 
-Box primitives and Boolean union, subtraction and intersection are implemented. The viewer does not support exact selection or measurements. STEP import/export, fillets, watching imported files, a persistent B-rep and a stable API are not implemented. Geometry has not been validated for manufacturing.
+Box and cylinder primitives and Boolean union, subtraction and intersection are implemented. The viewer does not support exact selection or measurements. STEP import/export, fillets, watching imported files, a persistent B-rep and a stable API are not implemented. Geometry has not been validated for manufacturing.
 
 ## Direction
 
@@ -61,10 +61,30 @@ The intended experience includes a responsive preview, useful parameter controls
 
 Call `sr.inspect(model, name="bracket")` in a model to write one JSON object per call to stderr. In a live preview, records appear in the CLI's terminal. A record includes the construction graph, node metadata, B-rep bounds and volume, face surfaces and areas, and edge curves, endpoints, lengths and adjacent faces. Face and edge indices refer only to that particular evaluated B-rep; they are not persistent references.
 
-Use `shape.with_metadata(name="stock", role="bracket")` to attach JSON-serializable author metadata to a graph node. Metadata stays with that node in the graph; it is not yet tracked onto resulting B-rep faces or edges. When running a Python model directly, make `solidrecipe` available on `PATH` or set `SOLIDRECIPE_CLI` to the executable so inspection can evaluate the graph.
+Use `shape.with_metadata(name="stock", role="bracket")` to attach JSON-serializable author metadata to a graph node. Metadata stays with that node in the graph; it is not yet tracked onto resulting B-rep faces or edges. Inspection requires SolidRecipe’s embedded runtime; it does not start another process.
 
 ### Model parameters and presets
 
 Declare parameters in the model with `sr.parameter("slot_height", 4.6, description="Slot height", unit="mm", minimum=4.5, maximum=4.7, step=0.1, options=[4.5, 4.6, 4.7])`. Supported values are numbers, strings, and booleans. Names must be unique; options restrict the allowed values and step is an input hint. The viewer applies a set of values and keeps the last successful mesh if a rebuild fails.
 
-Save a named preset in the viewer and load it later. Presets are written as JSON beside the source model, named `<model>.py.presets.json`. Saving an existing name replaces it. Presets contain values, not geometry, and are evaluated against the current model when loaded.
+Save a named preset in the viewer and load it later. Presets are written as JSON beside the source model, named `<model>.py.presets.json`. Saving an existing name replaces it. Presets contain an output name and values, not geometry, and are evaluated against the current model when loaded. Earlier value-only presets remain readable.
+
+### Reusable modules
+
+A file may group several reusable functions with `sr.module`. A function exported with `@sr.exportf` uses its Python name; `@sr.exportf("other_name")` gives it an explicit name. `sr.export(shape)` provides a default shape, and `sr.export("name", shape)` exposes another output. `sr.export(function)` also uses the function name.
+
+```python
+from typing import Annotated
+import solidrecipe as sr
+
+with sr.module("mounts"):
+    @sr.exportf
+    def bracket(height: Annotated[float, sr.Param(unit="mm", minimum=2, maximum=6, step=0.1)] = 4.6):
+        return sr.Box(10, 20, height)
+
+sr.export(bracket())
+```
+
+Another file uses `mounts = sr.load("hardware.py").mounts` and calls `mounts.bracket(height=4.5)`. Relative paths resolve from the loading file. Loading exports does not put them into the caller's preview; explicitly export the resulting shape. Cycles and duplicate names are errors. Module and export names must be Python identifiers; names also support indexing, such as `hardware["mounts"]["bracket"]`.
+
+The viewer can select an exported factory with default arguments and presents controls for its arguments. Use `typing.Annotated[T, sr.Param(...)]` for description, unit, minimum, maximum, step, and options. For preview, arguments must be named and have defaults; factories can still be loaded and called with arguments from another model. See `examples/modules/`.

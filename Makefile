@@ -5,7 +5,7 @@ viewer-build:
 	pnpm -C src/solidrecipe-viewer build
 
 build: viewer-build
-	cargo build --workspace
+	cargo build --release --workspace
 
 format:
 	cargo fmt --all

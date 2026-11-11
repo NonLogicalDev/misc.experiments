@@ -1,23 +1,21 @@
 # Architecture
 
-Solidrecipe is a code-driven CAD experiment. A model is an ordinary Python file that defines `model` as a `solidrecipe.Shape`. Python creates a graph; the Rust core evaluates that graph through SolidCore into a B-rep. The CLI asks the core for a tessellated display mesh. The viewer renders that mesh, which is not authoritative for exact CAD measurements.
+SolidRecipe is a code-driven CAD experiment. Embedded Python executes a model file and builds a graph; the Rust core evaluates that graph through SolidCore into B-rep geometry. The Rust CLI tessellates it for a React Three Fiber viewer. Display meshes are not authoritative for CAD measurements.
 
 ## Live preview
 
-`solidrecipe serve model.py` extracts its embedded viewer and Python support modules into a private temporary directory. It starts a local preview server through `uv` and opens the browser. The server hashes the selected model file, evaluates a changed file in a separate Python process, and invokes the CLI to generate the mesh. Only a successful rebuild advances the preview revision. On failure, the browser keeps the previous mesh and shows the error; fixing the model triggers another attempt.
+The Rust CLI owns the loopback HTTP server, watching, parameter state, presets, graph evaluation and tessellation. Python model source runs inside the same process through PyO3; no interpreter or geometry subprocess is launched per rebuild. Models execute with the user's permissions. A Python error or Rust operation failure leaves the last successful mesh visible. Because execution is in-process, a nonterminating model or native crash cannot be forcibly isolated or timed out as a subprocess could.
 
-The server listens only on loopback. It serves the extracted viewer and a read-only preview endpoint; it rejects other hostnames and paths outside the asset directory. It executes the selected Python file with the user's permissions. Use only model files you trust. The watcher currently monitors the selected file only; changes to imported helper modules do not trigger a rebuild.
+The watcher tracks the exact content of the top-level file and files explicitly loaded by `sr.load`, including missing files so creation can recover an error. Ordinary Python imports are not watched. Graph subtree results are cached in memory; unchanged subtrees reuse copied B-reps, and the cache retains only nodes reachable from the last successful graph. Cache keys represent graph equivalence, not persistent topology names.
+
+The HTTP server binds loopback only, checks Host and Origin on writes, bounds JSON request bodies, and serves only files inside the extracted viewer assets. Named presets are JSON sidecars next to the model, written atomically when the user saves. They hold output names and parameter values rather than geometry. Earlier value-only presets are still readable by the viewer.
 
 ## Build and resources
 
-The viewer is built with pnpm and Vite before Cargo compiles the CLI. Cargo embeds the resulting assets and the Python frontend and runtime. `make build` enforces that order. The resulting binary does not need a project checkout at runtime, though running Python models requires `uv` and a Python interpreter on the machine.
+The viewer is built with pnpm and Vite before Cargo compiles the CLI. Cargo embeds those assets and Python frontend source. `make build` builds an optimized binary; `make check` verifies the debug build and tests. Python is dynamically linked, so the shared library and standard library for the build's Python version must exist at runtime. In this checkout on macOS the binary currently links to Homebrew Python 3.14. Relocatable or bundled Python distribution remains future work.
 
-The web UI uses React Three Fiber and Drei controls on top of Three.js. It renders on demand and fetches preview revisions from the local server. CAD-exact selection, measurements, STEP exchange, language plugins, and general dependency tracking remain future work.
+## Modules, parameters and inspection
 
-## Parameters and presets
+`sr.module` groups file-local exports. `sr.export` exposes shapes or functions, while `sr.exportf` decorates function exports. `sr.load` evaluates another file in its own export scope, returning namespaced values. A preview may choose an exported shape or call a function with defaulted, named arguments. `typing.Annotated` with `sr.Param` supplies viewer metadata. Parameters and named presets apply to the selected output.
 
-A Python model declares parameters with `sr.parameter`. The evaluation subprocess records each declaration and applies the preview server's current overrides. The server publishes those declarations alongside the successful preview; failed evaluations retain the last good mesh and expose their error. A parameter update schedules a rebuild without editing the source model.
-
-Named presets are JSON sidecars next to the model, written atomically only when the user saves. They hold parameter values rather than geometry, so model validation still runs when a preset is loaded. The preview server accepts JSON writes only from its own loopback origin and limits request size. Imported helper files are still not watched.
-
-`sr.inspect` evaluates its shape through the CLI and emits one JSON record per call on stderr. Successful preview evaluations forward those records to the terminal. Shape-node metadata is preserved in the graph; B-rep entity indices are temporary. See [feature tracking](feature-tracking.md) for the kernel's current provenance boundary.
+`sr.inspect` calls an in-process Rust B-rep bridge and emits JSONL on stderr. Author metadata remains on graph nodes. Face and edge indices in inspection output are temporary; see [feature tracking](feature-tracking.md) for the current provenance boundary. CAD-exact viewer selection, STEP exchange, topology identity, and a cross-language plugin protocol remain future work.

@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from solidrecipe_runtime import evaluate_model
+from solidrecipe_runtime import evaluate_source
 
 
 class CoolerAdapterTest(unittest.TestCase):
@@ -15,7 +15,12 @@ class CoolerAdapterTest(unittest.TestCase):
         with TemporaryDirectory() as temp:
             graph = Path(temp) / "graph.json"
             mesh = Path(temp) / "adapter.obj"
-            evaluate_model(root / "examples/cooler_adapter.py", graph)
+            source = root / "examples/cooler_adapter.py"
+            evaluated = json.loads(
+                evaluate_source(str(source), source.read_text(), "{}")
+            )
+            self.assertNotIn("error", evaluated)
+            graph.write_text(json.dumps(evaluated["graph"]))
             result = subprocess.run(
                 [str(root / "target/debug/solidrecipe"), str(graph), str(mesh)],
                 check=True,

@@ -1,17 +1,11 @@
 """Inspection reaches the B-rep and forwards JSONL without corrupting the preview."""
 
-import contextlib
-import io
 import json
-import os
 import subprocess
-import sys
 import unittest
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
 import solidrecipe as sr
-from solidrecipe_runtime import Preview
 
 
 class InspectTest(unittest.TestCase):
@@ -27,51 +21,23 @@ class InspectTest(unittest.TestCase):
         with self.assertRaises(TypeError):
             original.with_metadata(value=object())
 
-    def test_jsonl_and_preview_forwarding(self):
+    def test_rust_inspection_describes_real_brep(self):
         root = Path(__file__).resolve().parents[1]
         cli = root / "target/debug/solidrecipe"
-        with TemporaryDirectory() as temp:
-            path = Path(temp) / "model.py"
-            path.write_text(
-                "import solidrecipe as sr\n"
-                'model = sr.Box(10, 8, 6).with_metadata(name="stock")\n'
-                'sr.inspect(model, name="first")\n'
-                'sr.inspect(model, name="second")\n'
-            )
-            output = Path(temp) / "graph.json"
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "solidrecipe_runtime",
-                    "evaluate",
-                    str(path),
-                    str(output),
-                ],
-                capture_output=True,
-                text=True,
-                env={**os.environ, "SOLIDRECIPE_CLI": str(cli)},
-                check=True,
-            )
-            self.assertEqual(result.stdout, "")
-            records = [json.loads(line) for line in result.stderr.splitlines()]
-            self.assertEqual([r["name"] for r in records], ["first", "second"])
-            record = records[0]
-            self.assertEqual(record["schema"], "solidrecipe.inspect.v1")
-            self.assertEqual(record["indices"], "temporary")
-            self.assertEqual(record["graph"]["metadata"]["name"], "stock")
-            self.assertEqual(len(record["faces"]), 6)
-            self.assertEqual(len(record["edges"]), 12)
-            self.assertAlmostEqual(record["volume"], 480.0)
-            self.assertEqual(record["bounds"]["min"], [0, 0, 0])
-            self.assertEqual(record["bounds"]["max"], [10, 8, 6])
-            self.assertEqual(len(record["edges"][0]["adjacent_faces"]), 2)
-            preview = Preview(path, cli, temp)
-            stderr = io.StringIO()
-            with contextlib.redirect_stderr(stderr):
-                preview.rebuild()
-            self.assertIsNone(preview.snapshot["error"])
-            self.assertEqual(preview.snapshot["revision"], 1)
-            self.assertEqual(
-                len([json.loads(line) for line in stderr.getvalue().splitlines()]), 2
-            )
+        shape = sr.Box(10, 8, 6).with_metadata(name="stock")
+        result = subprocess.run(
+            [str(cli), "inspect-graph"],
+            input=json.dumps(shape.node),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        record = json.loads(result.stdout)
+        self.assertEqual(record["schema"], "solidrecipe.inspect.v1")
+        self.assertEqual(record["indices"], "temporary")
+        self.assertEqual(len(record["faces"]), 6)
+        self.assertEqual(len(record["edges"]), 12)
+        self.assertAlmostEqual(record["volume"], 480.0)
+        self.assertEqual(record["bounds"]["min"], [0, 0, 0])
+        self.assertEqual(record["bounds"]["max"], [10, 8, 6])
+        self.assertEqual(len(record["edges"][0]["adjacent_faces"]), 2)

@@ -27,6 +27,11 @@ class ParametersTest(unittest.TestCase):
         sr._begin_parameters({"width": 10})
         with self.assertRaises(ValueError):
             sr.parameter("width", 3, maximum=5)
+        sr._begin_parameters({})
+        with self.assertRaises(ValueError):
+            sr.parameter("bad", 1.0, options=[1.0, "1"])
+        with self.assertRaises(ValueError):
+            sr.parameter("bad", 1.0, minimum=float("nan"))
 
     def test_viewer_updates_and_recalls_presets(self):
         root = Path(__file__).resolve().parents[1]
@@ -37,17 +42,20 @@ class ParametersTest(unittest.TestCase):
                 "import solidrecipe as sr\n"
                 'width = sr.parameter("width", 2.0, minimum=1, maximum=5, step=0.1, unit="mm")\n'
                 "model = sr.Box(width, 3, 4)\n"
+                'sr.inspect(model, name="live")\n'
             )
 
             def start():
+                diagnostics = tempfile.TemporaryFile(mode="w+")
                 process = subprocess.Popen(
                     [str(cli), "serve", str(model), "--port", "0", "--no-browser"],
                     stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
+                    stderr=diagnostics,
                     text=True,
                     start_new_session=True,
                     env={**os.environ, "UV_CACHE_DIR": "/tmp/solidrecipe-uv-cache"},
                 )
+                process._diagnostics = diagnostics
                 process.stdout.readline()
                 url = (
                     process.stdout.readline()
@@ -89,6 +97,10 @@ class ParametersTest(unittest.TestCase):
             def stop(process):
                 os.killpg(process.pid, signal.SIGINT)
                 process.communicate(timeout=15)
+                process._diagnostics.seek(0)
+                diagnostics = process._diagnostics.read()
+                process._diagnostics.close()
+                return diagnostics
 
             process, url = start()
             try:
@@ -125,15 +137,17 @@ class ParametersTest(unittest.TestCase):
                     json.loads(model.with_name("model.py.presets.json").read_text())[
                         "wide"
                     ],
-                    values,
+                    {"output": "default", "values": values},
                 )
             finally:
-                stop(process)
+                diagnostics = stop(process)
+            records = [json.loads(line) for line in diagnostics.splitlines()]
+            self.assertTrue(any(record["name"] == "live" for record in records))
             process, url = start()
             try:
                 ready(url, 1)
                 saved = get(url, "/api/presets")["wide"]
-                post(url, "/api/parameters", {"values": saved})
+                post(url, "/api/parameters", saved)
                 self.assertEqual(ready(url, 2)["parameters"][0]["value"], 4.0)
             finally:
                 stop(process)

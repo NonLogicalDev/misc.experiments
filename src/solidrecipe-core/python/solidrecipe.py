@@ -1,10 +1,10 @@
 """Experimental language frontend: write a graph; do not invoke a kernel or viewer."""
 
+import functools
 import json
-import os
-import shutil
-import subprocess
+import math
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 
@@ -54,25 +54,13 @@ def Cylinder(radius, height, origin=(0, 0, 0)):
 def inspect(shape, name=None):
     """Print one JSONL B-rep inspection record to stderr; indices are not persistent.
 
-    The CLI supplies its executable path in live previews. When executing a model
-    directly, put solidrecipe on PATH or set SOLIDRECIPE_CLI to that executable.
+    The embedded Rust host supplies the in-process B-rep inspection bridge.
     """
     if not isinstance(shape, Shape):
         raise TypeError("inspect expects a solidrecipe Shape")
-    cli = os.environ.get("SOLIDRECIPE_CLI") or shutil.which("solidrecipe")
-    if not cli:
-        raise RuntimeError("inspect requires solidrecipe on PATH or SOLIDRECIPE_CLI")
-    result = subprocess.run(
-        [cli, "inspect-graph"],
-        input=json.dumps(shape.node),
-        capture_output=True,
-        text=True,
-        timeout=120,
-        check=False,
-    )
-    if result.returncode:
-        raise RuntimeError(f"inspect failed: {result.stderr.strip()}")
-    record = json.loads(result.stdout)
+    if _inspect_graph is None:
+        raise RuntimeError("inspect requires the embedded SolidRecipe runtime")
+    record = json.loads(_inspect_graph(json.dumps(shape.node)))
     record["name"] = name
     record["graph"] = shape.node
     print(
@@ -82,15 +70,25 @@ def inspect(shape, name=None):
     )
 
 
-# A fresh evaluation process owns this registry; it is reset for direct evaluator calls too.
+# The Rust host installs this callable when it embeds the module.
+_inspect_graph = None
+
+
+# The embedded host resets this registry before each model evaluation.
 _parameter_values = {}
 _parameter_specs = {}
+_export_frames = [{}]
+_module_stack = []
+_loaded_files = {}
 
 
 def _begin_parameters(values):
     global _parameter_values, _parameter_specs
     _parameter_values = values
     _parameter_specs = {}
+    _export_frames.clear()
+    _module_stack.clear()
+    _loaded_files.clear()
 
 
 def _parameter_definitions():
@@ -119,6 +117,17 @@ def parameter(
     if type(default) not in (bool, int, float, str):
         raise TypeError(f"unsupported default for parameter {name!r}")
     numeric = type(default) in (int, float)
+    if not isinstance(description, str) or (
+        unit is not None and not isinstance(unit, str)
+    ):
+        raise TypeError(f"description and unit must be strings: {name}")
+    if any(
+        x is not None and (type(x) not in (int, float) or not math.isfinite(x))
+        for x in (minimum, maximum, step)
+    ):
+        raise ValueError(f"bounds and step must be finite numbers: {name}")
+    if numeric and not math.isfinite(default):
+        raise ValueError(f"default must be finite: {name}")
     if any(x is not None for x in (minimum, maximum, step)) and not numeric:
         raise ValueError(f"bounds and step require a numeric parameter: {name}")
     if step is not None and (
@@ -133,6 +142,21 @@ def parameter(
         raise ValueError(
             f"options must be a nonempty list containing the default: {name}"
         )
+    if options is not None:
+        for index, option in enumerate(options):
+            valid = (
+                (type(option) in (int, float) and math.isfinite(option))
+                if numeric
+                else type(option) is type(default)
+            )
+            if not valid or any(option == other for other in options[:index]):
+                raise ValueError(
+                    f"options must have distinct values of the parameter type: {name}"
+                )
+    if (minimum is not None and default < minimum) or (
+        maximum is not None and default > maximum
+    ):
+        raise ValueError(f"default outside bounds: {name}")
     value = _parameter_values.get(name, default)
     if type(default) is bool:
         valid_type = type(value) is bool
@@ -165,3 +189,163 @@ def parameter(
     json.dumps(spec, allow_nan=False)
     _parameter_specs[name] = spec
     return value
+
+
+_MISSING_EXPORT = object()
+
+
+def export(name_or_value, value=_MISSING_EXPORT):
+    """Export a named shape or callable, or export one value as the default.
+
+    `sr.export(shape)` exposes a default; `sr.export(function)` uses its
+    function name. Exports belong only to the current file and module scope.
+    """
+    if not _export_frames:
+        raise RuntimeError("export must be called while evaluating a SolidRecipe file")
+    if value is _MISSING_EXPORT:
+        value = name_or_value
+        name = (
+            getattr(value, "__name__", None)
+            if callable(value) and not isinstance(value, Shape)
+            else "default"
+        )
+    else:
+        name = name_or_value
+    if not isinstance(name, str) or not name.isidentifier():
+        raise ValueError("export name must be a Python identifier")
+    if not isinstance(value, Shape) and not callable(value):
+        raise TypeError("an export must be a Shape or a callable")
+    exports = _export_frames[-1]
+    if name in exports:
+        raise ValueError(f"duplicate export: {name!r}")
+    if callable(value) and not isinstance(value, Shape):
+        # Functions keep their defining file as the base for nested relative loads,
+        # even when a different model invokes them later.
+        owner = (
+            _module_stack[-1]
+            if _module_stack
+            else Path(getattr(value, "__globals__", {}).get("__file__", ".")).resolve()
+        )
+        original = value
+
+        @functools.wraps(original)
+        def bound(*args, **kwargs):
+            _module_stack.append(owner)
+            try:
+                return original(*args, **kwargs)
+            finally:
+                _module_stack.pop()
+
+        value = bound
+    exports[name] = value
+    return value
+
+
+def exportf(function_or_name=None):
+    """Export a function as a decorator, inferring its name unless one is supplied.
+
+    Use `@sr.exportf`, `@sr.exportf()` or `@sr.exportf("name")`.
+    """
+    if callable(function_or_name):
+        return export(function_or_name)
+    if function_or_name is None:
+        return lambda function: export(function)
+    if isinstance(function_or_name, str):
+        return lambda function: export(function_or_name, function)
+    raise TypeError("exportf expects a function or an export name")
+
+
+def _evaluate_file(path, source=None):
+    path = Path(path).resolve()
+    if path in _module_stack:
+        raise ValueError(f"circular SolidRecipe module load: {path}")
+    # Record the exact bytes used so the Rust watcher detects edits during a build.
+    _loaded_files[str(path)] = None
+    if source is None:
+        source = path.read_bytes().decode("utf-8")
+    _loaded_files[str(path)] = source
+    _module_stack.append(path)
+    exports = {}
+    _export_frames.append(exports)
+    directory = str(path.parent)
+    sys.path.insert(0, directory)
+    try:
+        namespace = {"__name__": "__solidrecipe_model__", "__file__": str(path)}
+        exec(compile(source, str(path), "exec"), namespace)
+        # Existing single-model files remain valid until explicitly migrated.
+        if not exports and isinstance(namespace.get("model"), Shape):
+            exports["default"] = namespace["model"]
+        return exports
+    finally:
+        sys.path.remove(directory)
+        _export_frames.pop()
+        _module_stack.pop()
+
+
+class ModuleExports:
+    """Read-only namespace of shapes, factories and nested modules from one file."""
+
+    def __init__(self, values):
+        self._values = values
+
+    def __getitem__(self, name):
+        value = self._values[name]
+        return ModuleExports(value) if isinstance(value, dict) else value
+
+    def __getattr__(self, name):
+        try:
+            return self[name]
+        except KeyError as error:
+            raise AttributeError(name) from error
+
+
+@contextmanager
+def module(name):
+    """Group exports under a namespace; multiple modules may share a file."""
+    if not _export_frames:
+        raise RuntimeError(
+            "module must be declared while evaluating a SolidRecipe file"
+        )
+    if not isinstance(name, str) or not name.isidentifier():
+        raise ValueError("module name must be a Python identifier")
+    parent = _export_frames[-1]
+    if name in parent:
+        raise ValueError(f"duplicate export or module: {name!r}")
+    namespace = {}
+    parent[name] = namespace
+    _export_frames.append(namespace)
+    try:
+        yield ModuleExports(namespace)
+    finally:
+        _export_frames.pop()
+
+
+def load(path):
+    """Load a SolidRecipe file and return its file-scoped named exports.
+
+    Relative paths resolve against the file currently being evaluated. Values are
+    shapes or callables; callables can build parameterized shapes in the caller.
+    """
+    base = _module_stack[-1].parent if _module_stack else Path.cwd()
+    return ModuleExports(_evaluate_file(base / path))
+
+
+class Param:
+    """Optional viewer metadata for a function parameter in typing.Annotated."""
+
+    def __init__(
+        self,
+        *,
+        description="",
+        unit=None,
+        minimum=None,
+        maximum=None,
+        step=None,
+        options=None,
+    ):
+        self.description = description
+        self.unit = unit
+        self.minimum = minimum
+        self.maximum = maximum
+        self.step = step
+        self.options = options

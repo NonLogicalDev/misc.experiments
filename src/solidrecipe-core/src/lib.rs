@@ -1,7 +1,10 @@
 //! Evaluate a small model graph using SolidCore. Display meshes are not CAD geometry.
 use serde_json::Value;
 use solidcore_ops::{boolean::boolean, make_box, make_cylinder, Body, BooleanOp};
-use std::error::Error;
+use std::{
+    collections::{HashMap, HashSet},
+    error::Error,
+};
 
 /// Propagate kernel, graph, and tessellation errors to the calling interface.
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -42,6 +45,84 @@ pub fn build(node: &Value) -> Result<Body> {
         }
         _ => Err("unknown node".into()),
     }
+}
+
+/// In-memory B-rep cache keyed by the full serialized expression subtree.
+///
+/// This tracks geometry equivalence, not persistent feature identity. Operands are copied
+/// because SolidCore booleans consume their inputs. Only nodes reachable from the most recent
+/// successful graph are retained, so interactive edits cannot grow the cache indefinitely.
+#[derive(Default)]
+pub struct BuildCache {
+    bodies: HashMap<String, Body>,
+}
+
+/// Cache reuse counts for a single rebuild, useful for performance diagnostics.
+#[derive(Default, Debug, PartialEq, Eq)]
+pub struct CacheStats {
+    pub hits: usize,
+    pub misses: usize,
+}
+
+impl BuildCache {
+    /// Build a graph, reusing unchanged subtrees and leaving the previous cache on failure.
+    pub fn build(&mut self, node: &Value) -> Result<(Body, CacheStats)> {
+        let mut reachable = HashSet::new();
+        collect_keys(node, &mut reachable)?;
+        let before: HashSet<_> = self.bodies.keys().cloned().collect();
+        let mut stats = CacheStats::default();
+        let result = self.evaluate(node, &mut stats);
+        match result {
+            Ok(body) => {
+                self.bodies.retain(|key, _| reachable.contains(key));
+                Ok((body, stats))
+            }
+            Err(error) => {
+                self.bodies.retain(|key, _| before.contains(key));
+                Err(error)
+            }
+        }
+    }
+
+    fn evaluate(&mut self, node: &Value, stats: &mut CacheStats) -> Result<Body> {
+        let key = serde_json::to_string(node)?;
+        if let Some(body) = self.bodies.get(&key) {
+            stats.hits += 1;
+            return Ok(body.copy()?);
+        }
+        stats.misses += 1;
+        let body = match node["kind"].as_str() {
+            Some(kind @ ("subtract" | "union" | "intersect")) => {
+                let op = match kind {
+                    "subtract" => BooleanOp::Subtract,
+                    "union" => BooleanOp::Union,
+                    _ => BooleanOp::Intersect,
+                };
+                boolean(
+                    self.evaluate(&node["left"], stats)?,
+                    self.evaluate(&node["right"], stats)?,
+                    op,
+                )?
+                .ok_or("empty result")?
+            }
+            _ => build(node)?,
+        };
+        self.bodies.insert(key, body.copy()?);
+        Ok(body)
+    }
+}
+
+/// A cache hit at an ancestor must not discard its descendants: a later edit may need them.
+fn collect_keys(node: &Value, keys: &mut HashSet<String>) -> Result<()> {
+    keys.insert(serde_json::to_string(node)?);
+    if matches!(
+        node["kind"].as_str(),
+        Some("subtract" | "union" | "intersect")
+    ) {
+        collect_keys(&node["left"], keys)?;
+        collect_keys(&node["right"], keys)?;
+    }
+    Ok(())
 }
 
 /// Describe a built B-rep for inspection; record indices apply only to this result.
@@ -119,6 +200,27 @@ mod tests {
         let expected = 500.0 - std::f64::consts::PI * 1.75_f64.powi(2) * 5.0;
         assert!((body.volume(1e-6)? - expected).abs() < 1e-3);
         assert!(!display_mesh(&body, 100.0)?.triangles.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn cache_reuses_unchanged_branches_and_recovers_after_failure() -> Result<()> {
+        let box_node = json!({"kind":"box", "origin":[0,0,0], "size":[12,30,10]});
+        let slot = |height| json!({"kind":"box", "origin":[-1,5,2], "size":[9,20,height]});
+        let graph = |height| json!({"kind":"subtract", "left":box_node, "right":slot(height)});
+        let mut cache = BuildCache::default();
+        let (first, cold) = cache.build(&graph(4.6))?;
+        assert_eq!(cold.hits, 0);
+        let (same, warm) = cache.build(&graph(4.6))?;
+        assert_eq!(warm.hits, 1);
+        assert!((first.volume(1e-6)? - same.volume(1e-6)?).abs() < 1e-6);
+        let (changed, stats) = cache.build(&graph(4.7))?;
+        assert_eq!(stats.hits, 1); // The unmodified stock box survived the root cache hit.
+        let fresh = build(&graph(4.7))?;
+        assert!((changed.volume(1e-6)? - fresh.volume(1e-6)?).abs() < 1e-6);
+        assert!(cache.build(&json!({"kind":"unknown"})).is_err());
+        let (_, recovered) = cache.build(&graph(4.7))?;
+        assert_eq!(recovered.hits, 1);
         Ok(())
     }
 

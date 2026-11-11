@@ -1,22 +1,16 @@
 //! Headless model evaluation and a local live viewer for Python model files.
+mod preview;
 use solidrecipe_core::{build, display_mesh, inspect, Result};
 use std::{
     env, fs,
     fs::File,
     io::{BufWriter, Read, Write},
     path::Path,
-    process::Command,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
 };
 
-// The web build and the two Python modules travel with the compiled executable. They are
-// extracted only into a private temporary directory for the lifetime of the preview server.
+// Viewer assets and the Python frontend are embedded in the binary. Only viewer assets are
+// extracted into a private temporary directory for the preview server.
 include!(concat!(env!("OUT_DIR"), "/viewer_assets.rs"));
-const PYTHON_API: &str = include_str!("../../solidrecipe-core/python/solidrecipe.py");
-const PYTHON_RUNTIME: &str = include_str!("../../solidrecipe-core/python/solidrecipe_runtime.py");
 
 /// Extract the embedded assets into a private directory owned by this process.
 fn extract_resources() -> Result<tempfile::TempDir> {
@@ -27,8 +21,6 @@ fn extract_resources() -> Result<tempfile::TempDir> {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700))?;
     }
-    fs::write(root.path().join("solidrecipe.py"), PYTHON_API)?;
-    fs::write(root.path().join("solidrecipe_runtime.py"), PYTHON_RUNTIME)?;
     for (name, bytes) in VIEWER_ASSETS {
         let path = root.path().join("viewer").join(name);
         if let Some(parent) = path.parent() {
@@ -55,35 +47,20 @@ fn main() -> Result<()> {
         if args.len() < 3 {
             return Err("usage: solidrecipe serve <model.py> [--port PORT] [--no-browser]".into());
         }
-        let exe = env::current_exe()?;
-        // Resolve the model before starting uv; the caller's working directory owns this path.
+        // Resolve the model relative to the caller before starting the preview.
         let model = fs::canonicalize(&args[2])?;
         let resources = extract_resources()?;
-        // The preview child also receives Ctrl+C. Keep the parent alive until it exits so
-        // TempDir can remove the extracted viewer and runtime instead of leaving them behind.
-        let interrupted = Arc::new(AtomicBool::new(false));
-        let flag = Arc::clone(&interrupted);
-        ctrlc::set_handler(move || flag.store(true, Ordering::SeqCst))?;
-        let status = Command::new("uv")
-            .args([
-                "run",
-                "--no-project",
-                "python",
-                "-m",
-                "solidrecipe_runtime",
-                "serve",
-            ])
-            .arg(model)
-            .arg(&exe)
-            .arg(resources.path().join("viewer"))
-            .args(&args[3..])
-            .env("PYTHONPATH", resources.path())
-            .env("PYTHONDONTWRITEBYTECODE", "1")
-            .status()?;
-        if !status.success() && !interrupted.load(Ordering::SeqCst) {
-            return Err(format!("preview server exited with {status}").into());
+        let mut port = 8765;
+        let mut open_browser = true;
+        let mut options = args[3..].iter();
+        while let Some(option) = options.next() {
+            match option.as_str() {
+                "--no-browser" => open_browser = false,
+                "--port" => port = options.next().ok_or("missing port")?.parse()?,
+                _ => return Err(format!("unknown option: {option}").into()),
+            }
         }
-        return Ok(());
+        return preview::serve(model, resources.path().to_path_buf(), port, open_browser);
     }
     if args.len() != 3 {
         return Err("usage: solidrecipe <graph.json> <mesh.obj> | solidrecipe serve <model.py> [--port PORT] [--no-browser]".into());
