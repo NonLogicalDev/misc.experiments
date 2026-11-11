@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+solidcore-record = { path = "../../vendor/solidcore/crates/solidcore-record" }
 solidcore-ops = { path = "../../vendor/solidcore/crates/solidcore-ops" }
 solidcore-tess = { path = "../../vendor/solidcore/crates/solidcore-tess" }
 serde_json = "1"

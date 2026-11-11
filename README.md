@@ -37,7 +37,7 @@ Run `make format` to apply the Rust, Python and TypeScript formatters; `make for
 
 ## Scope
 
-Box and cylinder primitives and Boolean union, subtraction and intersection are implemented. The viewer does not support exact selection or measurements. STEP import/export, fillets, watching imported files, a persistent B-rep and a stable API are not implemented. Geometry has not been validated for manufacturing.
+Box and cylinder primitives, Boolean operations, translation, scaling, fillets and chamfers are implemented. Blend edges are selected by model-space points and checked for a unique match; they are not persistent topology references. The viewer does not support exact selection or measurements. STEP import/export, watching ordinary Python imports, a persistent B-rep and a stable API are not implemented. Geometry has not been validated for manufacturing.
 
 ## Direction
 
@@ -55,7 +55,7 @@ The intended experience includes a responsive preview, useful parameter controls
 
 ### Cooler adapter experiment
 
-`examples/cooler_adapter.py` reconstructs the main dimensions of either NH-L12S adapter in SolidRecipe. Use the viewer parameters to inspect the left or right half and the 4.5, 4.6, or 4.7 mm slot. It is a development comparison, not a manufacturing model: the chamfer, fillets, rounded corners, and recessed labels are not yet reproduced. The authoritative submitted design remains in the separate homelab cooler adapters project.
+`examples/cooler_adapter.py` reconstructs the main dimensions of either NH-L12S adapter in SolidRecipe. Use the viewer parameters to inspect the left or right half and the 4.5, 4.6, or 4.7 mm slot. It is a development comparison, not a manufacturing model: the 0.5 mm ledge fillet, outer rounds, and recessed labels are not yet reproduced; 2 mm slot-entry fillets and a 1 mm underside chamfer are included. The authoritative submitted design remains in the separate homelab cooler adapters project.
 
 ### Inspecting a shape
 
@@ -88,3 +88,33 @@ sr.export(bracket())
 Another file uses `mounts = sr.load("hardware.py").mounts` and calls `mounts.bracket(height=4.5)`. Relative paths resolve from the loading file. Loading exports does not put them into the caller's preview; explicitly export the resulting shape. Cycles and duplicate names are errors. Module and export names must be Python identifiers; names also support indexing, such as `hardware["mounts"]["bracket"]`.
 
 The viewer can select an exported factory with default arguments and presents controls for its arguments. Use `typing.Annotated[T, sr.Param(...)]` for description, unit, minimum, maximum, step, and options. For preview, arguments must be named and have defaults; factories can still be loaded and called with arguments from another model. See `examples/modules/`.
+
+### Part placement and edge blends
+
+Shapes are immutable-style graph nodes: build a part in local coordinates, then place or scale it without changing the source shape. Scaling is about the origin and accepts one uniform factor or three axis factors.
+
+```python
+part = sr.Box(10, 20, 5)
+placed = part.scale(1.2).translate(30, 0, 0)
+rounded = part.fillet(edge_points=[[0, 0, 2.5]], radius=1)
+beveled = part.chamfer(edge_points=[[0, 0, 2.5]], distance=1)
+```
+
+Blend points are in the input body's coordinates, in millimeters. Each must match exactly one edge within the specified tolerance, which defaults to 0.01 mm. These selections are geometric, not persistent feature identities; changes to the model can cause them to fail or select a different edge, so inspect and verify important geometry.
+
+### Measurements and initial topology identities
+
+Earlier shapes can drive later calculations in the embedded runtime:
+
+```python
+stock = sr.Box(10, 20, 5).with_metadata(id="stock")
+measurements = stock.measure()
+length = measurements.bounds.size[0]
+edge = stock.edge("x_min", "y_min")
+placed = stock.translate(30, 0, 0)
+same_edge = placed.resolve(edge["identity"])
+```
+
+Measurements evaluate the B-rep in-process. Bounds use millimeters and volume uses cubic millimeters; `.bounds` exposes `minimum`, `maximum`, `size`, and `center`. `sr.inspect_data(shape)` returns detailed B-rep data as a Python value, while `sr.inspect(shape)` prints JSONL.
+
+Exact face and edge identities currently cover a single explicitly named box and its translations/scales. They do **not** yet propagate through Boolean operations or fillets. Unsupported resolution raises an error rather than guessing. See [feature tracking](docs/feature-tracking.md).

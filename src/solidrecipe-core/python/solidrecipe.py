@@ -1,4 +1,4 @@
-"""Experimental language frontend: write a graph; do not invoke a kernel or viewer."""
+"""Code-first shape graphs and in-process geometry queries."""
 
 import functools
 import json
@@ -22,6 +22,98 @@ class Shape:
 
     def __and__(self, other):
         return Shape({"kind": "intersect", "left": self.node, "right": other.node})
+
+    def measure(self):
+        """Measure this shape's current B-rep for use in later model calculations."""
+        return measure(self)
+
+    def face(self, role):
+        """Return current face data for a named box role such as `z_max`."""
+        data = inspect_data(self)
+        matches = [
+            face
+            for face in data["faces"]
+            if face.get("identity", {}).get("role") == role
+        ]
+        if len(matches) != 1:
+            raise ValueError(
+                f"face {role!r} has no unique persistent identity on this shape"
+            )
+        return matches[0]
+
+    def edge(self, first_face, second_face):
+        """Return the named box edge between two face roles, with its measured length."""
+        roles = sorted([first_face, second_face])
+        data = inspect_data(self)
+        matches = [
+            edge
+            for edge in data["edges"]
+            if edge.get("identity", {}).get("roles") == roles
+        ]
+        if len(matches) != 1:
+            raise ValueError(
+                f"edge {roles!r} has no unique persistent identity on this shape"
+            )
+        return matches[0]
+
+    def resolve(self, identity):
+        """Resolve an exact face or edge identity on the current shape.
+
+        Unsupported operations and missing or ambiguous identities fail explicitly.
+        """
+        if not isinstance(identity, dict) or identity.get("kind") not in (
+            "face",
+            "edge",
+        ):
+            raise ValueError("expected a face or edge identity from inspect_data")
+        data = inspect_data(self)
+        items = data["faces" if identity["kind"] == "face" else "edges"]
+        matches = [item for item in items if item.get("identity") == identity]
+        if len(matches) != 1:
+            raise ValueError(
+                "identity is unavailable, missing, or ambiguous on this shape"
+            )
+        return matches[0]
+
+    def translate(self, x, y, z):
+        """Return a copy placed by the given X, Y and Z offsets in millimeters."""
+        return Shape({"kind": "translate", "body": self.node, "offset": [x, y, z]})
+
+    def scale(self, x, y=None, z=None):
+        """Scale about the origin: one factor uniformly, or three factors by axis."""
+        if y is None and z is None:
+            y = z = x
+        elif y is None or z is None:
+            raise ValueError("scale takes one factor or three axis factors")
+        return Shape({"kind": "scale", "body": self.node, "factors": [x, y, z]})
+
+    def fillet(self, *, edge_points, radius, tolerance=0.01):
+        """Round edges passing uniquely near the given model-space points, in mm.
+
+        Points are geometric selectors, not persistent topology identities. A rebuild
+        fails if any point identifies no edge or more than one edge within tolerance.
+        """
+        return Shape(
+            {
+                "kind": "fillet",
+                "body": self.node,
+                "points": edge_points,
+                "size": radius,
+                "tolerance": tolerance,
+            }
+        )
+
+    def chamfer(self, *, edge_points, distance, tolerance=0.01):
+        """Bevel edges passing uniquely near the given points, with equal setbacks in mm."""
+        return Shape(
+            {
+                "kind": "chamfer",
+                "body": self.node,
+                "points": edge_points,
+                "size": distance,
+                "tolerance": tolerance,
+            }
+        )
 
     def with_metadata(self, **metadata):
         """Return a shape whose graph node carries JSON-serializable author metadata.
@@ -51,18 +143,56 @@ def Cylinder(radius, height, origin=(0, 0, 0)):
     )
 
 
-def inspect(shape, name=None):
-    """Print one JSONL B-rep inspection record to stderr; indices are not persistent.
+class Bounds:
+    """Axis-aligned B-rep bounds, in millimeters."""
 
-    The embedded Rust host supplies the in-process B-rep inspection bridge.
-    """
+    def __init__(self, minimum, maximum):
+        self.minimum = tuple(minimum)
+        self.maximum = tuple(maximum)
+
+    @property
+    def size(self):
+        return tuple(hi - lo for lo, hi in zip(self.minimum, self.maximum, strict=True))
+
+    @property
+    def center(self):
+        return tuple(
+            (lo + hi) / 2 for lo, hi in zip(self.minimum, self.maximum, strict=True)
+        )
+
+
+class Measurements:
+    """B-rep measurements for one evaluated shape; volume is in cubic millimeters."""
+
+    def __init__(self, result):
+        self.bounds = Bounds(result["bounds"]["min"], result["bounds"]["max"])
+        self.volume = result["volume"]
+
+
+def measure(shape):
+    """Evaluate and measure a prior shape in-process; this currently builds it anew."""
     if not isinstance(shape, Shape):
-        raise TypeError("inspect expects a solidrecipe Shape")
+        raise TypeError("measure expects a solidrecipe Shape")
+    if _measure_graph is None:
+        raise RuntimeError("measure requires the embedded SolidRecipe runtime")
+    return Measurements(json.loads(_measure_graph(json.dumps(shape.node))))
+
+
+def inspect_data(shape):
+    """Return rich B-rep details; face and edge indices apply only to this result."""
+    if not isinstance(shape, Shape):
+        raise TypeError("inspect_data expects a solidrecipe Shape")
     if _inspect_graph is None:
-        raise RuntimeError("inspect requires the embedded SolidRecipe runtime")
+        raise RuntimeError("inspect_data requires the embedded SolidRecipe runtime")
     record = json.loads(_inspect_graph(json.dumps(shape.node)))
-    record["name"] = name
     record["graph"] = shape.node
+    return record
+
+
+def inspect(shape, name=None):
+    """Print one JSONL B-rep inspection record to stderr; indices are not persistent."""
+    record = inspect_data(shape)
+    record["name"] = name
     print(
         json.dumps(record, separators=(",", ":"), allow_nan=False),
         file=sys.stderr,
@@ -70,8 +200,9 @@ def inspect(shape, name=None):
     )
 
 
-# The Rust host installs this callable when it embeds the module.
+# The embedded Rust host installs these in-process B-rep bridges.
 _inspect_graph = None
+_measure_graph = None
 
 
 # The embedded host resets this registry before each model evaluation.

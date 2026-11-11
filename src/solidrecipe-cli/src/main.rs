@@ -1,6 +1,6 @@
 //! Headless model evaluation and a local live viewer for Python model files.
 mod preview;
-use solidrecipe_core::{build, display_mesh, inspect, Result};
+use solidrecipe_core::{build, display_mesh, inspect_graph, Result};
 use std::{
     env, fs,
     fs::File,
@@ -40,7 +40,7 @@ fn main() -> Result<()> {
         let mut input = String::new();
         std::io::stdin().read_to_string(&mut input)?;
         let graph = serde_json::from_str(&input)?;
-        println!("{}", inspect(&build(&graph)?)?);
+        println!("{}", inspect_graph(&graph)?);
         return Ok(());
     }
     if args.get(1).map(String::as_str) == Some("serve") {

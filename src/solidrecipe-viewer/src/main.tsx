@@ -123,6 +123,7 @@ function App() {
   const [errorDetails, setErrorDetails] = useState<string | null>(null)
   const revision = useRef(0)
   const parameterKey = useRef('')
+  const editingParameters = useRef(false)
   const [parameters, setParameters] = useState<Parameter[]>([])
   const [outputs, setOutputs] = useState<string[]>([])
   const [selectedOutput, setSelectedOutput] = useState('')
@@ -171,6 +172,11 @@ function App() {
           const loaded = parseMesh(data.name, data.mesh, revision.current === 0)
           setModel(loaded)
           revision.current = data.revision
+          // A different client or a server restart can change values. Preserve an
+          // unfinished local edit, but otherwise keep controls aligned with the mesh.
+          if (!editingParameters.current) {
+            setValues(Object.fromEntries(specs.map((p) => [p.name, p.value])))
+          }
           setSelectedOutput(data.output ?? '')
         }
         if (data.error) {
@@ -228,6 +234,7 @@ function App() {
   async function applyValues(nextValues: Values, output?: string) {
     try {
       await post('/api/parameters', { values: nextValues, output })
+      editingParameters.current = false
       setParameterMessage('Updating preview…')
     } catch (error) {
       setParameterMessage(error instanceof Error ? error.message : 'Could not update parameters.')
@@ -238,10 +245,16 @@ function App() {
     setSelectedOutput(name)
     try {
       await post('/api/output', { name })
+      editingParameters.current = false
       setParameterMessage('Updating preview…')
     } catch (error) {
       setParameterMessage(error instanceof Error ? error.message : 'Could not select output.')
     }
+  }
+
+  function changeParameter(name: string, value: ParameterValue) {
+    editingParameters.current = true
+    setValues((old) => ({ ...old, [name]: value }))
   }
 
   async function savePreset() {
@@ -318,8 +331,7 @@ function App() {
                       const choice = parameter.options?.find(
                         (item) => String(item) === event.target.value,
                       )
-                      if (choice !== undefined)
-                        setValues((old) => ({ ...old, [parameter.name]: choice }))
+                      if (choice !== undefined) changeParameter(parameter.name, choice)
                     }}
                   >
                     {parameter.options.map((choice) => (
@@ -333,9 +345,7 @@ function App() {
                     id={`param-${parameter.name}`}
                     type="checkbox"
                     checked={Boolean(values[parameter.name] ?? parameter.value)}
-                    onChange={(event) =>
-                      setValues((old) => ({ ...old, [parameter.name]: event.target.checked }))
-                    }
+                    onChange={(event) => changeParameter(parameter.name, event.target.checked)}
                   />
                 ) : (
                   <input
@@ -346,13 +356,12 @@ function App() {
                     max={parameter.maximum ?? undefined}
                     step={parameter.step ?? 'any'}
                     onChange={(event) =>
-                      setValues((old) => ({
-                        ...old,
-                        [parameter.name]:
-                          typeof parameter.default === 'number'
-                            ? Number(event.target.value)
-                            : event.target.value,
-                      }))
+                      changeParameter(
+                        parameter.name,
+                        typeof parameter.default === 'number'
+                          ? Number(event.target.value)
+                          : event.target.value,
+                      )
                     }
                   />
                 )}

@@ -6,7 +6,7 @@ use pyo3::{
     types::{PyDict, PyModule},
 };
 use serde_json::{json, Value};
-use solidrecipe_core::{build, display_mesh, inspect, BuildCache};
+use solidrecipe_core::{build, display_mesh, inspect_graph as inspect_brep_graph, BuildCache};
 use std::{
     collections::HashMap,
     ffi::OsString,
@@ -35,7 +35,19 @@ struct EmbeddedPython {
 fn inspect_graph(graph: &str) -> PyResult<String> {
     let result = || -> Result<String> {
         let node = serde_json::from_str(graph)?;
-        Ok(inspect(&build(&node)?)?.to_string())
+        Ok(inspect_brep_graph(&node)?.to_string())
+    };
+    result().map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+}
+
+/// Query prior geometry without serializing its full topology or spawning a process.
+#[pyfunction]
+fn measure_graph(graph: &str) -> PyResult<String> {
+    let result = || -> Result<String> {
+        let node = serde_json::from_str(graph)?;
+        let body = build(&node)?;
+        let (min, max) = body.bounds()?;
+        Ok(json!({"bounds": {"min": min, "max": max}, "volume": body.volume(1e-6)?}).to_string())
     };
     result().map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
 }
@@ -50,6 +62,7 @@ impl EmbeddedPython {
                 pyo3::ffi::c_str!("solidrecipe"),
             )?;
             api.setattr("_inspect_graph", wrap_pyfunction!(inspect_graph, &api)?)?;
+            api.setattr("_measure_graph", wrap_pyfunction!(measure_graph, &api)?)?;
             let modules = py
                 .import("sys")?
                 .getattr("modules")?

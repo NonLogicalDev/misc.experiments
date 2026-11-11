@@ -227,3 +227,57 @@ class ModulesTest(unittest.TestCase):
             finally:
                 os.killpg(process.pid, signal.SIGINT)
                 process.communicate(timeout=15)
+
+    def test_embedded_measurements_drive_later_geometry(self):
+        root = Path(__file__).resolve().parents[1]
+        cli = root / "target/debug/solidrecipe"
+        with tempfile.TemporaryDirectory() as temp:
+            model = Path(temp) / "model.py"
+            model.write_text(
+                "import solidrecipe as sr\n"
+                'base = sr.Box(2, 3, 4).with_metadata(id="stock")\n'
+                'edge = base.edge("x_min", "y_min")\n'
+                'assert abs(edge["length"] - 4) < 0.001\n'
+                'resized = sr.Box(2, 3, 6).with_metadata(id="stock")\n'
+                'assert abs(resized.resolve(edge["identity"])["length"] - 6) < 0.001\n'
+                'assert abs(base.face("z_max")["area"] - 6) < 0.001\n'
+                "stock = base.scale(2).translate(5, -2, 10)\n"
+                'assert abs(stock.resolve(edge["identity"])["length"] - 8) < 0.001\n'
+                'assert sr.inspect_data(stock)["identity_status"] == "exact_named_box"\n'
+                "measurements = stock.measure()\n"
+                "assert measurements.bounds.minimum == (5, -2, 10)\n"
+                "assert measurements.bounds.size == (4, 6, 8)\n"
+                "assert abs(measurements.volume - 192) < 0.001\n"
+                'edges = sr.inspect_data(stock)["edges"]\n'
+                "assert len(edges) == 12\n"
+                "sr.export(sr.Box(measurements.bounds.size[0], 1, 1, origin=measurements.bounds.maximum))\n"
+            )
+            process = subprocess.Popen(
+                [str(cli), "serve", str(model), "--port", "0", "--no-browser"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                start_new_session=True,
+            )
+            try:
+                process.stdout.readline()
+                url = (
+                    process.stdout.readline()
+                    .strip()
+                    .removeprefix("Viewer: ")
+                    .rstrip("/")
+                )
+                deadline = time.monotonic() + 30
+                while time.monotonic() < deadline:
+                    with urlopen(url + "/api/preview", timeout=5) as response:
+                        state = json.load(response)
+                    if state["error"]:
+                        self.fail(state["error"])
+                    if state["revision"] >= 1:
+                        break
+                    time.sleep(0.1)
+                self.assertGreaterEqual(state["revision"], 1)
+                self.assertTrue(state["mesh"])
+            finally:
+                os.killpg(process.pid, signal.SIGINT)
+                process.communicate(timeout=15)
