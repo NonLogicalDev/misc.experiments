@@ -23,7 +23,9 @@ enabled = true
 # depends-on = ["0001-base"] # optional; each dependency must be earlier and enabled
 
 [vcs]
-commit-msg = "Compose tools\n"
+commit-msg = """
+Compose tools
+"""
 co-authors = ["Example Contributor <contributor@example.com>"] # optional
 
 [[operation]]
@@ -66,7 +68,7 @@ layerctl projection delete demo
 
 After a conflict, resolve the affected files in the reported workspace and run `projection continue`; remaining operations run before the commit. If a process stops during an operation, layerctl refuses to guess whether it completed; delete the owned projection and recreate it. If a process terminates while holding a projection lock, verify that no layerctl command is still operating on that projection before running `layerctl projection unlock NAME`. Refreshing a manifest layer preserves the original operations and appends a patch, but currently refuses manifests with comments rather than discarding them. Refresh verification replays its operations, including scripts.
 
-The graph includes all layers, including disabled ones, with dashed ordering edges and solid dependency edges.
+The graph includes all layers, including disabled ones, and edges show their effective dependencies. A layer that omits `depends-on` depends on the preceding enabled layer; an explicit list replaces that default, and `depends-on = []` declares no dependencies. Layers still execute in numbered order.
 
 A script-bearing layer may include supporting files, which scripts can read through `LAYERCTL_LAYER_DIR`. A script operation executes the layer-relative executable directly, with the workspace as its working directory. It receives `LAYERCTL_WORKTREE_DIR`, `LAYERCTL_DEFINITION_DIR`, `LAYERCTL_LAYER_DIR`, `LAYERCTL_LAYER_ID`, and the one-based `LAYERCTL_OPERATION_INDEX`. A successful script stages tracked changes and non-ignored new files; a nonzero exit stops the projection. Scripts are trusted programs and can have side effects outside the workspace. `layerctl check` also runs them.
 

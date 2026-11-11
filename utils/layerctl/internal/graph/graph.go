@@ -10,9 +10,9 @@ import (
 	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/definition"
 )
 
-// Write renders layers in their given order. Each edge points from a
-// dependency to the layer that declares it. Dashed edges labeled order show
-// the declared sequence, including disabled layers. No output is written for an
+// Write renders dependency edges from prerequisite to dependent. When a layer
+// omits depends-on, its prerequisite is the preceding enabled layer. An
+// explicitly empty list declares no prerequisites. No output is written for an
 // unsupported format or an invalid graph.
 func Write(w io.Writer, layers []definition.Unit, format string) error {
 	if format != "dot" && format != "mermaid" {
@@ -35,6 +35,22 @@ func Write(w io.Writer, layers []definition.Unit, format string) error {
 			}
 		}
 	}
+	dependencies := make([][]int, len(layers))
+	previousEnabled := -1
+	for i, layer := range layers {
+		if layer.DependsOn == nil {
+			if previousEnabled >= 0 {
+				dependencies[i] = append(dependencies[i], previousEnabled)
+			}
+		} else {
+			for _, dep := range layer.DependsOn {
+				dependencies[i] = append(dependencies[i], ids[dep])
+			}
+		}
+		if !layer.Disabled {
+			previousEnabled = i
+		}
+	}
 	var b strings.Builder
 	switch format {
 	case "dot":
@@ -50,12 +66,9 @@ func Write(w io.Writer, layers []definition.Unit, format string) error {
 			}
 			b.WriteString("];\n")
 		}
-		for i := 1; i < len(layers); i++ {
-			fmt.Fprintf(&b, "  n%d -> n%d [style=dashed, label=\"order\"];\n", i-1, i)
-		}
-		for i, layer := range layers {
-			for _, dep := range layer.DependsOn {
-				fmt.Fprintf(&b, "  n%d -> n%d;\n", ids[dep], i)
+		for i, deps := range dependencies {
+			for _, dep := range deps {
+				fmt.Fprintf(&b, "  n%d -> n%d;\n", dep, i)
 			}
 		}
 		b.WriteString("}\n")
@@ -68,12 +81,9 @@ func Write(w io.Writer, layers []definition.Unit, format string) error {
 			}
 			fmt.Fprintf(&b, "  n%d[\"%s\"]\n", i, mermaidLabel(label))
 		}
-		for i := 1; i < len(layers); i++ {
-			fmt.Fprintf(&b, "  n%d -. order .-> n%d\n", i-1, i)
-		}
-		for i, layer := range layers {
-			for _, dep := range layer.DependsOn {
-				fmt.Fprintf(&b, "  n%d --> n%d\n", ids[dep], i)
+		for i, deps := range dependencies {
+			for _, dep := range deps {
+				fmt.Fprintf(&b, "  n%d --> n%d\n", dep, i)
 			}
 		}
 		for i, layer := range layers {

@@ -11,7 +11,7 @@ import (
 	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/graph"
 )
 
-func TestWriteGraphShowsOrderDependenciesAndDisabledLayers(t *testing.T) {
+func TestWriteGraphShowsDependenciesAndDisabledLayers(t *testing.T) {
 	layers := []definition.Unit{
 		{ID: "0000-base"},
 		{ID: "0001-optional", Disabled: true},
@@ -23,8 +23,7 @@ func TestWriteGraphShowsOrderDependenciesAndDisabledLayers(t *testing.T) {
   n0 [label="0000-base"];
   n1 [label="0001-optional (disabled)", style="dashed,filled", fillcolor="#f2f2f2", fontcolor="#666666"];
   n2 [label="0002-feature"];
-  n0 -> n1 [style=dashed, label="order"];
-  n1 -> n2 [style=dashed, label="order"];
+  n0 -> n1;
   n0 -> n2;
 }
 `},
@@ -32,8 +31,7 @@ func TestWriteGraphShowsOrderDependenciesAndDisabledLayers(t *testing.T) {
   n0["0000-base"]
   n1["0001-optional #40;disabled#41;"]
   n2["0002-feature"]
-  n0 -. order .-> n1
-  n1 -. order .-> n2
+  n0 --> n1
   n0 --> n2
   class n1 disabled
   classDef disabled fill:#f2f2f2,stroke:#999,color:#666,stroke-dasharray: 5 5
@@ -48,6 +46,39 @@ func TestWriteGraphShowsOrderDependenciesAndDisabledLayers(t *testing.T) {
 				}
 				if b.String() != tc.want {
 					t.Fatalf("graph = %q, want %q", b.String(), tc.want)
+				}
+			}
+		})
+	}
+}
+
+func TestWriteGraphDefaultsAndExplicitDependencies(t *testing.T) {
+	layers := []definition.Unit{
+		{ID: "base"},
+		{ID: "disabled", Disabled: true},
+		{ID: "default"},
+		{ID: "independent", DependsOn: []string{}},
+		{ID: "branch", DependsOn: []string{"base"}},
+		{ID: "join", DependsOn: []string{"default", "branch"}},
+	}
+	for _, format := range []string{"dot", "mermaid"} {
+		t.Run(format, func(t *testing.T) {
+			var b bytes.Buffer
+			if err := graph.Write(&b, layers, format); err != nil {
+				t.Fatal(err)
+			}
+			arrow := " -> "
+			if format == "mermaid" {
+				arrow = " --> "
+			}
+			for _, edge := range []string{"n0" + arrow + "n1", "n0" + arrow + "n2", "n0" + arrow + "n4", "n2" + arrow + "n5", "n4" + arrow + "n5"} {
+				if !strings.Contains(b.String(), edge) {
+					t.Errorf("missing dependency %q in %s", edge, b.String())
+				}
+			}
+			for _, edge := range []string{"n1" + arrow + "n2", "n2" + arrow + "n3", "n3" + arrow + "n4"} {
+				if strings.Contains(b.String(), edge) {
+					t.Errorf("unexpected dependency %q in %s", edge, b.String())
 				}
 			}
 		})

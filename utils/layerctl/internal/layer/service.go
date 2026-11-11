@@ -228,17 +228,13 @@ func writeManifestLayer(directory string, captured layercommit.Captured, metadat
 	if len(captured.Message) == 0 || !utf8.Valid(captured.Message) || bytes.ContainsRune(captured.Message, 0) {
 		return fmt.Errorf("commit message must be nonempty UTF-8 without NUL")
 	}
-	quoted, err := json.Marshal(string(captured.Message))
-	if err != nil {
-		return err
-	}
 	var manifest bytes.Buffer
-	if metadata != nil && (metadata.Disabled || len(metadata.DependsOn) > 0) {
+	if metadata != nil && (metadata.Disabled || metadata.DependsOn != nil) {
 		manifest.WriteString("[layer]\n")
 		if metadata.Disabled {
 			manifest.WriteString("enabled = false\n")
 		}
-		if len(metadata.DependsOn) > 0 {
+		if metadata.DependsOn != nil {
 			dependencies, err := json.Marshal(metadata.DependsOn)
 			if err != nil {
 				return err
@@ -247,7 +243,7 @@ func writeManifestLayer(directory string, captured layercommit.Captured, metadat
 		}
 		manifest.WriteByte('\n')
 	}
-	fmt.Fprintf(&manifest, "[vcs]\ncommit-msg = %s\n", quoted)
+	fmt.Fprintf(&manifest, "[vcs]\ncommit-msg = %s\n", multilineMessage(string(captured.Message)))
 	if metadata != nil && len(metadata.CoAuthors) > 0 {
 		authors, err := json.Marshal(metadata.CoAuthors)
 		if err != nil {

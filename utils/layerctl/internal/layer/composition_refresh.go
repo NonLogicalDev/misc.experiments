@@ -223,12 +223,12 @@ func (s *Service) RefreshComposition(ctx context.Context, id, projectionName str
 func refreshWriteManifest(directory string, unit definition.Unit, message []byte, patchName string) error {
 	var out strings.Builder
 	quote := func(s string) string { b, _ := json.Marshal(s); return string(b) }
-	if unit.Disabled || len(unit.DependsOn) > 0 {
+	if unit.Disabled || unit.DependsOn != nil {
 		out.WriteString("[layer]\n")
 		if unit.Disabled {
 			out.WriteString("enabled = false\n")
 		}
-		if len(unit.DependsOn) > 0 {
+		if unit.DependsOn != nil {
 			out.WriteString("depends-on = [")
 			for i, id := range unit.DependsOn {
 				if i > 0 {
@@ -240,7 +240,7 @@ func refreshWriteManifest(directory string, unit definition.Unit, message []byte
 		}
 		out.WriteString("\n")
 	}
-	fmt.Fprintf(&out, "[vcs]\ncommit-msg = %s\n", quote(string(message)))
+	fmt.Fprintf(&out, "[vcs]\ncommit-msg = %s\n", multilineMessage(string(message)))
 	if len(unit.CoAuthors) > 0 {
 		out.WriteString("co-authors = [")
 		for i, author := range unit.CoAuthors {

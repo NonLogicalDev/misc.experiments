@@ -17,7 +17,9 @@ Write `layers/0001-base/layer.toml`:
 
 ```toml
 [vcs]
-commit-msg = "Import source\n"
+commit-msg = """
+Import source
+"""
 
 [[operation]]
 [operation.git-clone]
@@ -62,8 +64,8 @@ To update a cloned source, change its pinned `commit` and, if used, its `ref`, t
 
 ## Manage layers and projections
 
-- Set `[layer] enabled = false` to skip a layer. Use `depends-on = ["0001-base"]` under `[layer]` to declare an earlier enabled prerequisite. Dependencies do not reorder layers.
-- Run `layerctl graph` for DOT or `layerctl graph --format mermaid` for Mermaid. Dashed edges show order; solid edges show declared dependencies.
+- Set `[layer] enabled = false` to skip a layer. Use `depends-on = ["0001-base"]` under `[layer]` to declare an earlier enabled prerequisite. Omitting `depends-on` defaults to the previous enabled layer. An explicit list replaces that default, and `depends-on = []` declares no dependencies. Dependencies do not reorder layers.
+- Run `layerctl graph` for DOT or `layerctl graph --format mermaid` for Mermaid. Edges show effective dependencies, including the previous enabled layer when `depends-on` is omitted.
 - Run `layerctl projection list` to find workspaces and `layerctl projection path NAME` to print one. A failed `check` can leave a projection for inspection.
 - After a conflict, resolve the indicated files and run `layerctl projection continue NAME`. If an operation was interrupted, inspect the workspace before recreating it. Unlock a stale lock only after verifying no layerctl process uses it: `layerctl projection unlock NAME`.
 - Once needed work is captured, `layerctl projection delete NAME` removes that owned workspace and any uncaptured changes.

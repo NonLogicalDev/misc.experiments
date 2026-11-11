@@ -13,3 +13,9 @@ Status: implementation and walkthrough verified and checkpointed; Deluge integra
 - /root/workflow: completed, clone materialization and history-depth behavior.
 
 - /root/projection: completed, isolated composition projections and merge parents.
+
+- /root/model: completed independent review of multiline message encoding.
+
+- /root/projection: completed graph and Deluge dependency review.
+
+- /root/model and /root/projection: completed dependency analysis across the Deluge stack.
