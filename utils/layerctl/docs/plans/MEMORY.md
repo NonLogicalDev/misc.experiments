@@ -8,8 +8,8 @@ Last audited: 2026-11-11. Evidence: user direction, current checkout and upstrea
 
 DelugeFirmware conversion is complete locally; see [its plan](theme-002-deluge-conversion/EXEC_STATE.md). The fork retains its original refs, and local branch `layerctl-conversion` holds the verified definitions in the linked `fork.DelugeFirmware-layerctl` worktree.
 
-The layerctl authoring and management walkthrough is in `../../skills/layerctl/references/authoring.md`; checkpoint `ff16948` includes it. Deluge reconstruction requires a case-sensitive workspace and temporary directory; see its plan for the tree-by-tree verification.
+The layerctl authoring and management walkthrough is in `../../skills/layerctl/references/authoring.md`; checkpoint `ff16948` includes it. Deluge clone preparation now applies the case-normalization patch in a Git index before checkout; the full rebuild passed on a case-insensitive workspace and temporary directory.
 
 2026-11-11: Generated commit messages now use multiline TOML while retaining exact bytes. Graphs show explicit dependencies or the preceding enabled layer when omitted; `depends-on = []` declares none. Deluge manifests declare dependencies validated by isolated patch replay; see the [conversion plan](theme-002-deluge-conversion/completed/plan-01%20Convert%20JJ%20layers.md).
 
-Active Deluge follow-up: expand each layer commit message from source evidence; see [execution state](theme-002-deluge-conversion/EXEC_STATE.md).
+Deluge follow-up is complete: messages explain each layer and wrap at 120 characters, while `DEVIATIONS.md` is maintained at the definition root; see [execution state](theme-002-deluge-conversion/EXEC_STATE.md).
