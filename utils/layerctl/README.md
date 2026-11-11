@@ -15,6 +15,23 @@ Run the installed `layerctl` from the root or a subdirectory of the repository c
 
 ## Repository format and usage
 
-The target repository must contain `upstream.json` with an exact Git tag and commit, plus ordered `layers/NNNN-slug/` directories. The first layer must be `0000-foundation`. Each layer has a `COMMIT_EDITMSG` and may contain a `patch` and an `overlay/` of complete added files. See [the upstream guide](UPSTREAM_GUIDE.md) for the format, commands, conflict handling, and safety rules. Its `go run ./cmd/layerctl` examples assume the original source checkout; use the installed `layerctl` binary instead.
+The target repository has `upstream.json` with an exact Git tag and commit, plus ordered `layers/NNNN-slug/` directories. The first layer must be `0000-foundation`. Each layer describes one generated commit in `layer.toml`:
+
+```toml
+[vcs]
+commit-msg = "Add a feature\n\nExplain the change.\n"
+
+[[operation]]
+[operation.patch]
+file = "changes.patch"
+
+[[operation]]
+[operation.overlay]
+directory = "overlay"
+```
+
+Patch paths and overlay directories are relative to the layer directory. An overlay holds complete added files, including executable files and symlinks. The patch contains inherited file changes; an overlay cannot replace an inherited path silently. See [the upstream guide](UPSTREAM_GUIDE.md) for the original workflow and conflict model; its `go run ./cmd/layerctl` examples assume the original source checkout, so use the installed `layerctl` binary instead.
+
+Existing `COMMIT_EDITMSG`/`patch`/`overlay` layers remain readable. Convert a legacy layer with `layerctl layer migrate 0001-example`. `layerctl layer add` and `layerctl layer refresh` generate manifests and may rewrite a layer's operation structure; both verify the generated tree and commit message before replacing a layer.
 
 This extraction retains Saffrodex-specific behavior: `upstream advance` accepts Codex `rust-v...` release tags, and `check` requires and validates the upstream `codex-rs/Cargo.lock`. It is not yet a general-purpose layer manager for arbitrary upstream projects. Projection refs and worktrees are local. **`layerctl projection delete` deletes the named projection without checking whether work was captured.**

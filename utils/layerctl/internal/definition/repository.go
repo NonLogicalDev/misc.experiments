@@ -1,3 +1,4 @@
+// Modified from abg-OAI/codex: manifest-based layer definitions added.
 // Package definition reads and validates the canonical Saffrodex repository.
 // It owns the on-disk layer representation, while projection and maintenance
 // packages own operations performed with those definitions.
@@ -33,10 +34,20 @@ type Upstream struct {
 	Commit string `json:"commit"`
 }
 
-// Unit is one generated commit: a message, a patch, then disjoint additions.
+// Operation describes one validated manifest operation, in declared order.
+// Path is an absolute path to its patch file or overlay directory.
+type Operation struct {
+	Kind    string
+	Path    string
+	Overlay []OverlayEntry
+}
+
+// Unit is one generated commit, in legacy or manifest form.
 type Unit struct {
 	ID          string
 	Directory   string
+	Message     []byte
+	Operations  []Operation
 	MessagePath string
 	PatchPath   string
 	Overlay     []OverlayEntry
@@ -139,6 +150,11 @@ func LoadUnit(id, directory string) (Unit, error) {
 	entries, err := os.ReadDir(directory)
 	if err != nil {
 		return Unit{}, fmt.Errorf("read layer %q: %w", id, err)
+	}
+	for _, entry := range entries {
+		if entry.Name() == "layer.toml" {
+			return loadManifest(id, directory, entries)
+		}
 	}
 	unit := Unit{
 		ID:          id,

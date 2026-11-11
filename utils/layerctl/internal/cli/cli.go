@@ -107,9 +107,15 @@ func runUpstream(ctx context.Context, service *upstream.Service, args []string, 
 
 func runLayer(ctx context.Context, service *layer.Service, args []string, stderr io.Writer) error {
 	if len(args) < 2 {
-		return errors.New("usage: layerctl layer <add|refresh> NNNN-LAYER-SLUG --from PROJECTION")
+		return errors.New("usage: layerctl layer <add|refresh|migrate> ...")
 	}
 	id := args[1]
+	if args[0] == "migrate" {
+		if len(args) != 2 {
+			return errors.New("usage: layerctl layer migrate ID")
+		}
+		return service.Migrate(id)
+	}
 	flags := flag.NewFlagSet("layer "+args[0], flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	from := flags.String("from", "", "capture from PROJECTION")

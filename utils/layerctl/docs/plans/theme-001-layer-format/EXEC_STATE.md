@@ -6,5 +6,5 @@ Status: active. Next: implement manifest parsing, execution, capture, and migrat
 
 ## Workers
 
-- /root/manifest: active; implement manifest parser and definition tests.
-- /root/review_design: active; review execution and migration design.
+- /root/manifest: active; implement ordered-operation integration tests.
+- /root/review_design: active; implement resumable operation recovery.

@@ -6,11 +6,13 @@ package layer
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/definition"
 	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/gitrepo"
@@ -145,24 +147,10 @@ func (s *Service) writeLayer(ctx context.Context, id, before, after string, repl
 		return fmt.Errorf("create temporary layer directory: %w", err)
 	}
 	defer os.RemoveAll(temporaryPath)
-	temporaryUnit := definition.Unit{
-		ID:          id,
-		Directory:   temporaryPath,
-		MessagePath: filepath.Join(temporaryPath, "COMMIT_EDITMSG"),
+	if err := writeManifestLayer(temporaryPath, captured); err != nil {
+		return fmt.Errorf("write captured layer %q: %w", id, err)
 	}
-	if err := os.WriteFile(temporaryUnit.MessagePath, captured.Message, 0o644); err != nil {
-		return fmt.Errorf("write temporary layer message: %w", err)
-	}
-	if len(captured.Patch) > 0 {
-		temporaryUnit.PatchPath = filepath.Join(temporaryPath, "patch")
-		if err := os.WriteFile(temporaryUnit.PatchPath, captured.Patch, 0o644); err != nil {
-			return fmt.Errorf("write temporary layer patch: %w", err)
-		}
-	}
-	if err := definition.WriteOverlay(temporaryPath, captured.Overlay); err != nil {
-		return fmt.Errorf("write temporary layer overlay: %w", err)
-	}
-	temporaryUnit, err = definition.LoadUnit(id, temporaryPath)
+	temporaryUnit, err := definition.LoadUnit(id, temporaryPath)
 	if err != nil {
 		return fmt.Errorf("read captured layer %q: %w", id, err)
 	}
@@ -174,6 +162,73 @@ func (s *Service) writeLayer(ctx context.Context, id, before, after string, repl
 		return fmt.Errorf("captured layer %q does not reproduce the accepted commit", id)
 	}
 
+	return installLayer(layersRoot, id, temporaryPath, replaceExisting)
+}
+
+// writeManifestLayer writes an exact UTF-8 commit message and the canonical
+// patch-then-overlay representation produced by Capture.
+func writeManifestLayer(directory string, captured layercommit.Captured) error {
+	if len(captured.Message) == 0 || !utf8.Valid(captured.Message) || bytes.ContainsRune(captured.Message, 0) {
+		return fmt.Errorf("commit message must be nonempty UTF-8 without NUL")
+	}
+	quoted, err := json.Marshal(string(captured.Message))
+	if err != nil {
+		return err
+	}
+	var manifest bytes.Buffer
+	fmt.Fprintf(&manifest, "[vcs]\ncommit-msg = %s\n", quoted)
+	if len(captured.Patch) > 0 {
+		manifest.WriteString("\n[[operation]]\n[operation.patch]\nfile = \"patch\"\n")
+		if err := os.WriteFile(filepath.Join(directory, "patch"), captured.Patch, 0o644); err != nil {
+			return err
+		}
+	}
+	if len(captured.Overlay) > 0 {
+		manifest.WriteString("\n[[operation]]\n[operation.overlay]\ndirectory = \"overlay\"\n")
+		if err := definition.WriteOverlay(directory, captured.Overlay); err != nil {
+			return err
+		}
+	}
+	return os.WriteFile(filepath.Join(directory, "layer.toml"), manifest.Bytes(), 0o644)
+}
+
+// Migrate converts one legacy layer without changing its patch, overlay or
+// message. The original remains in place until the complete candidate loads.
+func (s *Service) Migrate(id string) error {
+	unit := s.findUnit(id)
+	if unit == nil {
+		return fmt.Errorf("layer %q does not exist", id)
+	}
+	if unit.Message != nil {
+		return nil
+	}
+	message, err := os.ReadFile(unit.MessagePath)
+	if err != nil {
+		return err
+	}
+	var patch []byte
+	if unit.PatchPath != "" {
+		patch, err = os.ReadFile(unit.PatchPath)
+		if err != nil {
+			return err
+		}
+	}
+	root := filepath.Join(s.Definition.Root, "layers")
+	temporary, err := os.MkdirTemp(root, ".layerctl-migrate-"+id+"-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(temporary)
+	if err := writeManifestLayer(temporary, layercommit.Captured{Message: message, Patch: patch, Overlay: unit.Overlay}); err != nil {
+		return fmt.Errorf("write migrated layer: %w", err)
+	}
+	if _, err := definition.LoadUnit(id, temporary); err != nil {
+		return fmt.Errorf("validate migrated layer: %w", err)
+	}
+	return installLayer(root, id, temporary, true)
+}
+
+func installLayer(layersRoot, id, temporaryPath string, replaceExisting bool) error {
 	target := filepath.Join(layersRoot, id)
 	if !replaceExisting {
 		if err := os.Rename(temporaryPath, target); err != nil {
@@ -185,14 +240,16 @@ func (s *Service) writeLayer(ctx context.Context, id, before, after string, repl
 	if err != nil {
 		return fmt.Errorf("reserve layer backup: %w", err)
 	}
-	if err := os.RemoveAll(backupPath); err != nil {
+	if err := os.Remove(backupPath); err != nil {
 		return fmt.Errorf("prepare layer backup: %w", err)
 	}
 	if err := os.Rename(target, backupPath); err != nil {
 		return fmt.Errorf("backup layer %q: %w", id, err)
 	}
 	if err := os.Rename(temporaryPath, target); err != nil {
-		_ = os.Rename(backupPath, target)
+		if rollbackErr := os.Rename(backupPath, target); rollbackErr != nil {
+			return fmt.Errorf("install refreshed layer %q: %w; restore backup %q: %v", id, err, backupPath, rollbackErr)
+		}
 		return fmt.Errorf("install refreshed layer %q: %w", id, err)
 	}
 	if err := os.RemoveAll(backupPath); err != nil {

@@ -44,7 +44,11 @@ func TestAddAndRefreshRoundTripProjectionTrees(t *testing.T) {
 	if err := layers.Add(t.Context(), layer.AddRequest{ID: "0002-added", Projection: "add-source"}); err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
-	message := readFile(t, filepath.Join(root, "layers", "0002-added", "COMMIT_EDITMSG"))
+	addedUnit, err := definition.LoadUnit("0002-added", filepath.Join(root, "layers", "0002-added"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	message := string(addedUnit.Message)
 	patch := readFile(t, filepath.Join(root, "layers", "0002-added", "patch"))
 	if message != "saffrodex: added layer\n\nExact added body.\n" ||
 		!strings.Contains(patch, "base.txt") ||
@@ -93,7 +97,11 @@ func TestAddAndRefreshRoundTripProjectionTrees(t *testing.T) {
 	if err := layers.Refresh(t.Context(), "0001-feature", "refresh-source"); err != nil {
 		t.Fatalf("Refresh() error = %v", err)
 	}
-	message = readFile(t, filepath.Join(root, "layers", "0001-feature", "COMMIT_EDITMSG"))
+	refreshedUnit, err := definition.LoadUnit("0001-feature", filepath.Join(root, "layers", "0001-feature"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	message = string(refreshedUnit.Message)
 	if message != "saffrodex: refreshed feature\n\nExact refresh body.\n" {
 		t.Fatalf("refreshed layer message = %q", message)
 	}
@@ -276,5 +284,61 @@ func writeLayerDefinition(t *testing.T, root, id string, captured layercommit.Ca
 	writeFile(t, filepath.Join(directory, "COMMIT_EDITMSG"), string(captured.Message), 0o644)
 	if len(captured.Patch) > 0 {
 		writeFile(t, filepath.Join(directory, "patch"), string(captured.Patch), 0o644)
+	}
+}
+
+func TestMigratePreservesLegacyLayerAndCanReplay(t *testing.T) {
+	root := newCanonicalRepository(t)
+	layers, projections := newServices(t, root)
+	before, err := projections.Create(t.Context(), projection.CreateRequest{Name: "before-migrate", Through: "0001-feature"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	layerDir := filepath.Join(root, "layers", "0001-feature")
+	originalMessage := readFile(t, filepath.Join(layerDir, "COMMIT_EDITMSG"))
+	if err := layers.Migrate("0001-feature"); err != nil {
+		t.Fatal(err)
+	}
+	unit, err := definition.LoadUnit("0001-feature", layerDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(unit.Message) != originalMessage {
+		t.Fatalf("message changed: %q", unit.Message)
+	}
+	if _, err := os.Stat(filepath.Join(layerDir, "COMMIT_EDITMSG")); !os.IsNotExist(err) {
+		t.Fatalf("legacy message still present: %v", err)
+	}
+	layers, projections = newServices(t, root)
+	if err := layers.Migrate("0001-feature"); err != nil {
+		t.Fatalf("second migration: %v", err)
+	}
+	after, err := projections.Create(t.Context(), projection.CreateRequest{Name: "after-migrate", Through: "0001-feature"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertSameTree(t, root, before.Head, after.Head)
+	if got := gitOutput(t, root, "show", "-s", "--format=%B", after.Head); got != gitOutput(t, root, "show", "-s", "--format=%B", before.Head) {
+		t.Fatalf("commit message changed: %q", got)
+	}
+}
+
+func TestMigrateRejectsNonUTF8MessageWithoutChangingLegacyLayer(t *testing.T) {
+	root := newCanonicalRepository(t)
+	messagePath := filepath.Join(root, "layers", "0001-feature", "COMMIT_EDITMSG")
+	invalid := []byte{0xff, '\n'}
+	if err := os.WriteFile(messagePath, invalid, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	layers, _ := newServices(t, root)
+	if err := layers.Migrate("0001-feature"); err == nil {
+		t.Fatal("expected invalid UTF-8 rejection")
+	}
+	got, err := os.ReadFile(messagePath)
+	if err != nil || !bytes.Equal(got, invalid) {
+		t.Fatalf("original message changed: %q, %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "layers", "0001-feature", "layer.toml")); !os.IsNotExist(err) {
+		t.Fatalf("unexpected manifest: %v", err)
 	}
 }

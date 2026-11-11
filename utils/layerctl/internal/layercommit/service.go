@@ -110,6 +110,10 @@ func (s *Service) diff(ctx context.Context, before, after string) ([]byte, error
 // Git stages clean changes during conflicts; callers retain the worktree for
 // resolution. Overlay collisions require refresh, including identical additions.
 func (s *Service) Apply(ctx context.Context, worktree string, unit definition.Unit) error {
+	unit, err := normalizedUnit(unit)
+	if err != nil {
+		return err
+	}
 	patch, err := s.applicationPatch(ctx, unit)
 	if err != nil {
 		return err
@@ -163,16 +167,15 @@ func (s *Service) Apply(ctx context.Context, worktree string, unit definition.Un
 // Commit records the staged tree using unit's exact commit message. It is also
 // used after an operator resolves a conflicted three-way application.
 func (s *Service) Commit(ctx context.Context, worktree string, unit definition.Unit) error {
-	return s.Git.Run(
-		ctx,
-		worktree,
-		"commit",
-		"--allow-empty",
-		"--no-verify",
-		"--no-gpg-sign",
-		"--cleanup=verbatim",
-		"--file", unit.MessagePath,
-	)
+	message, err := s.Message(unit)
+	if err != nil {
+		return err
+	}
+	_, err = s.Git.Invoke(ctx, worktree, gitrepo.Invocation{
+		Arguments: []string{"commit", "--allow-empty", "--no-verify", "--no-gpg-sign", "--cleanup=verbatim", "--file", "-"},
+		Stdin:     message,
+	})
+	return err
 }
 
 // HasConflicts reports whether worktree contains unresolved index entries.
@@ -186,6 +189,9 @@ func (s *Service) HasConflicts(ctx context.Context, worktree string) (bool, erro
 
 // Message reads the exact generated commit message from unit.
 func (s *Service) Message(unit definition.Unit) ([]byte, error) {
+	if unit.Message != nil {
+		return unit.Message, nil
+	}
 	message, err := os.ReadFile(unit.MessagePath)
 	if err != nil {
 		return nil, fmt.Errorf("read layer message %q: %w", unit.MessagePath, err)
