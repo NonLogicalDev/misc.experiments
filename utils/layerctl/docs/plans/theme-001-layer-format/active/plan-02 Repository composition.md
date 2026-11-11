@@ -90,3 +90,5 @@ Active. User requested multiple repositories and a `git-clone` operation with a 
 - Independent review found that refreshing script-bearing manifests could discard operations and `layer add` could flatten merge ancestry. Preserve authored manifest operations for all composition refreshes and reject merge capture unless ancestry is explicitly represented; add regression tests before proceeding.
 
 - 2026-11-11: Integrated the reviewed Git-only composition implementation and skill. Full Go suite, gofmt, skill validator and plan doctor passed. Real CLI smoke verified two merge parents, both graph formats, disabled/dependency metadata, script environment and assets, coauthors, stdout isolation and cleanup. One upstream empty-symlink case skips on this filesystem. Next: checkpoint locally, then assess Deluge conversion; do not publish.
+
+- 2026-11-11: User requested a walkthrough for authoring, managing, and updating layers within the skill. Add a practical, verified reference and link it from the skill.

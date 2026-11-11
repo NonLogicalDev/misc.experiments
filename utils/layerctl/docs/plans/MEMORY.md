@@ -6,4 +6,4 @@ Last audited: 2026-11-11. Evidence: user direction, current checkout and upstrea
 
 2026-11-11: User redirected the layer-format work toward multiple repositories and `git-clone` base operations. See the active plan; prior Codex-specific upstream model is being reassessed.
 
-DelugeFirmware conversion is pending; see [its plan](theme-002-deluge-conversion/EXEC_STATE.md). Verify the local checkout and JJ state after the tool is ready.
+DelugeFirmware conversion is active; see [its plan](theme-002-deluge-conversion/EXEC_STATE.md). The fork is cloned with its original refs intact. The user also requested a practical authoring, management, and update walkthrough in the layerctl skill.
