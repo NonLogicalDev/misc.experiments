@@ -21,3 +21,5 @@ Status: implementation and walkthrough verified and checkpointed; Deluge integra
 - /root/model and /root/projection: completed dependency analysis across the Deluge stack.
 
 - /root/model: completed clone preparation manifest, refresh and recovery metadata. /root/projection: completed clone preparation Git plumbing.
+
+Active: [pre-checkout script and optional clone directory](active/plan-03%20Pre-checkout%20script.md); /root/model, /root/projection, and /root/integration_review are assigned in the plan.

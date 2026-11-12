@@ -13,3 +13,7 @@ The layerctl authoring and management walkthrough is in `../../skills/layerctl/r
 2026-11-11: Generated commit messages now use multiline TOML while retaining exact bytes. Graphs show explicit dependencies or the preceding enabled layer when omitted; `depends-on = []` declares none. Deluge manifests declare dependencies validated by isolated patch replay; see the [conversion plan](theme-002-deluge-conversion/completed/plan-01%20Convert%20JJ%20layers.md).
 
 Deluge follow-up is complete: messages explain each layer and wrap at 120 characters, while `DEVIATIONS.md` is maintained at the definition root; see [execution state](theme-002-deluge-conversion/EXEC_STATE.md).
+
+Active layerctl follow-up: bare Git pre-checkout scripts return a commit or tree SHA, and clone `dir` can be omitted; see [plan](theme-001-layer-format/active/plan-03%20Pre-checkout%20script.md).
+
+Active Deluge follow-up: use the upstream SynthstromAudible repository as the base; see [plan](theme-002-deluge-conversion/active/plan-03%20Use%20upstream%20source.md).
