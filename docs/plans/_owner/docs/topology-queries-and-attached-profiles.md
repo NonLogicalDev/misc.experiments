@@ -30,12 +30,14 @@ edges = query.entities(cut, type="edge")
 selected = edges.where(
     adjacent_to(faces.where(originates_from(stock)))
     & adjacent_to(faces.where(originates_from(tool)))
-    & within(half_space(datum_plane))
+    & on_side_of(datum_plane, side="positive", match="entire")
 )
 rounded = cut.fillet(edges=selected, radius=2)
 ```
 
 This sketch expresses a set, not an assumed number of edges. An operation may require a nonempty set; the author may additionally assert an expected count or require one result. A count can detect some changes, but two different sets can have the same count. Query evaluation after a parameter edit may intentionally select a different set that satisfies the same criteria; it is not equivalent to following a particular persistent entity.
+
+Here `on_side_of` is a proposed general predicate, not an implemented API. The positive side is the side pointed to by the plane's normal; `match="entire"` means the whole entity must lie on that side. The exact naming, defaults, treatment of entities touching the plane, and tolerance remain to be designed. Prefer language that makes the side and behavior clear to model authors over mathematical jargon such as “half-space.”
 
 An interface query needs an exact contract. One possible definition is edges incident to output faces whose verified origins belong to opposite operands. That is not the same as “edges newly created by the Boolean”: a coincident or pre-existing contact edge can belong to an interface. Other useful concepts include created-by, modified-by, adjacent-to, owned-by, and descendants-of. Do not call any of them complete until its underlying lineage can support that claim. The user should be able to combine geometric and construction predicates without depending on boxes.
 
