@@ -23,6 +23,7 @@ Read the project `AGENTS.md`, `docs/plans/MEMORY.md`, `docs/plans/OWNERS.md`, an
 - Python `Shape.instance(name)` introduces an explicit namespace; Rust adds the instance path to identities and rejects duplicate names in a scope unless the same authored node is reused. Python assigns process-local occurrence tokens to distinguish shared nodes from independent nodes during graph validation; these tokens are not persistent topology identities.
 - Python lookup checks singular and multiple identities, ignores nulls, and reports merged, split or ambiguous, known identities without a surviving tracked descendant, and unknown or unavailable identities. It does not infer deletion from absent provenance. Fillets and chamfers accept `edge_refs` as well as their original point selectors; the evaluator resolves references on the operand body and refuses missing, split, merged, ambiguous, or duplicate selections.
 - The former record-import correspondence guard was removed with the switch to operation-local tags on the authoritative bodies. **Callback completeness remains unproven:** untagged results cannot safely be classified as generated, and a missing tag does not prove deletion. Generated faces and edges do not yet receive stable identities. Do not claim general exact identity from the current tests.
+- An isolated blend-face lineage probe traced a selected edge to a stitched face for box fillet/chamfer and a cut-shape fillet, but is not production-ready. The normal stitch path sends face PreEdit through an empty attribute store and may swallow ordinary notification errors; the probe cannot certify complete lineage. The source audit and temporary prototype are at `/private/tmp/solidrecipe-provenance-probe/` while that temporary directory exists. Do not promote its marker without auditing and fixing the relevant kernel paths, ambiguity and rollback behavior.
 
 ## Verified evidence and latest interruption
 
@@ -34,7 +35,7 @@ Read the project `AGENTS.md`, `docs/plans/MEMORY.md`, `docs/plans/OWNERS.md`, an
 
 ## Next work
 
-1. Establish where kernel callbacks provide complete history, including coincident and curved geometry; classify unsupported or incomplete cases without choosing nearby topology.
+1. Establish and enforce complete operation-level lineage in the kernel, including stitch notification delivery and error handling, coincident and curved geometry, ambiguity and rollback; classify unsupported cases without choosing nearby topology.
 2. Complete and test explicit deletion and generation semantics, graph instances and shared branches. Cover Boolean cuts, unions and intersections, both blend types, transforms, parameter edits, and negative cases through the real entry points.
 3. Give generated entities stable references where supported, then revisit the adapter's generated setback edge without changing its geometry.
 4. After changes, repeat affected checks through the real entry points, review the complete diff, update the live plan, and checkpoint locally.
