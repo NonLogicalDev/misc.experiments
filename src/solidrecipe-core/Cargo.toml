@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 solidcraft-kernel = { path = "../../vendor/solidcraft/crates/kernel" }
+solidcraft-smlib = { path = "../../vendor/solidcraft/crates/smlib" }
 solidcore-record = { path = "../../vendor/solidcraft/solidcore/crates/solidcore-record" }
 solidcore-ops = { path = "../../vendor/solidcraft/solidcore/crates/solidcore-ops" }
 solidcore-tess = { path = "../../vendor/solidcraft/solidcore/crates/solidcore-tess" }

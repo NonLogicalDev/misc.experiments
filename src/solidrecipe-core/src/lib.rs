@@ -1,8 +1,7 @@
 //! Evaluate a small model graph using SolidCore. Display meshes are not CAD geometry.
+mod provenance;
 use serde_json::Value;
-use solidcore_ops::{
-    blend_ordered, boolean::boolean, make_box, make_cylinder, Blend, Body, BooleanOp, Corners,
-};
+use solidcore_ops::{make_box, make_cylinder, Body};
 use solidcore_record::brep::Loop;
 use std::{
     collections::{HashMap, HashSet},
@@ -30,26 +29,7 @@ fn vector(v: &Value) -> Result<[f64; 3]> {
 /// Operands are evaluated independently because SolidCore booleans consume their input bodies.
 /// An empty Boolean result is reported as an error; the current graph API has no empty-shape type.
 pub fn build(node: &Value) -> Result<Body> {
-    match node["kind"].as_str() {
-        Some("box") => Ok(make_box(vector(&node["origin"])?, vector(&node["size"])?)?),
-        Some("cylinder") => Ok(make_cylinder(
-            vector(&node["origin"])?,
-            node["radius"].as_f64().ok_or("invalid cylinder radius")?,
-            node["height"].as_f64().ok_or("invalid cylinder height")?,
-        )?),
-        Some(kind @ ("translate" | "scale")) => transform_body(build(&node["body"])?, node, kind),
-        Some(kind @ ("fillet" | "chamfer")) => blend_edges(build(&node["body"])?, node, kind),
-        Some(kind @ ("subtract" | "union" | "intersect")) => {
-            let op = match kind {
-                "subtract" => BooleanOp::Subtract,
-                "union" => BooleanOp::Union,
-                _ => BooleanOp::Intersect,
-            };
-            boolean(build(&node["left"])?, build(&node["right"])?, op)?
-                .ok_or_else(|| "empty result".into())
-        }
-        _ => Err("unknown node".into()),
-    }
+    Ok(BuildCache::default().build(node)?.0)
 }
 
 /// Transform an independently built body; SolidCore uses row-vector affine matrices.
@@ -73,10 +53,9 @@ fn transform_body(body: Body, node: &Value, kind: &str) -> Result<Body> {
     Ok(body)
 }
 
-/// Apply a real kernel blend to uniquely identified edges on this evaluated body.
-fn blend_edges(body: Body, node: &Value, kind: &str) -> Result<Body> {
+/// A point is accepted only if exactly one edge lies within the requested tolerance.
+fn select_blend_edges(body: &Body, node: &Value) -> Result<(solidcore_ops::Order, Vec<usize>)> {
     let tolerance = node["tolerance"].as_f64().ok_or("invalid edge tolerance")?;
-    let size = node["size"].as_f64().ok_or("invalid blend size")?;
     if !tolerance.is_finite() || tolerance <= 0.0 {
         return Err("edge tolerance must be finite and positive".into());
     }
@@ -108,22 +87,7 @@ fn blend_edges(body: Body, node: &Value, kind: &str) -> Result<Body> {
         }
         selected.push(matches[0]);
     }
-    let blend = if kind == "fillet" {
-        Blend::Round
-    } else {
-        Blend::Chamfer
-    };
-    blend_ordered(
-        &body,
-        &order,
-        blend,
-        &selected,
-        &[size],
-        &[],
-        Corners::Filled,
-        Default::default(),
-    )?;
-    Ok(body)
+    Ok((order, selected))
 }
 
 /// In-memory B-rep cache keyed by the full serialized expression subtree.
@@ -133,7 +97,7 @@ fn blend_edges(body: Body, node: &Value, kind: &str) -> Result<Body> {
 /// successful graph are retained, so interactive edits cannot grow the cache indefinitely.
 #[derive(Default)]
 pub struct BuildCache {
-    bodies: HashMap<String, Body>,
+    bodies: HashMap<String, Evaluated>,
 }
 
 /// Cache reuse counts for a single rebuild, useful for performance diagnostics.
@@ -143,18 +107,97 @@ pub struct CacheStats {
     pub misses: usize,
 }
 
+/// Geometry and its topology report must travel together: report indices name
+/// entities in this body's record, not entities in an independently evaluated graph.
+struct Evaluated {
+    body: Body,
+    report: Value,
+}
+
+impl Evaluated {
+    /// Copy for consuming operations and map the report using the kernel's copy map.
+    fn copy(&self) -> Result<Self> {
+        let (_, source_order) = self.body.to_record()?;
+        let (body, mapped_order) = self.body.copy_with_order(&source_order)?;
+        let (_, target_order) = body.to_record()?;
+        let mut report = self.report.clone();
+        for (group, mapping) in [
+            (
+                "faces",
+                mapped_order
+                    .faces
+                    .iter()
+                    .map(|item| target_order.faces.iter().position(|target| target == item))
+                    .collect::<Vec<_>>(),
+            ),
+            (
+                "edges",
+                mapped_order
+                    .edges
+                    .iter()
+                    .map(|item| target_order.edges.iter().position(|target| target == item))
+                    .collect::<Vec<_>>(),
+            ),
+        ] {
+            let old = report[group]
+                .as_array()
+                .ok_or("missing topology report")?
+                .clone();
+            if old.len() != mapping.len() {
+                return Err("copy changed topology count".into());
+            }
+            let mut new = vec![Value::Null; old.len()];
+            for (index, destination) in mapping.into_iter().enumerate() {
+                let destination = destination.ok_or("copy lost topology correspondence")?;
+                if destination >= new.len() || !new[destination].is_null() {
+                    return Err("copy has ambiguous topology correspondence".into());
+                }
+                new[destination] = old[index].clone();
+                new[destination]["index"] = destination.into();
+            }
+            report[group] = Value::Array(new);
+        }
+        // Incidence and measurement fields are regenerated against the copied body's order.
+        let current = inspect(&body)?;
+        for group in ["faces", "edges"] {
+            for (index, entity) in current[group]
+                .as_array()
+                .ok_or("missing copied topology")?
+                .iter()
+                .enumerate()
+            {
+                let identity = report[group][index]["identity"].clone();
+                let identities = report[group][index]["identities"].clone();
+                report[group][index] = entity.clone();
+                if !identity.is_null() {
+                    report[group][index]["identity"] = identity;
+                }
+                if !identities.is_null() {
+                    report[group][index]["identities"] = identities;
+                }
+            }
+        }
+        Ok(Self { body, report })
+    }
+}
+
 impl BuildCache {
     /// Build a graph, reusing unchanged subtrees and leaving the previous cache on failure.
     pub fn build(&mut self, node: &Value) -> Result<(Body, CacheStats)> {
+        let (result, stats) = self.build_tracked(node)?;
+        Ok((result.body, stats))
+    }
+
+    fn build_tracked(&mut self, node: &Value) -> Result<(Evaluated, CacheStats)> {
+        validate_graph_names(node)?;
         let mut reachable = HashSet::new();
         collect_keys(node, &mut reachable)?;
         let before: HashSet<_> = self.bodies.keys().cloned().collect();
         let mut stats = CacheStats::default();
-        let result = self.evaluate(node, &mut stats);
-        match result {
-            Ok(body) => {
+        match self.evaluate(node, &mut stats) {
+            Ok(result) => {
                 self.bodies.retain(|key, _| reachable.contains(key));
-                Ok((body, stats))
+                Ok((result, stats))
             }
             Err(error) => {
                 self.bodies.retain(|key, _| before.contains(key));
@@ -163,46 +206,139 @@ impl BuildCache {
         }
     }
 
-    fn evaluate(&mut self, node: &Value, stats: &mut CacheStats) -> Result<Body> {
-        let key = serde_json::to_string(node)?;
-        if let Some(body) = self.bodies.get(&key) {
+    fn evaluate(&mut self, node: &Value, stats: &mut CacheStats) -> Result<Evaluated> {
+        let key = cache_key(node)?;
+        if let Some(result) = self.bodies.get(&key) {
             stats.hits += 1;
-            return Ok(body.copy()?);
+            return result.copy();
         }
         stats.misses += 1;
-        let body = match node["kind"].as_str() {
-            Some(kind @ ("translate" | "scale")) => {
-                transform_body(self.evaluate(&node["body"], stats)?, node, kind)?
-            }
-            Some(kind @ ("fillet" | "chamfer")) => {
-                blend_edges(self.evaluate(&node["body"], stats)?, node, kind)?
-            }
-            Some(kind @ ("subtract" | "union" | "intersect")) => {
-                let op = match kind {
-                    "subtract" => BooleanOp::Subtract,
-                    "union" => BooleanOp::Union,
-                    _ => BooleanOp::Intersect,
-                };
-                boolean(
-                    self.evaluate(&node["left"], stats)?,
-                    self.evaluate(&node["right"], stats)?,
-                    op,
-                )?
-                .ok_or("empty result")?
-            }
-            _ => build(node)?,
-        };
-        self.bodies.insert(key, body.copy()?);
-        Ok(body)
+        let (body, report) = inspect_tracked(node, self, stats)?;
+        let result = Evaluated { body, report };
+        self.bodies.insert(key, result.copy()?);
+        Ok(result)
     }
+}
+
+/// Validate authored names before evaluating or reusing any cached subtree.
+/// An occurrence token establishes sharing only within this serialized graph; it
+/// is never incorporated into a persistent topology identity.
+fn validate_graph_names(root: &Value) -> Result<()> {
+    fn visit(
+        node: &Value,
+        scope: &mut Vec<String>,
+        names: &mut HashMap<(Vec<String>, String), Option<u64>>,
+        occurrences: &mut HashMap<u64, Value>,
+    ) -> Result<()> {
+        let occurrence = if node.get("occurrence").is_some() {
+            Some(
+                node["occurrence"]
+                    .as_u64()
+                    .ok_or("invalid occurrence token")?,
+            )
+        } else {
+            None
+        };
+        if let Some(token) = occurrence {
+            if let Some(previous) = occurrences.get(&token) {
+                if previous != node {
+                    return Err("occurrence token identifies different graph nodes".into());
+                }
+            } else {
+                occurrences.insert(token, node.clone());
+            }
+        }
+        let instance = node["kind"] == "instance";
+        let name = if instance {
+            Some(
+                node["name"]
+                    .as_str()
+                    .filter(|name| !name.trim().is_empty())
+                    .ok_or("instance name must be nonempty")?,
+            )
+        } else {
+            match node["metadata"].get("id") {
+                Some(value) => Some(
+                    value
+                        .as_str()
+                        .filter(|name| !name.trim().is_empty())
+                        .ok_or("feature name must be nonempty")?,
+                ),
+                None => None,
+            }
+        };
+        if let Some(name) = name {
+            let key = (scope.clone(), name.to_owned());
+            if let Some(previous) = names.get(&key) {
+                // Legacy graphs lack a sharing token, so two declarations cannot
+                // safely be assumed to be the same authored feature.
+                if occurrence.is_none() || *previous != occurrence {
+                    return Err(format!(
+                        "duplicate feature or instance name {name:?} in scope {scope:?}"
+                    )
+                    .into());
+                }
+            } else {
+                names.insert(key, occurrence);
+            }
+        }
+        if instance {
+            scope.push(name.expect("validated instance name").to_owned());
+        }
+        match node["kind"].as_str() {
+            Some("instance" | "translate" | "scale" | "fillet" | "chamfer") => {
+                visit(&node["body"], scope, names, occurrences)?
+            }
+            Some("subtract" | "union" | "intersect") => {
+                visit(&node["left"], scope, names, occurrences)?;
+                visit(&node["right"], scope, names, occurrences)?;
+            }
+            _ => {}
+        }
+        if instance {
+            scope.pop();
+        }
+        Ok(())
+    }
+    visit(
+        root,
+        &mut Vec::new(),
+        &mut HashMap::new(),
+        &mut HashMap::new(),
+    )
+}
+
+/// Occurrences only validate sharing within this graph. Remove them from cache
+/// keys so a rebuilt Python graph can reuse the same authored geometry and IDs.
+/// Only graph nodes are traversed: an unrelated metadata field named occurrence
+/// remains part of the key.
+fn cache_key(node: &Value) -> Result<String> {
+    fn without_occurrences(node: &Value) -> Value {
+        let mut node = node.clone();
+        if let Some(object) = node.as_object_mut() {
+            object.remove("occurrence");
+            let children: &[&str] = match object.get("kind").and_then(Value::as_str) {
+                Some("instance" | "translate" | "scale" | "fillet" | "chamfer") => &["body"],
+                Some("subtract" | "union" | "intersect") => &["left", "right"],
+                _ => &[],
+            };
+            for child in children {
+                if let Some(value) = object.get_mut(*child) {
+                    *value = without_occurrences(value);
+                }
+            }
+        }
+        node
+    }
+    Ok(serde_json::to_string(&without_occurrences(node))?)
 }
 
 /// A cache hit at an ancestor must not discard its descendants: a later edit may need them.
 fn collect_keys(node: &Value, keys: &mut HashSet<String>) -> Result<()> {
-    keys.insert(serde_json::to_string(node)?);
+    keys.insert(cache_key(node)?);
     if matches!(
         node["kind"].as_str(),
-        Some("fillet" | "chamfer" | "translate" | "scale")
+        Some("fillet" | "chamfer" | "translate" | "scale" | "instance")
     ) {
         collect_keys(&node["body"], keys)?;
     } else if matches!(
@@ -268,19 +404,107 @@ pub fn inspect(body: &Body) -> Result<Value> {
 /// Identities survive box dimension changes and checked affine transformations. Boolean
 /// and blend operations explicitly report unavailable until provenance is implemented.
 pub fn inspect_graph(node: &Value) -> Result<Value> {
-    let (_, report) = inspect_tracked(node)?;
-    Ok(report)
+    Ok(BuildCache::default().build_tracked(node)?.0.report)
 }
 
-fn inspect_tracked(node: &Value) -> Result<(Body, Value)> {
+fn inspect_tracked(
+    node: &Value,
+    cache: &mut BuildCache,
+    stats: &mut CacheStats,
+) -> Result<(Body, Value)> {
+    if node["kind"] == "instance" {
+        let Evaluated { body, mut report } = cache.evaluate(&node["body"], stats)?;
+        let name = node["name"]
+            .as_str()
+            .filter(|name| !name.trim().is_empty())
+            .ok_or("instance name must be nonempty")?;
+        for group in ["faces", "edges"] {
+            for entity in report[group]
+                .as_array_mut()
+                .ok_or("missing topology report")?
+            {
+                for key in ["identity", "identities"] {
+                    let add_scope = |identity: &mut Value| -> Result<()> {
+                        if identity.is_null() {
+                            return Ok(());
+                        }
+                        let object = identity
+                            .as_object_mut()
+                            .ok_or("invalid topology identity")?;
+                        let path = object
+                            .entry("instance".to_owned())
+                            .or_insert_with(|| Value::Array(Vec::new()));
+                        path.as_array_mut()
+                            .ok_or("invalid instance identity")?
+                            .insert(0, name.into());
+                        Ok(())
+                    };
+                    if key == "identities" {
+                        if let Some(ids) = entity[key].as_array_mut() {
+                            for identity in ids {
+                                add_scope(identity)?;
+                            }
+                        }
+                    } else {
+                        add_scope(&mut entity[key])?;
+                    }
+                }
+            }
+        }
+        return Ok((body, report));
+    }
+    if let Some(kind @ ("fillet" | "chamfer")) = node["kind"].as_str() {
+        let Evaluated {
+            body: input,
+            report: input_report,
+        } = cache.evaluate(&node["body"], stats)?;
+        // Keep selection stricter than the kernel's nearest-edge picker.
+        select_blend_edges(&input, node)?;
+        let points = node["points"]
+            .as_array()
+            .ok_or("expected edge points")?
+            .iter()
+            .map(vector)
+            .collect::<Result<Vec<_>>>()?;
+        let size = node["size"].as_f64().ok_or("invalid blend size")?;
+        let (body, history) = provenance::blend(&input, kind, &points, size)?;
+        let mut report = inspect(&body)?;
+        apply_history(&mut report, &history, &[input_report]);
+        return Ok((body, report));
+    }
+    if let Some(kind @ ("subtract" | "union" | "intersect")) = node["kind"].as_str() {
+        let Evaluated {
+            body: left,
+            report: left_report,
+        } = cache.evaluate(&node["left"], stats)?;
+        let Evaluated {
+            body: right,
+            report: right_report,
+        } = cache.evaluate(&node["right"], stats)?;
+        let operands = [left_report, right_report];
+        let op = match kind {
+            "subtract" => solidcraft_kernel::BoolOp::Cut,
+            "union" => solidcraft_kernel::BoolOp::Union,
+            _ => solidcraft_kernel::BoolOp::Intersect,
+        };
+        let (body, history) = provenance::boolean(&left, &right, op)?;
+        let mut report = inspect(&body)?;
+        apply_history(&mut report, &history, &operands);
+        return Ok((body, report));
+    }
     if let Some(kind @ ("translate" | "scale")) = node["kind"].as_str() {
-        let (body, old_report) = inspect_tracked(&node["body"])?;
+        let Evaluated {
+            body,
+            report: old_report,
+        } = cache.evaluate(&node["body"], stats)?;
         let (_, old_order) = body.to_record()?;
         let body = transform_body(body, node, kind)?;
         let (_, new_order) = body.to_record()?;
         let mut report = inspect(&body)?;
         report["identity_status"] = old_report["identity_status"].clone();
-        if old_report["identity_status"] == "exact_named_box" {
+        if old_report["identity_status"] == "exact_named_box"
+            || old_report["identity_status"] == "kernel_history"
+        {
             for (old, entity) in old_order.faces.iter().enumerate() {
                 let new = new_order
                     .faces
@@ -288,6 +512,7 @@ fn inspect_tracked(node: &Value) -> Result<(Body, Value)> {
                     .position(|candidate| candidate == entity)
                     .ok_or("transform changed face handles; refusing identities")?;
                 report["faces"][new]["identity"] = old_report["faces"][old]["identity"].clone();
+                report["faces"][new]["identities"] = old_report["faces"][old]["identities"].clone();
             }
             for (old, entity) in old_order.edges.iter().enumerate() {
                 let new = new_order
@@ -296,11 +521,20 @@ fn inspect_tracked(node: &Value) -> Result<(Body, Value)> {
                     .position(|candidate| candidate == entity)
                     .ok_or("transform changed edge handles; refusing identities")?;
                 report["edges"][new]["identity"] = old_report["edges"][old]["identity"].clone();
+                report["edges"][new]["identities"] = old_report["edges"][old]["identities"].clone();
             }
         }
         return Ok((body, report));
     }
-    let body = build(node)?;
+    let body = match node["kind"].as_str() {
+        Some("box") => make_box(vector(&node["origin"])?, vector(&node["size"])?)?,
+        Some("cylinder") => make_cylinder(
+            vector(&node["origin"])?,
+            node["radius"].as_f64().ok_or("invalid cylinder radius")?,
+            node["height"].as_f64().ok_or("invalid cylinder height")?,
+        )?,
+        _ => return Err("unknown node".into()),
+    };
     let mut report = inspect(&body)?;
     report["identity_status"] = Value::String("unavailable".into());
     let Some(name) = node["metadata"]["id"]
@@ -373,6 +607,57 @@ fn inspect_tracked(node: &Value) -> Result<(Body, Value)> {
     }
     report["identity_status"] = Value::String("exact_named_box".into());
     Ok((body, report))
+}
+
+/// Compose each kernel-reported origin into this graph node's entity identities.
+fn apply_history(
+    report: &mut Value,
+    history: &solidcraft_kernel::history::History,
+    operands: &[Value],
+) {
+    use solidcraft_kernel::history::{EdgeOrigin, FaceOrigin};
+    for (index, face) in history.faces.iter().enumerate() {
+        let mut identities = Vec::new();
+        for origin in &face.origins {
+            if let FaceOrigin::Face { operand, face } = *origin {
+                carry_identities(&mut identities, &operands[operand]["faces"][face]);
+            }
+        }
+        attach_identities(&mut report["faces"][index], identities);
+    }
+    for (index, edge) in history.edges.iter().enumerate() {
+        let mut identities = Vec::new();
+        for origin in &edge.origins {
+            if let EdgeOrigin::Edge { operand, edge } = *origin {
+                carry_identities(&mut identities, &operands[operand]["edges"][edge]);
+            }
+        }
+        attach_identities(&mut report["edges"][index], identities);
+    }
+    report["identity_status"] = Value::String("kernel_history".into());
+}
+
+/// Compose the source identity set through a kernel-reported origin.
+fn carry_identities(out: &mut Vec<Value>, entity: &Value) {
+    if let Some(ids) = entity["identities"].as_array() {
+        for id in ids {
+            if !out.contains(id) {
+                out.push(id.clone());
+            }
+        }
+    } else if !entity["identity"].is_null() && !out.contains(&entity["identity"]) {
+        out.push(entity["identity"].clone());
+    }
+}
+
+/// Retain all origins; the singular field remains compatible for one source.
+fn attach_identities(entity: &mut Value, ids: Vec<Value>) {
+    if ids.len() == 1 {
+        entity["identity"] = ids[0].clone();
+    }
+    if !ids.is_empty() {
+        entity["identities"] = Value::Array(ids);
+    }
 }
 
 /// Tessellate a B-rep for display, refusing an incomplete mesh.
@@ -453,7 +738,49 @@ mod tests {
         let cut = inspect_graph(
             &json!({"kind":"subtract", "left":box_at([2,3,4]), "right":{"kind":"box", "origin":[0,0,0], "size":[1,1,1]}}),
         )?;
-        assert_eq!(cut["identity_status"], "unavailable");
+        assert_eq!(cut["identity_status"], "kernel_history");
+        Ok(())
+    }
+
+    #[test]
+    fn boolean_graph_propagates_and_splits_identity() -> Result<()> {
+        let stock =
+            json!({"kind":"box", "origin":[0,0,0], "size":[10,10,10], "metadata":{"id":"stock"}});
+        let cutter =
+            json!({"kind":"box", "origin":[5,2,-1], "size":[10,5,12], "metadata":{"id":"cutter"}});
+        let graph = json!({"kind":"subtract", "left":stock, "right":cutter});
+        let output = inspect_graph(&graph)?;
+        let mut counts: HashMap<String, usize> = HashMap::new();
+        for face in output["faces"].as_array().unwrap() {
+            if let Some(ids) = face["identities"].as_array() {
+                for id in ids {
+                    *counts.entry(id.to_string()).or_default() += 1;
+                }
+            }
+        }
+        assert!(counts.keys().any(|s| s.contains("stock")));
+        assert!(counts.keys().any(|s| s.contains("cutter")));
+        assert!(
+            counts.values().any(|n| *n > 1),
+            "split face must retain all descendants"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn blends_propagate_surviving_face_identities() -> Result<()> {
+        let stock =
+            json!({"kind":"box", "origin":[0,0,0], "size":[10,10,10], "metadata":{"id":"stock"}});
+        for kind in ["fillet", "chamfer"] {
+            let graph = json!({"kind":kind, "body":stock, "points":[[0,0,5]], "size":0.5, "tolerance":0.01});
+            let report = inspect_graph(&graph)?;
+            assert_eq!(report["identity_status"], "kernel_history");
+            assert!(report["faces"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|face| face["identity"]["feature"] == "stock"));
+        }
         Ok(())
     }
 
@@ -505,6 +832,104 @@ mod tests {
         let expected = 500.0 - std::f64::consts::PI * 1.75_f64.powi(2) * 5.0;
         assert!((body.volume(1e-6)? - expected).abs() < 1e-3);
         assert!(!display_mesh(&body, 100.0)?.triangles.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn instances_scope_identity_and_validate_shared_names() -> Result<()> {
+        let stock = json!({"kind":"box", "origin":[0,0,0], "size":[2,3,4], "metadata":{"id":"stock"}, "occurrence":1});
+        let inner = json!({"kind":"instance", "name":"inner", "body":stock, "occurrence":2});
+        let outer = json!({"kind":"instance", "name":"outer", "body":inner, "occurrence":3});
+        let mut cache = BuildCache::default();
+        for _ in 0..2 {
+            let (result, _) = cache.build_tracked(&outer)?;
+            assert_eq!(
+                result.report["faces"][0]["identity"]["instance"],
+                json!(["outer", "inner"])
+            );
+            assert!(result.report["faces"][0]["identity"]
+                .get("occurrence")
+                .is_none());
+        }
+        let shared = json!({"kind":"union", "left":stock, "right":stock, "occurrence":4});
+        validate_graph_names(&shared)?;
+        let mut different = shared.clone();
+        different["right"]["occurrence"] = json!(5);
+        assert!(validate_graph_names(&different).is_err());
+        different["right"]["occurrence"] = json!(1);
+        different["right"]["size"] = json!([3, 3, 4]);
+        assert!(validate_graph_names(&different).is_err());
+        let legacy = json!({"kind":"union", "left":{"kind":"box", "metadata":{"id":"same"}}, "right":{"kind":"box", "metadata":{"id":"same"}}});
+        assert!(validate_graph_names(&legacy).is_err());
+        let distinct_scopes = json!({"kind":"union", "left":{"kind":"instance", "name":"a", "body":stock, "occurrence":6}, "right":{"kind":"instance", "name":"b", "body":stock, "occurrence":7}, "occurrence":8});
+        validate_graph_names(&distinct_scopes)?;
+        Ok(())
+    }
+
+    #[test]
+    fn cache_reuses_regenerated_occurrences_but_validates_first() -> Result<()> {
+        let stock = json!({"kind":"box", "origin":[0,0,0], "size":[10,10,10], "metadata":{"id":"stock", "occurrence":"authored"}, "occurrence":1});
+        let cutter = json!({"kind":"box", "origin":[5,2,-1], "size":[10,5,12], "metadata":{"id":"cutter"}, "occurrence":2});
+        let graph = json!({"kind":"subtract", "left":stock, "right":cutter, "occurrence":3});
+        let mut cache = BuildCache::default();
+        let (first, _) = cache.build_tracked(&graph)?;
+        let mut rebuilt = graph.clone();
+        rebuilt["occurrence"] = json!(30);
+        rebuilt["left"]["occurrence"] = json!(10);
+        rebuilt["right"]["occurrence"] = json!(20);
+        let (second, stats) = cache.build_tracked(&rebuilt)?;
+        assert_eq!(stats.hits, 1);
+        assert_eq!(first.report, second.report);
+        // A cached result must not bypass graph validation when tokens conflict.
+        rebuilt["right"]["occurrence"] = json!(10);
+        assert!(cache.build_tracked(&rebuilt).is_err());
+        // Authored metadata is not an ephemeral graph token.
+        rebuilt["right"]["occurrence"] = json!(20);
+        rebuilt["left"]["metadata"]["occurrence"] = json!("different");
+        assert_ne!(cache_key(&graph)?, cache_key(&rebuilt)?);
+
+        let instance = json!({"kind":"instance", "name":"shared", "body":stock, "occurrence":40});
+        let shared = json!({"kind":"subtract", "left":instance, "right":{"kind":"translate", "body":instance, "offset":[5,0,0], "occurrence":41}, "occurrence":42});
+        cache.build_tracked(&shared)?;
+        let mut duplicate = shared.clone();
+        duplicate["right"]["body"]["occurrence"] = json!(43);
+        assert_eq!(cache_key(&shared)?, cache_key(&duplicate)?);
+        assert!(cache.build_tracked(&duplicate).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn cached_topology_report_tracks_its_copied_body() -> Result<()> {
+        let graph = json!({"kind":"subtract", "left":{"kind":"box", "origin":[0,0,0], "size":[10,10,10], "metadata":{"id":"stock"}}, "right":{"kind":"box", "origin":[5,2,-1], "size":[10,5,12]}});
+        let mut cache = BuildCache::default();
+        for expected_hits in [0, 1] {
+            let (result, stats) = cache.build_tracked(&graph)?;
+            assert_eq!(stats.hits, expected_hits);
+            let measured = inspect(&result.body)?;
+            for group in ["faces", "edges"] {
+                for (reported, actual) in result.report[group]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .zip(measured[group].as_array().unwrap())
+                {
+                    for (key, value) in actual.as_object().unwrap() {
+                        assert_eq!(
+                            &reported[key], value,
+                            "{group} {key} must describe the cached body"
+                        );
+                    }
+                }
+            }
+            assert!(result.report["faces"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|face| face["identity"]["feature"] == "stock"
+                    || face["identities"]
+                        .as_array()
+                        .is_some_and(|ids| ids.iter().any(|id| id["feature"] == "stock"))));
+        }
         Ok(())
     }
 

@@ -6,7 +6,7 @@ Build file-first, code-driven B-rep modeling and reusable modules, with reliable
 
 ## Current state
 
-- Status: active. The user directed continued work on identity propagation through Boolean operations and blends, and requested updated examples. The current owner is investigating a reproducible kernel integration.
+- Status: active. A draft couples topology reports to evaluated bodies and supports named graph instances. Full checks pass, but kernel import correspondence and exact downstream blend selection remain unproved; do not treat the draft as finished. The active plan records current investigation and assignments.
 - [Modeling and adapter implementation](completed/plan-01%20Modeling%20modules%20and%20adapter.md) records the accepted API, checks, and limitations.
 - [Persistent topology identity](active/plan-02%20Persistent%20topology%20identity.md) records the unfinished general identity work and next action.
 - The adapter source is `examples/cooler_adapter.py`. It is a comparison prototype, not a verified manufacturing file.

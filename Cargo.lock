@@ -918,6 +918,7 @@ dependencies = [
  "solidcore-record",
  "solidcore-tess",
  "solidcraft-kernel",
+ "solidcraft-smlib",
 ]
 
 [[package]]

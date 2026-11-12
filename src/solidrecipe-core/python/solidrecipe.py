@@ -1,18 +1,54 @@
 """Code-first shape graphs and in-process geometry queries."""
 
 import functools
+import itertools
 import json
 import math
 import sys
 from contextlib import contextmanager
 from pathlib import Path
 
+# Occurrences only distinguish authored nodes within one serialized graph. They
+# are deliberately not persistent feature IDs and can change on each rebuild.
+_occurrences = itertools.count()
+
+
+def _entity_identities(entity):
+    """Collect the reported origins, including the legacy singular field.
+
+    Transforms may preserve a null singular field for generated entities, while a
+    merge reports several origins. Neither form should be treated as a unique ID.
+    """
+    identities = []
+    for identity in (entity.get("identities") or []) + [entity.get("identity")]:
+        if isinstance(identity, dict) and identity not in identities:
+            identities.append(identity)
+    return identities
+
+
+def _resolve_entity(items, matches_identity, description, multiple_error):
+    """Return one unmerged descendant, or report why selection is unsafe."""
+    matches = [
+        (item, identities)
+        for item in items
+        if (identities := _entity_identities(item))
+        and any(matches_identity(identity) for identity in identities)
+    ]
+    if not matches:
+        raise ValueError(f"{description} is missing or identity is unavailable")
+    if len(matches) > 1:
+        raise ValueError(f"{description} {multiple_error}")
+    item, identities = matches[0]
+    if len(identities) > 1:
+        raise ValueError(f"{description} is merged with other identities")
+    return item
+
 
 class Shape:
     """Immutable-style expression node; operators compose graphs without evaluating geometry."""
 
     def __init__(self, node):
-        self.node = node
+        self.node = {**node, "occurrence": next(_occurrences)}
 
     def __sub__(self, other):
         return Shape({"kind": "subtract", "left": self.node, "right": other.node})
@@ -30,31 +66,23 @@ class Shape:
     def face(self, role):
         """Return current face data for a named box role such as `z_max`."""
         data = inspect_data(self)
-        matches = [
-            face
-            for face in data["faces"]
-            if face.get("identity", {}).get("role") == role
-        ]
-        if len(matches) != 1:
-            raise ValueError(
-                f"face {role!r} has no unique persistent identity on this shape"
-            )
-        return matches[0]
+        return _resolve_entity(
+            data["faces"],
+            lambda identity: identity.get("role") == role,
+            f"face {role!r}",
+            "is ambiguous or split",
+        )
 
     def edge(self, first_face, second_face):
         """Return the named box edge between two face roles, with its measured length."""
         roles = sorted([first_face, second_face])
         data = inspect_data(self)
-        matches = [
-            edge
-            for edge in data["edges"]
-            if edge.get("identity", {}).get("roles") == roles
-        ]
-        if len(matches) != 1:
-            raise ValueError(
-                f"edge {roles!r} has no unique persistent identity on this shape"
-            )
-        return matches[0]
+        return _resolve_entity(
+            data["edges"],
+            lambda identity: identity.get("roles") == roles,
+            f"edge {roles!r}",
+            "is ambiguous or split",
+        )
 
     def resolve(self, identity):
         """Resolve an exact face or edge identity on the current shape.
@@ -68,12 +96,12 @@ class Shape:
             raise ValueError("expected a face or edge identity from inspect_data")
         data = inspect_data(self)
         items = data["faces" if identity["kind"] == "face" else "edges"]
-        matches = [item for item in items if item.get("identity") == identity]
-        if len(matches) != 1:
-            raise ValueError(
-                "identity is unavailable, missing, or ambiguous on this shape"
-            )
-        return matches[0]
+        return _resolve_entity(
+            items,
+            lambda candidate: candidate == identity,
+            "identity",
+            "is split or ambiguous",
+        )
 
     def translate(self, x, y, z):
         """Return a copy placed by the given X, Y and Z offsets in millimeters."""
@@ -86,6 +114,16 @@ class Shape:
         elif y is None or z is None:
             raise ValueError("scale takes one factor or three axis factors")
         return Shape({"kind": "scale", "body": self.node, "factors": [x, y, z]})
+
+    def instance(self, name):
+        """Declare a named instance boundary around this shape's graph.
+
+        The name is a persistent namespace component chosen by the model author;
+        node occurrence tokens only distinguish objects during graph evaluation.
+        """
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("instance name must be a nonempty string")
+        return Shape({"kind": "instance", "name": name, "body": self.node})
 
     def fillet(self, *, edge_points, radius, tolerance=0.01):
         """Round edges passing uniquely near the given model-space points, in mm.
