@@ -179,10 +179,11 @@ func GitClone(ctx context.Context, workspace string, req GitCloneRequest) (resul
 				}
 			}
 			cmd := exec.CommandContext(ctx, req.PreCheckoutScript)
-			cmd.Dir = source
+			cmd.Dir = workspaceAbs
 			cmd.Env = append(cleanGitRepositoryEnvironment(os.Environ()),
 				"GIT_DIR="+source, "GIT_INDEX_FILE="+index,
-				"LAYERCTL_GIT_DIR="+source, "LAYERCTL_SOURCE_COMMIT="+commit,
+				"LAYERCTL_GIT_DIR="+source, "LAYERCTL_GITCLONE_BARE_DIR="+source,
+				"LAYERCTL_GITCLONE_INDEX_FILE="+index, "LAYERCTL_SOURCE_COMMIT="+commit,
 				"LAYERCTL_SOURCE_TREE="+treeish, "LAYERCTL_WORKTREE_DIR="+workspaceAbs,
 				"LAYERCTL_DEFINITION_DIR="+req.DefinitionRoot, "LAYERCTL_LAYER_DIR="+req.LayerDirectory,
 				"LAYERCTL_LAYER_ID="+req.LayerID, "LAYERCTL_OPERATION_INDEX="+strconv.Itoa(req.OperationIndex))

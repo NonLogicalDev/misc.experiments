@@ -388,10 +388,15 @@ func TestImportPreCheckoutScriptRunsOnBarePreparedIndex(t *testing.T) {
 		t.Fatal(err)
 	}
 	work := repo(t)
+	write(t, work, "workspace-marker", "already here", 0644)
 	def := t.TempDir()
 	script := hook(t, `
 test "$(git rev-parse --is-bare-repository)" = true
-test "$PWD" = "$LAYERCTL_GIT_DIR"
+test "$(pwd -P)" = "$(cd "$LAYERCTL_WORKTREE_DIR" && pwd -P)"
+test -f workspace-marker
+test ! -e file
+test "$LAYERCTL_GITCLONE_BARE_DIR" = "$GIT_DIR"
+test "$LAYERCTL_GITCLONE_INDEX_FILE" = "$GIT_INDEX_FILE"
 test "$GIT_DIR" = "$LAYERCTL_GIT_DIR"
 test "${GIT_WORK_TREE-unset}" = unset
 test "$LAYERCTL_LAYER_ID" = layer-test

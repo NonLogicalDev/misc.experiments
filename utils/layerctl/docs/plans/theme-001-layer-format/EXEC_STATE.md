@@ -25,3 +25,5 @@ Status: implementation and walkthrough verified and checkpointed; Deluge integra
 Completed: [pre-checkout script and optional clone directory](completed/plan-03%20Pre-checkout%20script.md); /root/model, /root/projection, and /root/integration_review completed their assignments.
 
 - /root/model and /root/projection: completed extraction of patch/overlay and clone/script operations; owner integrated and verified.
+
+Completed: [align script working directories](completed/plan-04%20Align%20script%20working%20directories.md). Both scripts use the composed workspace root; the clone hook retains its bare Git context.

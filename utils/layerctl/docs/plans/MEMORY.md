@@ -17,3 +17,5 @@ Deluge follow-up is complete: messages explain each layer and wrap at 120 charac
 Completed layerctl follow-up: bare Git pre-checkout scripts return a commit or tree SHA, and clone `dir` can be omitted; see [plan](theme-001-layer-format/completed/plan-03%20Pre-checkout%20script.md).
 
 Completed Deluge follow-up: use the upstream SynthstromAudible repository as the base; see [plan](../../../../../fork.DelugeFirmware-layerctl/docs/plans/theme-002-deluge-conversion/completed/plan-03%20Use%20upstream%20source.md).
+
+Script operations and clone hooks use the workspace root as their current directory. Clone hooks retain bare Git context and expose `LAYERCTL_GITCLONE_BARE_DIR` and `LAYERCTL_GITCLONE_INDEX_FILE`; see the [completed follow-up](theme-001-layer-format/completed/plan-04%20Align%20script%20working%20directories.md).
