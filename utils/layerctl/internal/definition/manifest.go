@@ -33,12 +33,13 @@ type manifest struct {
 			Args []string `toml:"args"`
 		} `toml:"script"`
 		GitClone *struct {
-			URL              *string `toml:"url"`
-			Dir              *string `toml:"dir"`
-			Ref              string  `toml:"ref"`
-			Commit           string  `toml:"commit"`
-			Depth            *int    `toml:"depth"`
-			PreCheckoutPatch *string `toml:"pre-checkout-patch"`
+			URL               *string `toml:"url"`
+			Dir               *string `toml:"dir"`
+			Ref               string  `toml:"ref"`
+			Commit            string  `toml:"commit"`
+			Depth             *int    `toml:"depth"`
+			PreCheckoutPatch  *string `toml:"pre-checkout-patch"`
+			PreCheckoutScript *string `toml:"pre-checkout-script"`
 		} `toml:"git-clone"`
 	} `toml:"operation"`
 }
@@ -142,10 +143,11 @@ func loadManifest(id, directory string, entries []os.DirEntry) (Unit, error) {
 			if clone.URL == nil || strings.TrimSpace(*clone.URL) == "" || strings.ContainsRune(*clone.URL, 0) {
 				return Unit{}, fmt.Errorf("layer %q operation %d git-clone requires a nonempty URL without NUL", id, i+1)
 			}
-			if clone.Dir == nil {
-				return Unit{}, fmt.Errorf("layer %q operation %d git-clone requires dir (empty means workspace root)", id, i+1)
+			dir := ""
+			if clone.Dir != nil {
+				dir = *clone.Dir
 			}
-			if err := validateWorkspaceDir(*clone.Dir); err != nil {
+			if err := validateWorkspaceDir(dir); err != nil {
 				return Unit{}, fmt.Errorf("layer %q operation %d git-clone: %w", id, i+1, err)
 			}
 			for name, value := range map[string]string{"ref": clone.Ref, "commit": clone.Commit} {
@@ -170,7 +172,24 @@ func loadManifest(id, directory string, entries []os.DirEntry) (Unit, error) {
 					return Unit{}, fmt.Errorf("layer.toml cannot be an operation input")
 				}
 			}
-			unit.Operations = append(unit.Operations, Operation{Kind: "git-clone", URL: *clone.URL, Dir: *clone.Dir, Ref: clone.Ref, Commit: clone.Commit, Depth: depth, PreCheckoutPatch: preCheckoutPatch})
+			var preCheckoutScript string
+			if clone.PreCheckoutScript != nil {
+				preCheckoutScript, err = manifestPath(absDir, *clone.PreCheckoutScript, false, false)
+				if err != nil {
+					return Unit{}, fmt.Errorf("layer %q operation %d git-clone pre-checkout-script: %w", id, i+1, err)
+				}
+				if preCheckoutScript == filepath.Join(absDir, "layer.toml") {
+					return Unit{}, fmt.Errorf("layer.toml cannot be an operation input")
+				}
+				info, err := os.Lstat(preCheckoutScript)
+				if err != nil {
+					return Unit{}, fmt.Errorf("inspect pre-checkout script: %w", err)
+				}
+				if info.Mode().Perm()&0111 == 0 {
+					return Unit{}, fmt.Errorf("layer %q operation %d git-clone pre-checkout-script must be executable", id, i+1)
+				}
+			}
+			unit.Operations = append(unit.Operations, Operation{Kind: "git-clone", URL: *clone.URL, Dir: dir, Ref: clone.Ref, Commit: clone.Commit, Depth: depth, PreCheckoutPatch: preCheckoutPatch, PreCheckoutScript: preCheckoutScript})
 		}
 	}
 	if err := rejectUnreferencedFiles(absDir, unit.Operations); err != nil {
@@ -183,7 +202,7 @@ func loadManifest(id, directory string, entries []os.DirEntry) (Unit, error) {
 // delete files that the manifest did not include in its generated commit.
 func rejectUnreferencedFiles(directory string, operations []Operation) error {
 	for _, operation := range operations {
-		if operation.Kind == "script" {
+		if operation.Kind == "script" || operation.PreCheckoutScript != "" {
 			return validateScriptSupportFiles(directory)
 		}
 	}

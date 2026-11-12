@@ -1,4 +1,4 @@
-package scriptop_test
+package operations_test
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/definition"
-	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/scriptop"
+	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/operations"
 )
 
 func runGit(t *testing.T, dir string, args ...string) string {
@@ -49,7 +49,7 @@ printf changed > tracked
 	}
 	t.Setenv("LAYERCTL_LAYER_ID", "old-value")
 	op := definition.Operation{Kind: "script", Path: script, Args: []string{"hello world", "$(not executed)"}}
-	if err := scriptop.Run(context.Background(), w, "/definitions", "0003-test", dir, 2, op); err != nil {
+	if err := operations.RunScript(context.Background(), w, "/definitions", "0003-test", dir, 2, op); err != nil {
 		t.Fatal(err)
 	}
 	result, err := os.ReadFile(filepath.Join(w, "result"))
@@ -85,7 +85,7 @@ func TestFailureDoesNotStageChanges(t *testing.T) {
 	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf changed > tracked\nexit 9\n"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	err := scriptop.Run(context.Background(), w, "/definitions", "0001-test", dir, 0, definition.Operation{Kind: "script", Path: script})
+	err := operations.RunScript(context.Background(), w, "/definitions", "0001-test", dir, 0, definition.Operation{Kind: "script", Path: script})
 	if err == nil {
 		t.Fatal("expected script failure")
 	}
@@ -108,7 +108,7 @@ func TestRejectsUnsafeScriptPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, path := range []string{outside, link} {
-		err := scriptop.Run(context.Background(), w, "/definitions", "0001-test", dir, 0, definition.Operation{Kind: "script", Path: path})
+		err := operations.RunScript(context.Background(), w, "/definitions", "0001-test", dir, 0, definition.Operation{Kind: "script", Path: path})
 		if err == nil {
 			t.Fatalf("accepted unsafe script %q", path)
 		}

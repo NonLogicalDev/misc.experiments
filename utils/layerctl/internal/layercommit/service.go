@@ -16,8 +16,11 @@ import (
 	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/commitauthors"
 	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/definition"
 	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/gitrepo"
-	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/scriptop"
+	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/operations"
 )
+
+// OverlayCollisionError is retained for callers that classify recoverable conflicts.
+type OverlayCollisionError = operations.OverlayCollisionError
 
 // Service captures, applies, and verifies generated layer commits.
 type Service struct {
@@ -45,11 +48,11 @@ func (s *Service) Capture(ctx context.Context, req CaptureRequest) (Captured, er
 	if err != nil {
 		return Captured{}, err
 	}
-	before, err := s.treeEntries(ctx, req.Before)
+	before, err := operations.TreeEntries(ctx, s.Git, req.Before)
 	if err != nil {
 		return Captured{}, err
 	}
-	after, err := s.treeEntries(ctx, req.After)
+	after, err := operations.TreeEntries(ctx, s.Git, req.After)
 	if err != nil {
 		return Captured{}, err
 	}
@@ -71,42 +74,15 @@ func (s *Service) Capture(ctx context.Context, req CaptureRequest) (Captured, er
 		fmt.Fprintf(&removals, "0 %040d\t%s%c", 0, entry.Path, 0)
 	}
 	slices.SortFunc(overlay, func(a, b definition.OverlayEntry) int { return strings.Compare(a.Path, b.Path) })
-	residual, err := s.editTree(ctx, req.After, removals.Bytes())
+	residual, err := operations.EditTree(ctx, s.Git, req.After, removals.Bytes())
 	if err != nil {
 		return Captured{}, err
 	}
-	patch, err := s.diff(ctx, req.Before, residual)
+	patch, err := operations.DiffTrees(ctx, s.Git, req.Before, residual)
 	if err != nil {
 		return Captured{}, err
 	}
 	return Captured{Message: message, Patch: patch, Overlay: overlay}, nil
-}
-
-func (s *Service) diff(ctx context.Context, before, after string) ([]byte, error) {
-	patch, err := s.Git.Bytes(
-		ctx,
-		s.Git.Root,
-		"-c", "diff.suppressBlankEmpty=true",
-		"diff-tree",
-		"--patch",
-		"--binary",
-		"--full-index",
-		"--no-commit-id",
-		"-r",
-		"--no-renames",
-		"--no-ext-diff",
-		"--no-textconv",
-		"--no-color",
-		"--diff-algorithm=myers",
-		"--src-prefix=a/",
-		"--dst-prefix=b/",
-		before,
-		after,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("diff layer trees: %w", err)
-	}
-	return patch, nil
 }
 
 // Apply executes each operation in order and creates exactly one commit.
@@ -140,7 +116,7 @@ func (s *Service) ApplyStep(ctx context.Context, worktree string, unit definitio
 		unit.Overlay = nil
 		switch op.Kind {
 		case "script":
-			return scriptop.Run(ctx, worktree, filepath.Dir(filepath.Dir(unit.Directory)), unit.ID, unit.Directory, index, op)
+			return operations.RunScript(ctx, worktree, filepath.Dir(filepath.Dir(unit.Directory)), unit.ID, unit.Directory, index, op)
 		case "patch":
 			unit.PatchPath = op.Path
 		case "overlay":
@@ -149,53 +125,7 @@ func (s *Service) ApplyStep(ctx context.Context, worktree string, unit definitio
 			return fmt.Errorf("unsupported operation %q", op.Kind)
 		}
 	}
-	patch, err := s.applicationPatch(ctx, unit)
-	if err != nil {
-		return err
-	}
-	predecessor, err := s.Git.Output(ctx, worktree, "write-tree")
-	if err != nil {
-		return err
-	}
-	entries, err := s.treeEntries(ctx, predecessor)
-	if err != nil {
-		return err
-	}
-	var collisions []string
-	for _, entry := range unit.Overlay {
-		for path := range entries {
-			if path == entry.Path || strings.HasPrefix(path, entry.Path+"/") || strings.HasPrefix(entry.Path, path+"/") {
-				collisions = append(collisions, entry.Path)
-				break
-			}
-		}
-	}
-	if len(patch) != 0 {
-		// Legacy patch and overlay are combined so clean additions are staged
-		// even if the patch conflicts. Manifest operations run individually.
-		_, err = s.Git.Invoke(ctx, worktree, gitrepo.Invocation{
-			Arguments: []string{"-c", "rerere.enabled=false", "apply", "--3way", "--index", "--whitespace=nowarn", "-"},
-			Stdin:     patch,
-		})
-		if err != nil {
-			if len(collisions) != 0 {
-				return &OverlayCollisionError{Paths: collisions, Cause: err}
-			}
-			return err
-		}
-	}
-	// Successful application has already removed structural blockers through
-	// the patch. Same-leaf additions still need ownership reconciliation.
-	var inherited []string
-	for _, entry := range unit.Overlay {
-		if _, exists := entries[entry.Path]; exists {
-			inherited = append(inherited, entry.Path)
-		}
-	}
-	if len(inherited) != 0 {
-		return &OverlayCollisionError{Paths: inherited}
-	}
-	return nil
+	return operations.ApplyPatchOverlay(ctx, s.Git, worktree, unit.PatchPath, unit.Overlay)
 }
 
 // Commit records the staged tree using unit's exact commit message. It is also

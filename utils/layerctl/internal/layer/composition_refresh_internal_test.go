@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -99,5 +100,73 @@ func TestRefreshWriteManifestRetainsPreCheckoutPatch(t *testing.T) {
 	}
 	if len(got.Operations) != 1 || got.Operations[0].PreCheckoutPatch != input {
 		t.Fatalf("operations = %#v", got.Operations)
+	}
+}
+
+func TestRefreshWriteManifestRetainsPreCheckoutScriptAndSupport(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "scripts", "prepare")
+	if err := os.MkdirAll(filepath.Dir(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	support := filepath.Join(dir, "config.txt")
+	if err := os.WriteFile(support, []byte("support"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../config.txt", filepath.Join(dir, "scripts", "config-link")); err != nil {
+		t.Fatal(err)
+	}
+	unit := definition.Unit{ID: "0001-test", Directory: dir, Operations: []definition.Operation{{Kind: "git-clone", URL: "repo", PreCheckoutScript: script}}}
+	candidate := t.TempDir()
+	if err := refreshCopyDirectory(dir, candidate); err != nil {
+		t.Fatal(err)
+	}
+	if err := refreshWriteManifest(candidate, unit, []byte("message\n"), ""); err != nil {
+		t.Fatal(err)
+	}
+	got, err := definition.LoadUnit(unit.ID, candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Operations) != 1 || got.Operations[0].PreCheckoutScript != filepath.Join(candidate, "scripts", "prepare") {
+		t.Fatalf("operations = %#v", got.Operations)
+	}
+	if data, err := os.ReadFile(filepath.Join(candidate, "config.txt")); err != nil || string(data) != "support" {
+		t.Fatalf("support = %q, %v", data, err)
+	}
+	if target, err := os.Readlink(filepath.Join(candidate, "scripts", "config-link")); err != nil || target != "../config.txt" {
+		t.Fatalf("support link = %q, %v", target, err)
+	}
+}
+
+func TestRefreshWriteManifestCloneDirDefaultsToRoot(t *testing.T) {
+	for _, tc := range []struct {
+		name, dir string
+		wantDir   bool
+	}{{"root", "", false}, {"nested", "vendor/project", true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := t.TempDir()
+			u := definition.Unit{ID: "0001-test", Directory: d, Operations: []definition.Operation{{Kind: "git-clone", URL: "repo", Dir: tc.dir}}}
+			if err := refreshWriteManifest(d, u, []byte("message\n"), ""); err != nil {
+				t.Fatal(err)
+			}
+			raw, err := os.ReadFile(filepath.Join(d, "layer.toml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(raw), "\ndir = ") != tc.wantDir {
+				t.Fatalf("dir serialization: %s", raw)
+			}
+			got, err := definition.LoadUnit(u.ID, d)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Operations[0].Dir != tc.dir {
+				t.Fatalf("dir = %q", got.Operations[0].Dir)
+			}
+		})
 	}
 }

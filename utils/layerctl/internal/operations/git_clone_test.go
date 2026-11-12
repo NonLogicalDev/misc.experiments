@@ -1,4 +1,4 @@
-package composition_test
+package operations_test
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/composition"
+	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/operations"
 )
 
 func git(t *testing.T, dir string, args ...string) string {
@@ -65,7 +65,7 @@ func TestImportRootAndNestedPreservesTreeAndAncestry(t *testing.T) {
 	git(t, work, "add", "already-staged.txt")
 	write(t, work, "untracked.txt", "untracked", 0644)
 	ctx := context.Background()
-	got, err := composition.Import(ctx, work, composition.CloneRequest{URL: fileURL(src)})
+	got, err := operations.GitClone(ctx, work, operations.GitCloneRequest{URL: fileURL(src)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestImportRootAndNestedPreservesTreeAndAncestry(t *testing.T) {
 	other := repo(t)
 	write(t, other, "item", "nested\n", 0644)
 	commit(t, other, "first")
-	if _, err := composition.Import(ctx, work, composition.CloneRequest{URL: fileURL(other), Dir: "vendor/tool"}); err != nil {
+	if _, err := operations.GitClone(ctx, work, operations.GitCloneRequest{URL: fileURL(other), Dir: "vendor/tool"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(work, "vendor/tool/.git")); !os.IsNotExist(err) {
@@ -112,14 +112,14 @@ func TestImportRejectsCollisionAndUnsafeDestination(t *testing.T) {
 	commit(t, src, "source")
 	work := repo(t)
 	write(t, work, "same", "preserve", 0644)
-	if _, err := composition.Import(context.Background(), work, composition.CloneRequest{URL: fileURL(src)}); err == nil {
+	if _, err := operations.GitClone(context.Background(), work, operations.GitCloneRequest{URL: fileURL(src)}); err == nil {
 		t.Fatal("collision accepted")
 	}
 	if b, _ := os.ReadFile(filepath.Join(work, "same")); string(b) != "preserve" {
 		t.Fatalf("overwrote content %q", b)
 	}
 	for _, dir := range []string{"../escape", "/absolute", "a/.git/x", "a/../x"} {
-		if _, err := composition.Import(context.Background(), work, composition.CloneRequest{URL: fileURL(src), Dir: dir}); err == nil {
+		if _, err := operations.GitClone(context.Background(), work, operations.GitCloneRequest{URL: fileURL(src), Dir: dir}); err == nil {
 			t.Fatalf("accepted %q", dir)
 		}
 	}
@@ -127,7 +127,7 @@ func TestImportRejectsCollisionAndUnsafeDestination(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(work, "link")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := composition.Import(context.Background(), work, composition.CloneRequest{URL: fileURL(src), Dir: "link/sub"}); err == nil {
+	if _, err := operations.GitClone(context.Background(), work, operations.GitCloneRequest{URL: fileURL(src), Dir: "link/sub"}); err == nil {
 		t.Fatal("symlink parent accepted")
 	}
 	if _, err := os.Stat(filepath.Join(outside, "sub")); !os.IsNotExist(err) {
@@ -144,24 +144,24 @@ func TestImportRefCommitAndShallowOverlap(t *testing.T) {
 	tip := commit(t, src, "three")
 	branch := git(t, src, "branch", "--show-current")
 	work := repo(t)
-	if got, err := composition.Import(context.Background(), work, composition.CloneRequest{URL: fileURL(src), Dir: "old", Ref: branch, Commit: one}); err != nil || got != one {
+	if got, err := operations.GitClone(context.Background(), work, operations.GitCloneRequest{URL: fileURL(src), Dir: "old", Ref: branch, Commit: one}); err != nil || got != one {
 		t.Fatalf("commit at ref: %s %v", got, err)
 	}
-	if _, err := composition.Import(context.Background(), repo(t), composition.CloneRequest{URL: fileURL(src), Ref: branch, Commit: one, Depth: 1}); err == nil || !strings.Contains(err.Error(), "shallow") {
+	if _, err := operations.GitClone(context.Background(), repo(t), operations.GitCloneRequest{URL: fileURL(src), Ref: branch, Commit: one, Depth: 1}); err == nil || !strings.Contains(err.Error(), "shallow") {
 		t.Fatalf("expected shallow unavailable: %v", err)
 	}
 	shallow := repo(t)
-	if got, err := composition.Import(context.Background(), shallow, composition.CloneRequest{URL: fileURL(src), Dir: "first", Ref: branch, Depth: 2}); err != nil || got != tip {
+	if got, err := operations.GitClone(context.Background(), shallow, operations.GitCloneRequest{URL: fileURL(src), Dir: "first", Ref: branch, Depth: 2}); err != nil || got != tip {
 		t.Fatalf("shallow import: %s %v", got, err)
 	}
 	if got := git(t, shallow, "rev-list", "--count", tip); got != "2" {
 		t.Fatalf("shallow ancestry count %s", got)
 	}
-	if _, err := composition.Import(context.Background(), shallow, composition.CloneRequest{URL: fileURL(src), Dir: "second", Ref: branch, Commit: two}); err == nil || !strings.Contains(err.Error(), "overlapping") {
+	if _, err := operations.GitClone(context.Background(), shallow, operations.GitCloneRequest{URL: fileURL(src), Dir: "second", Ref: branch, Commit: two}); err == nil || !strings.Contains(err.Error(), "overlapping") {
 		t.Fatalf("expected overlapping shallow rejection: %v", err)
 	}
 	localShallow := repo(t)
-	if got, err := composition.Import(context.Background(), localShallow, composition.CloneRequest{URL: src, Ref: branch, Depth: 1}); err != nil || got != tip {
+	if got, err := operations.GitClone(context.Background(), localShallow, operations.GitCloneRequest{URL: src, Ref: branch, Depth: 1}); err != nil || got != tip {
 		t.Fatalf("local shallow import: %s %v", got, err)
 	}
 	if got := git(t, localShallow, "rev-list", "--count", tip); got != "1" {
@@ -182,7 +182,7 @@ func TestImportDoesNotReplaceDeletedButStagedFile(t *testing.T) {
 	if err := os.Remove(filepath.Join(work, "same")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := composition.Import(context.Background(), work, composition.CloneRequest{URL: fileURL(src)}); err == nil || !strings.Contains(err.Error(), "index") {
+	if _, err := operations.GitClone(context.Background(), work, operations.GitCloneRequest{URL: fileURL(src)}); err == nil || !strings.Contains(err.Error(), "index") {
 		t.Fatalf("staged conflict not rejected: %v", err)
 	}
 	if got := git(t, work, "show", ":same"); got != "already staged" {
@@ -200,7 +200,7 @@ func TestImportRejectsSubmoduleBeforeWriting(t *testing.T) {
 	git(t, src, "update-index", "--add", "--cacheinfo", "160000,"+head+",external")
 	git(t, src, "commit", "-qm", "add gitlink")
 	work := repo(t)
-	if _, err := composition.Import(context.Background(), work, composition.CloneRequest{URL: src, Dir: "copy"}); err == nil || !strings.Contains(err.Error(), "submodule") {
+	if _, err := operations.GitClone(context.Background(), work, operations.GitCloneRequest{URL: src, Dir: "copy"}); err == nil || !strings.Contains(err.Error(), "submodule") {
 		t.Fatalf("submodule accepted: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(work, "copy")); !os.IsNotExist(err) {
@@ -211,7 +211,7 @@ func TestImportRejectsSubmoduleBeforeWriting(t *testing.T) {
 func TestImportDoesNotExposeSourceCredentialsInError(t *testing.T) {
 	work := repo(t)
 	secret := "unique-secret-for-test"
-	_, err := composition.Import(context.Background(), work, composition.CloneRequest{URL: "file://user:" + secret + "@invalid/repo"})
+	_, err := operations.GitClone(context.Background(), work, operations.GitCloneRequest{URL: "file://user:" + secret + "@invalid/repo"})
 	if err == nil {
 		t.Fatal("expected fetch to fail")
 	}
@@ -233,7 +233,7 @@ func TestImportAllowsSubsequentThreeWayPatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	work := repo(t)
-	if _, err := composition.Import(context.Background(), work, composition.CloneRequest{URL: src, Commit: base}); err != nil {
+	if _, err := operations.GitClone(context.Background(), work, operations.GitCloneRequest{URL: src, Commit: base}); err != nil {
 		t.Fatal(err)
 	}
 	cmd := exec.Command("git", "apply", "--3way", "--index", "-")
@@ -256,7 +256,7 @@ func TestImportRollsBackWhenIndexIsLocked(t *testing.T) {
 	if err := os.WriteFile(lock, []byte("another writer"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := composition.Import(context.Background(), work, composition.CloneRequest{URL: src, Dir: "nested", Depth: 1}); err == nil || !strings.Contains(err.Error(), "lock workspace index") {
+	if _, err := operations.GitClone(context.Background(), work, operations.GitCloneRequest{URL: src, Dir: "nested", Depth: 1}); err == nil || !strings.Contains(err.Error(), "lock workspace index") {
 		t.Fatalf("expected index lock error: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(work, "nested")); !os.IsNotExist(err) {
@@ -295,7 +295,7 @@ func TestImportPreCheckoutPatchPreparesCaseCollisionsAndBlobs(t *testing.T) {
 		t.Fatal(err)
 	}
 	work := repo(t)
-	got, err := composition.Import(context.Background(), work, composition.CloneRequest{URL: fileURL(src), Commit: base, Depth: 2, PreCheckoutPatch: patchFile})
+	got, err := operations.GitClone(context.Background(), work, operations.GitCloneRequest{URL: fileURL(src), Commit: base, Depth: 2, PreCheckoutPatch: patchFile})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -347,7 +347,7 @@ func TestImportRejectsInvalidPreCheckoutPatchWithoutWorkspaceMutation(t *testing
 	if err := os.WriteFile(patchFile, []byte("not a patch\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := composition.Import(context.Background(), work, composition.CloneRequest{URL: fileURL(src), Dir: "nested", Depth: 1, PreCheckoutPatch: patchFile})
+	_, err := operations.GitClone(context.Background(), work, operations.GitCloneRequest{URL: fileURL(src), Dir: "nested", Depth: 1, PreCheckoutPatch: patchFile})
 	if err == nil || !strings.Contains(err.Error(), "pre-checkout patch") {
 		t.Fatalf("expected pre-checkout patch error: %v", err)
 	}
@@ -359,5 +359,194 @@ func TestImportRejectsInvalidPreCheckoutPatchWithoutWorkspaceMutation(t *testing
 	}
 	if shallow := git(t, work, "rev-parse", "--is-shallow-repository"); shallow != "false" {
 		t.Fatalf("failed import changed shallow boundary: %s", shallow)
+	}
+}
+
+func hook(t *testing.T, script string) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "hook.sh")
+	if err := os.WriteFile(p, []byte("#!/bin/sh\nset -eu\n"+script+"\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestImportPreCheckoutScriptRunsOnBarePreparedIndex(t *testing.T) {
+	src := repo(t)
+	write(t, src, "file", "before\n", 0644)
+	base := commit(t, src, "base")
+	write(t, src, "file", "patched\n", 0644)
+	commit(t, src, "patch")
+	cmd := exec.Command("git", "diff", "--binary", "--full-index", base, "HEAD")
+	cmd.Dir = src
+	patch, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	patchFile := filepath.Join(t.TempDir(), "prepare.patch")
+	if err := os.WriteFile(patchFile, patch, 0644); err != nil {
+		t.Fatal(err)
+	}
+	work := repo(t)
+	def := t.TempDir()
+	script := hook(t, `
+test "$(git rev-parse --is-bare-repository)" = true
+test "$PWD" = "$LAYERCTL_GIT_DIR"
+test "$GIT_DIR" = "$LAYERCTL_GIT_DIR"
+test "${GIT_WORK_TREE-unset}" = unset
+test "$LAYERCTL_LAYER_ID" = layer-test
+test "$LAYERCTL_OPERATION_INDEX" = 3
+test -d "$LAYERCTL_DEFINITION_DIR"
+test -d "$LAYERCTL_LAYER_DIR"
+test -d "$LAYERCTL_WORKTREE_DIR"
+test "$(git write-tree)" = "$LAYERCTL_SOURCE_TREE"
+test "$(git show :file)" = patched
+test "$(git show "$LAYERCTL_SOURCE_COMMIT:file")" = before
+blob=$(printf 'from script\n' | git hash-object -w --stdin)
+git update-index --add --cacheinfo "100644,$blob,new-file"
+printf 'script diagnostic\n' >&2
+git write-tree
+`)
+	layer := filepath.Dir(script)
+	t.Setenv("GIT_WORK_TREE", filepath.Join(t.TempDir(), "wrong"))
+	t.Setenv("GIT_INDEX_FILE", filepath.Join(t.TempDir(), "wrong-index"))
+	got, err := operations.GitClone(context.Background(), work, operations.GitCloneRequest{URL: fileURL(src), Commit: base, Depth: 1, PreCheckoutPatch: patchFile, PreCheckoutScript: script, DefinitionRoot: def, LayerDirectory: layer, LayerID: "layer-test", OperationIndex: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Unsetenv("GIT_WORK_TREE")
+	os.Unsetenv("GIT_INDEX_FILE")
+	if got != base || git(t, work, "show", ":file") != "patched" || git(t, work, "show", ":new-file") != "from script" {
+		t.Fatal("script tree was not imported with the original parent")
+	}
+}
+
+func TestImportPreCheckoutScriptReturnsCommit(t *testing.T) {
+	src := repo(t)
+	write(t, src, "file", "original\n", 0644)
+	base := commit(t, src, "base")
+	work := repo(t)
+	t.Setenv("GIT_AUTHOR_NAME", "Hook author")
+	t.Setenv("GIT_AUTHOR_EMAIL", "author@example.invalid")
+	t.Setenv("GIT_COMMITTER_NAME", "Hook committer")
+	t.Setenv("GIT_COMMITTER_EMAIL", "committer@example.invalid")
+	t.Setenv("GIT_AUTHOR_DATE", "2001-02-03T04:05:06Z")
+	t.Setenv("GIT_COMMITTER_DATE", "2002-03-04T05:06:07Z")
+	script := hook(t, `
+blob=$(printf 'rewritten\n' | git hash-object -w --stdin)
+git update-index --add --cacheinfo "100644,$blob,file"
+tree=$(git write-tree)
+git commit-tree "$tree" -p "$LAYERCTL_SOURCE_COMMIT" -m generated
+`)
+	got, err := operations.GitClone(context.Background(), work, operations.GitCloneRequest{URL: fileURL(src), Depth: 1, PreCheckoutScript: script})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == base || git(t, work, "rev-parse", got+"^1") != base || git(t, work, "show", ":file") != "rewritten" {
+		t.Fatal("script commit or its source parent was not imported")
+	}
+	if actual := git(t, work, "show", "-s", "--format=%an <%ae>|%cn <%ce>|%aI|%cI", got); actual != "Hook author <author@example.invalid>|Hook committer <committer@example.invalid>|2001-02-03T04:05:06Z|2002-03-04T05:06:07Z" {
+		t.Fatalf("hook commit identity and dates = %q", actual)
+	}
+}
+
+func TestImportRejectsInvalidPreCheckoutScriptOutput(t *testing.T) {
+	src := repo(t)
+	write(t, src, "source", "source\n", 0644)
+	commit(t, src, "base")
+	cases := map[string]string{
+		"multiple lines": `echo "$LAYERCTL_SOURCE_COMMIT"; echo extra`,
+		"short ID":       `printf 'abc\n'`,
+		"unknown":        `printf '0000000000000000000000000000000000000000\n'`,
+		"blob":           `printf x | git hash-object -w --stdin`,
+		"tag": `export GIT_COMMITTER_NAME=Hook GIT_COMMITTER_EMAIL=hook@example.invalid
+git tag -a example "$LAYERCTL_SOURCE_COMMIT" -m tag
+git rev-parse refs/tags/example`,
+		"nonzero":   `exit 1`,
+		"oversized": `printf '%0100d\n' 0`,
+	}
+	for name, scriptText := range cases {
+		t.Run(name, func(t *testing.T) {
+			work := repo(t)
+			write(t, work, "staged", "preserve", 0644)
+			git(t, work, "add", "staged")
+			before := git(t, work, "write-tree")
+			_, err := operations.GitClone(context.Background(), work, operations.GitCloneRequest{URL: fileURL(src), Dir: "nested", Depth: 1, PreCheckoutScript: hook(t, scriptText)})
+			if err == nil {
+				t.Fatal("invalid output accepted")
+			}
+			if git(t, work, "write-tree") != before || git(t, work, "rev-parse", "--is-shallow-repository") != "false" {
+				t.Fatal("failed script mutated workspace index or shallow boundary")
+			}
+			if _, err := os.Stat(filepath.Join(work, "nested")); !os.IsNotExist(err) {
+				t.Fatalf("failed script left destination: %v", err)
+			}
+		})
+	}
+}
+
+func TestGitCloneRevalidatesHookAfterFetch(t *testing.T) {
+	src := repo(t)
+	write(t, src, "source", "source", 0644)
+	commit(t, src, "base")
+	work := repo(t)
+	legitimate := hook(t, `printf '%s\n' "$LAYERCTL_SOURCE_COMMIT"`)
+	attacker := hook(t, `touch "$SWAP_MARKER"; printf '%s\n' "$LAYERCTL_SOURCE_COMMIT"`)
+	marker := filepath.Join(t.TempDir(), "ran")
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrapperDir := t.TempDir()
+	wrapper := `#!/bin/sh
+"$REAL_GIT" "$@"
+status=$?
+case " $* " in
+  *" fetch "*) rm -f "$SWAP_TARGET"; ln -s "$SWAP_ATTACKER" "$SWAP_TARGET" ;;
+esac
+exit "$status"
+`
+	if err := os.WriteFile(filepath.Join(wrapperDir, "git"), []byte(wrapper), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", wrapperDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("REAL_GIT", realGit)
+	t.Setenv("SWAP_TARGET", legitimate)
+	t.Setenv("SWAP_ATTACKER", attacker)
+	t.Setenv("SWAP_MARKER", marker)
+	_, err = operations.GitClone(context.Background(), work, operations.GitCloneRequest{URL: fileURL(src), PreCheckoutScript: legitimate, LayerDirectory: filepath.Dir(legitimate)})
+	if err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("expected swapped script to be rejected: %v", err)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("swapped script ran: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(work, "source")); !os.IsNotExist(err) {
+		t.Fatalf("failed import changed workspace: %v", err)
+	}
+}
+
+func TestGitCloneStagingRejectsCaseFoldedSymlinkParent(t *testing.T) {
+	probe := t.TempDir()
+	write(t, probe, "a", "probe", 0644)
+	if _, err := os.Stat(filepath.Join(probe, "A")); os.IsNotExist(err) {
+		t.Skip("filesystem is case-sensitive")
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	src := repo(t)
+	outside := t.TempDir()
+	symlinkBlob := hashBlob(t, src, outside)
+	dataBlob := hashBlob(t, src, "should stay inside staging\n")
+	git(t, src, "-c", "core.ignorecase=false", "update-index", "--add", "--cacheinfo", "120000,"+symlinkBlob+",A")
+	git(t, src, "-c", "core.ignorecase=false", "update-index", "--add", "--cacheinfo", "100644,"+dataBlob+",a/created")
+	git(t, src, "commit", "-qm", "case-folded symlink parent")
+	work := repo(t)
+	_, err := operations.GitClone(context.Background(), work, operations.GitCloneRequest{URL: fileURL(src)})
+	if err == nil {
+		t.Fatal("accepted symlink parent on case-insensitive staging filesystem")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "created")); !os.IsNotExist(err) {
+		t.Fatalf("source tree escaped staging directory: %v", err)
 	}
 }

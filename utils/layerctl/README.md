@@ -31,7 +31,6 @@ co-authors = ["Example Contributor <contributor@example.com>"] # optional
 [[operation]]
 [operation.git-clone]
 url = "https://example.com/project.git"
-dir = "" # empty means the workspace root
 ref = "refs/heads/main" # optional branch, tag, or other ref
 # commit = "0123456789abcdef0123456789abcdef01234567" # optional exact commit
 # depth = 20 # optional positive history depth
@@ -52,7 +51,21 @@ file = "scripts/configure.sh"
 args = ["example"]
 ```
 
-A clone can set `pre-checkout-patch = "prepare.patch"` to apply a layer-relative patch to its source tree in an isolated Git index after fetch and before files are written. Patch paths are relative to the source repository root, even for a nested clone destination. This can normalize case-colliding paths on a case-insensitive filesystem. The imported commit remains the layer commit’s parent.
+A clone writes to the workspace root when `dir` is omitted or empty; a nonempty `dir` selects a workspace-relative destination. It can set `pre-checkout-patch = "prepare.patch"` to apply a layer-relative patch to its source tree in an isolated Git index after fetch and before files are written. Patch paths are relative to the source repository root, even for a nested clone destination. This can normalize case-colliding paths on a case-insensitive filesystem.
+
+A clone can also set `pre-checkout-script = "scripts/prepare.sh"` to run an executable in an isolated bare Git repository before checkout. The hook receives a private index initialized to the source tree, with the optional pre-checkout patch already applied. Its stdout must contain only one full commit or tree SHA; write diagnostics to stderr. A returned commit becomes the imported parent. A returned tree keeps the fetched commit as parent. The returned object determines the materialized tree.
+
+The hook receives `GIT_DIR` and `GIT_INDEX_FILE`, plus `LAYERCTL_GIT_DIR`, `LAYERCTL_SOURCE_COMMIT`, `LAYERCTL_SOURCE_TREE`, `LAYERCTL_WORKTREE_DIR`, `LAYERCTL_DEFINITION_DIR`, `LAYERCTL_LAYER_DIR`, `LAYERCTL_LAYER_ID`, and the one-based `LAYERCTL_OPERATION_INDEX`. For example, this executable adds a file to the prepared tree and prints its SHA:
+
+```sh
+#!/bin/sh
+set -eu
+blob=$(printf 'enabled\n' | git hash-object -w --stdin)
+git update-index --add --cacheinfo "100644,$blob,prepared.txt"
+git write-tree
+```
+
+Hooks are trusted programs and may change resources outside the repository. `check` and refresh verification replay them. When a hook returns a commit, make its creation deterministic: refresh checks that imported parent IDs match, so changing commit metadata between runs can make verification fail.
 
 When both `ref` and `commit` are set, the commit must be reachable from the ref. A shallow depth can prevent this verification. Pin `commit` for reproducible results; otherwise the selected ref or default HEAD can move. Git shallow boundaries apply to the entire workspace object database, so overlapping source histories are rejected when either import is shallow. Clone imports refuse to overwrite existing files or index entries, and sources containing Git submodules are not supported. Paths must be workspace-relative and may not traverse symlinks or Git metadata.
 

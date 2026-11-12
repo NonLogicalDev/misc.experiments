@@ -24,13 +24,14 @@ Import source
 [[operation]]
 [operation.git-clone]
 url = "https://example.com/project.git"
-dir = ""
 commit = "0123456789abcdef0123456789abcdef01234567"
 ```
 
-The commit is a placeholder: replace it and the URL. `dir = ""` places the source at the workspace root; use a relative directory for another source. Add optional `ref = "refs/heads/main"` to require the selected commit to be reachable from that ref, or `depth = 20` to limit imported history. A shallow clone can prevent reachability checks, and overlapping shallow histories are rejected. An unpinned ref can move. Each imported commit becomes a parent of the layer's workspace commit. See the README for clone overlap and submodule limits.
+The commit is a placeholder: replace it and the URL. Omitting `dir` or using `dir = ""` places the source at the workspace root; use a relative directory for another source. Add optional `ref = "refs/heads/main"` to require the selected commit to be reachable from that ref, or `depth = 20` to limit imported history. A shallow clone can prevent reachability checks, and overlapping shallow histories are rejected. An unpinned ref can move. Each imported commit becomes a parent of the layer's workspace commit. See the README for clone overlap and submodule limits.
 
-To prepare a clone before it writes files, add `pre-checkout-patch = "prepare.patch"` under `[operation.git-clone]` and place that patch in the layer directory. Its paths are relative to the source repository root, even when the clone destination is nested. Layerctl applies it to a temporary Git index after fetch, so case-only directory fixes can run on a case-insensitive filesystem. The original source commit remains the parent.
+To prepare a clone before it writes files, add `pre-checkout-patch = "prepare.patch"` under `[operation.git-clone]` and place that patch in the layer directory. Its paths are relative to the source repository root, even when the clone destination is nested. Layerctl applies it to a temporary Git index after fetch, so case-only directory fixes can run on a case-insensitive filesystem. The original source commit remains the parent unless a following script returns a different commit.
+
+For programmable preparation, use `pre-checkout-script = "scripts/prepare.sh"` instead of or after the patch. The executable runs in an isolated bare Git repository with a prepared index and prints one full commit or tree SHA to stdout. A returned commit becomes the imported parent; a returned tree retains the fetched commit as parent. The [README](../../../README.md) lists environment variables and an example. Scripts can have external effects and run again during checks and refresh verification; commits returned during refresh must be reproducible.
 
 ## Create a layer from an edit
 

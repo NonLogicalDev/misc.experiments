@@ -125,7 +125,6 @@ func TestManifestRejectsInvalidGitClone(t *testing.T) {
 	for _, tc := range []struct{ name, clone string }{
 		{"missing URL", `dir = ""`},
 		{"empty URL", "url = \"\"\ndir = \"\""},
-		{"missing dir", `url = "repo"`},
 		{"zero depth", "url = \"repo\"\ndir = \"\"\ndepth = 0"},
 		{"negative depth", "url = \"repo\"\ndir = \"\"\ndepth = -1"},
 		{"string depth", "url = \"repo\"\ndir = \"\"\ndepth = \"2\""},

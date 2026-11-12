@@ -1,7 +1,4 @@
-// Package scriptop executes explicitly configured layer scripts. Scripts are
-// trusted programs: they can change files, run commands and access networks
-// outside the workspace. layerctl cannot roll back those external side effects.
-package scriptop
+package operations
 
 import (
 	"context"
@@ -15,15 +12,15 @@ import (
 	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/definition"
 )
 
-// Run executes the script directly with operation args; operationIndex is
+// RunScript executes the script directly with operation args; operationIndex is
 // zero-based, while LAYERCTL_OPERATION_INDEX is one-based. The script runs in
 // worktree with the caller's environment and five LAYERCTL_* context values.
 // On success Git stages workspace changes. Failed scripts are not staged here.
-func Run(ctx context.Context, worktree, definitionRoot, layerID, layerDirectory string, operationIndex int, op definition.Operation) error {
+func RunScript(ctx context.Context, worktree, definitionRoot, layerID, layerDirectory string, operationIndex int, op definition.Operation) error {
 	if op.Kind != "script" || operationIndex < 0 {
 		return fmt.Errorf("invalid script operation")
 	}
-	if err := validateScript(layerDirectory, op.Path); err != nil {
+	if err := ValidateScript(layerDirectory, op.Path); err != nil {
 		return err
 	}
 	env := append(os.Environ(),
@@ -52,9 +49,9 @@ func Run(ctx context.Context, worktree, definitionRoot, layerID, layerDirectory 
 	return nil
 }
 
-// Check every component again immediately before launching. Paths cannot
-// escape the declared layer or traverse a symbolic link.
-func validateScript(layerDirectory, script string) error {
+// ValidateScript checks every path component immediately before launching a script.
+// Paths cannot escape the declared layer or traverse a symbolic link.
+func ValidateScript(layerDirectory, script string) error {
 	base, err := filepath.Abs(layerDirectory)
 	if err != nil {
 		return err

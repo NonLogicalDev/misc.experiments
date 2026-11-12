@@ -48,6 +48,8 @@ type Operation struct {
 	Args    []string
 	// PreCheckoutPatch is an absolute layer-relative input path for git-clone.
 	PreCheckoutPatch string
+	// PreCheckoutScript is an absolute layer-relative path to the clone hook.
+	PreCheckoutScript string
 }
 
 // Unit is one generated commit, in legacy or manifest form.

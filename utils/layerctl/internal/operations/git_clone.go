@@ -1,5 +1,5 @@
-// Package composition imports Git trees into a single composed workspace.
-package composition
+// Package operations executes layer operations.
+package operations
 
 import (
 	"bufio"
@@ -19,24 +19,29 @@ import (
 
 type entry struct{ path, mode, object string }
 
-// CloneRequest identifies a Git source and its destination in the workspace.
-type CloneRequest struct {
-	URL              string
-	Dir              string
-	Ref              string
-	Commit           string
-	Depth            int
-	PreCheckoutPatch string
+// GitCloneRequest identifies a Git source and its destination in the workspace.
+type GitCloneRequest struct {
+	URL               string
+	Dir               string
+	Ref               string
+	Commit            string
+	Depth             int
+	PreCheckoutPatch  string
+	PreCheckoutScript string
+	DefinitionRoot    string
+	LayerDirectory    string
+	LayerID           string
+	OperationIndex    int
 }
 
-// Import copies the tracked source tree into the destination relative to
+// GitClone copies the tracked source tree into the destination relative to
 // workspace, and imports its commit ancestry into the workspace object store.
 // An empty Dir means the workspace root; absent Ref and Commit select HEAD.
-// PreCheckoutPatch, when set, prepares the imported tree in a private index;
-// the returned parent remains the original, unmodified source commit.
+// PreCheckoutPatch prepares the imported tree in a private index. The source
+// commit remains the parent unless a following script returns another commit.
 // Existing leaves are never replaced. The returned commit can be used as a
 // parent of a composed commit; no ref is created and no commit is made here.
-func Import(ctx context.Context, workspace string, req CloneRequest) (resultCommit string, resultErr error) {
+func GitClone(ctx context.Context, workspace string, req GitCloneRequest) (resultCommit string, resultErr error) {
 	dir := req.Dir
 	if req.URL == "" {
 		return "", fmt.Errorf("git-clone URL is required")
@@ -70,6 +75,10 @@ func Import(ctx context.Context, workspace string, req CloneRequest) (resultComm
 		return "", fmt.Errorf("create clone staging directory: %w", err)
 	}
 	defer os.RemoveAll(temp)
+	temp, err = filepath.EvalSymlinks(temp)
+	if err != nil {
+		return "", fmt.Errorf("resolve clone staging directory: %w", err)
+	}
 	source := filepath.Join(temp, "source")
 	if req.Depth < 0 {
 		return "", fmt.Errorf("git-clone depth must be positive when specified")
@@ -83,7 +92,11 @@ func Import(ctx context.Context, workspace string, req CloneRequest) (resultComm
 	if err := os.Mkdir(source, 0700); err != nil {
 		return "", err
 	}
-	if _, err := git(ctx, source, "init", "-q"); err != nil {
+	initArgs := []string{"init", "-q"}
+	if req.PreCheckoutScript != "" {
+		initArgs = append(initArgs, "--bare")
+	}
+	if _, err := git(ctx, source, initArgs...); err != nil {
 		return "", fmt.Errorf("initialize source repository: %w", err)
 	}
 	want := req.Ref
@@ -123,33 +136,83 @@ func Import(ctx context.Context, workspace string, req CloneRequest) (resultComm
 		}
 	}
 	treeish := commit
-	if req.PreCheckoutPatch != "" {
-		if !filepath.IsAbs(req.PreCheckoutPatch) {
-			return "", fmt.Errorf("pre-checkout patch path must be absolute")
-		}
-		info, err := os.Stat(req.PreCheckoutPatch)
-		if err != nil || !info.Mode().IsRegular() {
-			return "", fmt.Errorf("pre-checkout patch must be a readable regular file")
-		}
+	if req.PreCheckoutPatch != "" || req.PreCheckoutScript != "" {
 		index := filepath.Join(temp, "source.index")
 		runIndex := func(args ...string) ([]byte, error) {
 			cmd := exec.CommandContext(ctx, "git", append([]string{"-c", "core.ignorecase=false"}, args...)...)
 			cmd.Dir = source
-			cmd.Env = append(os.Environ(), "GIT_INDEX_FILE="+index, "GIT_TERMINAL_PROMPT=0")
+			cmd.Env = append(cleanGitRepositoryEnvironment(os.Environ()), "GIT_INDEX_FILE="+index, "GIT_TERMINAL_PROMPT=0")
 			cmd.Stderr = io.Discard
 			return cmd.Output()
 		}
 		if _, err := runIndex("read-tree", commit); err != nil {
 			return "", fmt.Errorf("prepare source index: %w", err)
 		}
-		if _, err := runIndex("apply", "--cached", "--3way", "--", req.PreCheckoutPatch); err != nil {
-			return "", fmt.Errorf("apply pre-checkout patch: %w", err)
+		if req.PreCheckoutPatch != "" {
+			if !filepath.IsAbs(req.PreCheckoutPatch) {
+				return "", fmt.Errorf("pre-checkout patch path must be absolute")
+			}
+			info, err := os.Stat(req.PreCheckoutPatch)
+			if err != nil || !info.Mode().IsRegular() {
+				return "", fmt.Errorf("pre-checkout patch must be a readable regular file")
+			}
+			if _, err := runIndex("apply", "--cached", "--3way", "--", req.PreCheckoutPatch); err != nil {
+				return "", fmt.Errorf("apply pre-checkout patch: %w", err)
+			}
 		}
 		prepared, err := runIndex("write-tree")
 		if err != nil {
 			return "", fmt.Errorf("write pre-checkout tree: %w", err)
 		}
 		treeish = strings.TrimSpace(string(prepared))
+		if req.PreCheckoutScript != "" {
+			if !filepath.IsAbs(req.PreCheckoutScript) {
+				return "", fmt.Errorf("pre-checkout script path must be absolute")
+			}
+			info, err := os.Stat(req.PreCheckoutScript)
+			if err != nil || !info.Mode().IsRegular() || info.Mode()&0111 == 0 {
+				return "", fmt.Errorf("pre-checkout script must be an executable regular file")
+			}
+			if req.LayerDirectory != "" {
+				if err := ValidateScript(req.LayerDirectory, req.PreCheckoutScript); err != nil {
+					return "", fmt.Errorf("validate pre-checkout script: %w", err)
+				}
+			}
+			cmd := exec.CommandContext(ctx, req.PreCheckoutScript)
+			cmd.Dir = source
+			cmd.Env = append(cleanGitRepositoryEnvironment(os.Environ()),
+				"GIT_DIR="+source, "GIT_INDEX_FILE="+index,
+				"LAYERCTL_GIT_DIR="+source, "LAYERCTL_SOURCE_COMMIT="+commit,
+				"LAYERCTL_SOURCE_TREE="+treeish, "LAYERCTL_WORKTREE_DIR="+workspaceAbs,
+				"LAYERCTL_DEFINITION_DIR="+req.DefinitionRoot, "LAYERCTL_LAYER_DIR="+req.LayerDirectory,
+				"LAYERCTL_LAYER_ID="+req.LayerID, "LAYERCTL_OPERATION_INDEX="+strconv.Itoa(req.OperationIndex))
+			cmd.Stderr = os.Stderr
+			var output boundedOutput
+			cmd.Stdout = &output
+			if err := cmd.Run(); err != nil {
+				return "", fmt.Errorf("run pre-checkout script: %w", err)
+			}
+			value := strings.TrimSuffix(output.String(), "\n")
+			if !regexp.MustCompile(`^[0-9a-fA-F]{40}([0-9a-fA-F]{24})?$`).MatchString(value) {
+				return "", fmt.Errorf("pre-checkout script must print exactly one full commit or tree object ID")
+			}
+			kind, err := git(ctx, source, "cat-file", "-t", value)
+			if err != nil {
+				return "", fmt.Errorf("pre-checkout script returned an unavailable object")
+			}
+			switch strings.TrimSpace(string(kind)) {
+			case "commit":
+				commit = strings.ToLower(value)
+				treeish = commit
+			case "tree":
+				treeish = strings.ToLower(value)
+			default:
+				return "", fmt.Errorf("pre-checkout script must return a commit or tree object")
+			}
+			if _, err := git(ctx, source, "update-ref", "refs/layerctl/selected", commit); err != nil {
+				return "", fmt.Errorf("retain selected source commit: %w", err)
+			}
+		}
 		// A temporary ref makes new blobs reachable during the later fetch.
 		if _, err := git(ctx, source, "update-ref", "refs/layerctl/prepared", treeish); err != nil {
 			return "", fmt.Errorf("retain pre-checkout tree: %w", err)
@@ -213,8 +276,11 @@ func Import(ctx context.Context, workspace string, req CloneRequest) (resultComm
 		}
 	}()
 	fetchObjects := []string{"-c", "protocol.file.allow=always", "fetch", "--update-shallow", "--no-tags", "--no-write-fetch-head", "--", source, commit}
-	if req.PreCheckoutPatch != "" {
+	if req.PreCheckoutPatch != "" || req.PreCheckoutScript != "" {
 		fetchObjects = append(fetchObjects, "refs/layerctl/prepared")
+	}
+	if req.PreCheckoutScript != "" {
+		fetchObjects = append(fetchObjects, "refs/layerctl/selected")
 	}
 	if _, err := git(ctx, workspace, fetchObjects...); err != nil {
 		return "", fmt.Errorf("import source commit objects: %w", err)
@@ -334,7 +400,7 @@ func stageIndex(ctx context.Context, workspace, temp, dir string, entries []entr
 	} else {
 		cmd := exec.CommandContext(ctx, "git", "read-tree", "--empty")
 		cmd.Dir = workspace
-		cmd.Env = append(os.Environ(), "GIT_INDEX_FILE="+tempIndex)
+		cmd.Env = append(cleanGitRepositoryEnvironment(os.Environ()), "GIT_INDEX_FILE="+tempIndex)
 		cmd.Stderr = io.Discard
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("initialize temporary index: %w", err)
@@ -349,7 +415,7 @@ func stageIndex(ctx context.Context, workspace, temp, dir string, entries []entr
 	}
 	update := exec.CommandContext(ctx, "git", "update-index", "-z", "--index-info")
 	update.Dir = workspace
-	update.Env = append(os.Environ(), "GIT_INDEX_FILE="+tempIndex)
+	update.Env = append(cleanGitRepositoryEnvironment(os.Environ()), "GIT_INDEX_FILE="+tempIndex)
 	update.Stdin = &indexInfo
 	update.Stderr = io.Discard
 	if err := update.Run(); err != nil {
@@ -357,7 +423,7 @@ func stageIndex(ctx context.Context, workspace, temp, dir string, entries []entr
 	}
 	refresh := exec.CommandContext(ctx, "git", "update-index", "--refresh", "-z", "--stdin")
 	refresh.Dir = workspace
-	refresh.Env = append(os.Environ(), "GIT_INDEX_FILE="+tempIndex)
+	refresh.Env = append(cleanGitRepositoryEnvironment(os.Environ()), "GIT_INDEX_FILE="+tempIndex)
 	refresh.Stdin = &paths
 	refresh.Stderr = io.Discard
 	if err := refresh.Run(); err != nil {
@@ -419,8 +485,15 @@ func stageBlobs(ctx context.Context, source, staged string, entries []entry) err
 	if len(entries) == 0 {
 		return nil
 	}
+	root, err := os.OpenRoot(staged)
+	if err != nil {
+		return fmt.Errorf("open source staging directory: %w", err)
+	}
+	defer root.Close()
+	var createdDirs []string
 	cmd := exec.CommandContext(ctx, "git", "cat-file", "--batch")
 	cmd.Dir = source
+	cmd.Env = cleanGitRepositoryEnvironment(os.Environ())
 	cmd.Stderr = io.Discard
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -458,8 +531,8 @@ func stageBlobs(ctx context.Context, source, staged string, entries []entry) err
 		if err != nil || size < 0 {
 			return fmt.Errorf("invalid source blob size for %q", e.path)
 		}
-		path := filepath.Join(staged, filepath.FromSlash(e.path))
-		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		path := filepath.FromSlash(e.path)
+		if err := makeDirs(root, filepath.Dir(path), &createdDirs); err != nil {
 			return err
 		}
 		if e.mode == "120000" {
@@ -475,7 +548,7 @@ func stageBlobs(ctx context.Context, source, staged string, entries []entry) err
 			if int64(len(target)) != size {
 				return fmt.Errorf("short source symlink target: %q", e.path)
 			}
-			if err := os.Symlink(string(target), path); err != nil {
+			if err := root.Symlink(string(target), path); err != nil {
 				return fmt.Errorf("stage symlink %q: %w", e.path, err)
 			}
 		} else {
@@ -483,7 +556,7 @@ func stageBlobs(ctx context.Context, source, staged string, entries []entry) err
 			if e.mode == "100755" {
 				mode = 0755
 			}
-			f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+			f, err := root.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
 			if err != nil {
 				return fmt.Errorf("stage file %q: %w", e.path, err)
 			}
@@ -515,7 +588,7 @@ func stageBlobs(ctx context.Context, source, staged string, entries []entry) err
 func git(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	cmd.Env = append(cleanGitRepositoryEnvironment(os.Environ()), "GIT_TERMINAL_PROMPT=0")
 	// Suppress stderr: clone/fetch errors can expose URL userinfo or tokens.
 	var out bytes.Buffer
 	cmd.Stdout = &out
@@ -524,6 +597,34 @@ func git(ctx context.Context, dir string, args ...string) ([]byte, error) {
 		return nil, err
 	}
 	return out.Bytes(), nil
+}
+
+// Remove repository-selection variables from subprocesses while preserving
+// transport settings such as GIT_SSH_COMMAND for authenticated fetches.
+func cleanGitRepositoryEnvironment(env []string) []string {
+	blocked := map[string]bool{
+		"GIT_DIR": true, "GIT_WORK_TREE": true, "GIT_INDEX_FILE": true,
+		"GIT_COMMON_DIR": true, "GIT_OBJECT_DIRECTORY": true,
+		"GIT_ALTERNATE_OBJECT_DIRECTORIES": true, "GIT_SHALLOW_FILE": true,
+		"GIT_NAMESPACE": true, "GIT_PREFIX": true,
+	}
+	filtered := make([]string, 0, len(env))
+	for _, item := range env {
+		key, _, _ := strings.Cut(item, "=")
+		if !blocked[key] {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
+}
+
+type boundedOutput struct{ bytes.Buffer }
+
+func (b *boundedOutput) Write(p []byte) (int, error) {
+	if b.Len()+len(p) > 65 {
+		return 0, fmt.Errorf("pre-checkout script output exceeds one object ID")
+	}
+	return b.Buffer.Write(p)
 }
 func validDestination(path string) error {
 	if path == "" {
@@ -646,6 +747,7 @@ func checkShallowOverlap(ctx context.Context, workspace, source, commit string) 
 	}
 	cmd := exec.CommandContext(ctx, "git", "cat-file", "--batch-check=%(objectname) %(objecttype)")
 	cmd.Dir = workspace
+	cmd.Env = cleanGitRepositoryEnvironment(os.Environ())
 	cmd.Stdin = bytes.NewReader(ids)
 	cmd.Stderr = io.Discard
 	output, err := cmd.Output()

@@ -12,11 +12,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/composition"
 	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/definition"
 	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/gitrepo"
 	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/layercommit"
-	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/scriptop"
+	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/operations"
 )
 
 // CompositionConflictError identifies a recoverable operation conflict. The
@@ -40,6 +39,7 @@ type fingerprintOperation struct {
 	Overlay                     []definition.OverlayEntry
 	PreCheckoutPatchPath        string `json:",omitempty"`
 	PreCheckoutPatch            []byte `json:",omitempty"`
+	PreCheckoutScriptPath       string `json:",omitempty"`
 }
 type fingerprintAsset struct {
 	Path string
@@ -82,6 +82,14 @@ func fingerprintUnits(units []definition.Unit) (string, error) {
 		} else {
 			for _, o := range u.Operations {
 				op := fingerprintOperation{Kind: o.Kind, URL: o.URL, Dir: o.Dir, Ref: o.Ref, Commit: o.Commit, Depth: o.Depth, Args: o.Args, Overlay: o.Overlay}
+				if o.PreCheckoutScript != "" {
+					var err error
+					op.PreCheckoutScriptPath, err = filepath.Rel(u.Directory, o.PreCheckoutScript)
+					if err != nil {
+						return "", fmt.Errorf("fingerprint pre-checkout script path: %w", err)
+					}
+					op.PreCheckoutScriptPath = filepath.ToSlash(op.PreCheckoutScriptPath)
+				}
 				if o.PreCheckoutPatch != "" {
 					var err error
 					op.PreCheckoutPatchPath, err = filepath.Rel(u.Directory, o.PreCheckoutPatch)
@@ -107,7 +115,7 @@ func fingerprintUnits(units []definition.Unit) (string, error) {
 		// Scripts may read any supporting file within their layer directory.
 		// Bind recovery to the whole directory without following symlinks.
 		for _, op := range u.Operations {
-			if op.Kind == "script" {
+			if op.Kind == "script" || op.PreCheckoutScript != "" {
 				var err error
 				f.AssetDigest, err = FingerprintScriptAssets(u.Directory)
 				if err != nil {
@@ -359,7 +367,12 @@ func (s *CompositionService) runComposition(ctx context.Context, dir string, rec
 			if unit.Message != nil && unit.Operations[index].Kind == "git-clone" {
 				op := unit.Operations[index]
 				var source string
-				source, err = composition.Import(ctx, record.Workspace, composition.CloneRequest{URL: op.URL, Dir: op.Dir, Ref: op.Ref, Commit: op.Commit, Depth: op.Depth, PreCheckoutPatch: op.PreCheckoutPatch})
+				source, err = operations.GitClone(ctx, record.Workspace, operations.GitCloneRequest{
+					URL: op.URL, Dir: op.Dir, Ref: op.Ref, Commit: op.Commit, Depth: op.Depth,
+					PreCheckoutPatch: op.PreCheckoutPatch, PreCheckoutScript: op.PreCheckoutScript,
+					DefinitionRoot: s.Definition.Root, LayerDirectory: unit.Directory,
+					LayerID: unit.ID, OperationIndex: index + 1,
+				})
 				if err == nil {
 					duplicate := false
 					for _, p := range record.Parents {
@@ -373,14 +386,14 @@ func (s *CompositionService) runComposition(ctx context.Context, dir string, rec
 					}
 				}
 			} else if unit.Message != nil && unit.Operations[index].Kind == "script" {
-				err = scriptop.Run(ctx, record.Workspace, s.Definition.Root, unit.ID, unit.Directory, index, unit.Operations[index])
+				err = operations.RunScript(ctx, record.Workspace, s.Definition.Root, unit.ID, unit.Directory, index, unit.Operations[index])
 			} else {
 				err = layers.ApplyStep(ctx, record.Workspace, unit, index)
 			}
 			if err != nil {
 				// A failed script can already have arbitrary external side effects;
 				// do not treat it as a Git conflict that can be skipped on resume.
-				if unit.Message != nil && unit.Operations[index].Kind == "script" {
+				if unit.Message != nil && (unit.Operations[index].Kind == "script" || unit.Operations[index].PreCheckoutScript != "") {
 					return result(), fmt.Errorf("layer %q script operation %d failed; workspace %q is retained, delete the projection before retrying: %w", unit.ID, index+1, record.Workspace, err)
 				}
 				hasConflicts, inspectErr := layers.HasConflicts(ctx, record.Workspace)
