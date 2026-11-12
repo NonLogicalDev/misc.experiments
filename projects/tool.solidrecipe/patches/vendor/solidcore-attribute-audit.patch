@@ -1,0 +1,256 @@
+diff --git a/solidcore/crates/solidcore/src/geom/attribute.rs b/solidcore/crates/solidcore/src/geom/attribute.rs
+index ad6b9175..5f409515 100644
+--- a/solidcore/crates/solidcore/src/geom/attribute.rs
++++ b/solidcore/crates/solidcore/src/geom/attribute.rs
+@@ -110,6 +110,53 @@
+ use core::any::Any;
+ use std::collections::BTreeMap;
+ 
++thread_local! {
++    // The kernel session runs synchronously on its caller's thread. If that
++    // changes, this audit must travel with work dispatched to other threads.
++    static APPLICATION_FAILURE: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
++}
++
++/// Run one synchronous operation and report application-handler failures.
++///
++/// The flag records handler and placement errors returned by `run_application`,
++/// even when a caller later ignores their status. It does not detect other
++/// attribute-store errors or notifications never emitted.
++/// A nested audit is refused and makes the outer audit incomplete. Scope state
++/// is reset on return or panic, and never shared between threads.
++pub fn with_application_failure_audit<T>(f: impl FnOnce() -> T) -> Option<(T, bool)> {
++    let entered = APPLICATION_FAILURE.with(|state| {
++        if state.get().is_some() {
++            state.set(Some(true));
++            false
++        } else {
++            state.set(Some(false));
++            true
++        }
++    });
++    if !entered {
++        return None;
++    }
++    struct Reset;
++    impl Drop for Reset {
++        fn drop(&mut self) {
++            APPLICATION_FAILURE.with(|state| state.set(None));
++        }
++    }
++    let guard = Reset;
++    let output = f();
++    let failed = APPLICATION_FAILURE.with(|state| state.get().unwrap_or(true));
++    drop(guard);
++    Some((output, failed))
++}
++
++fn note_application_failure() {
++    APPLICATION_FAILURE.with(|state| {
++        if state.get().is_some() {
++            state.set(Some(true));
++        }
++    });
++}
++
+ use crate::error::{Result, SolidError};
+ use crate::geom::object;
+ use crate::math::Vec3;
+@@ -1670,26 +1717,29 @@ impl AttributeStore {
+         handler: AppHandler,
+         op: &'static str,
+     ) -> Result<bool> {
+-        let attribute = self.attr(h, op)?;
+-        let AttributeValue::Application(app) = &attribute.value else {
+-            return Ok(false);
+-        };
+-        let view = AttributeView {
+-            store: self,
+-            handle: h,
+-            attribute,
+-        };
+-        let handlers = app.handlers();
+-        let placements = match handler {
+-            AppHandler::Split(s, c1, c2) => handlers.split(&view, s, c1, c2)?,
+-            AppHandler::Merge(o1, o2, m) => handlers.merge(&view, o1, o2, m)?,
+-            AppHandler::Coincident(from, to) => handlers.coincident(&view, from, to)?,
+-            AppHandler::Copy(from, to) => handlers.copy(&view, from, to)?,
+-            AppHandler::Edit(edited) => handlers.edit(&view, edited)?,
+-            AppHandler::Destruction(deleted) => handlers.destruction(&view, deleted)?,
+-        };
+-        self.apply_placements(h, placements, op)?;
+-        Ok(true)
++        (|| {
++            let attribute = self.attr(h, op)?;
++            let AttributeValue::Application(app) = &attribute.value else {
++                return Ok(false);
++            };
++            let view = AttributeView {
++                store: self,
++                handle: h,
++                attribute,
++            };
++            let handlers = app.handlers();
++            let placements = match handler {
++                AppHandler::Split(s, c1, c2) => handlers.split(&view, s, c1, c2)?,
++                AppHandler::Merge(o1, o2, m) => handlers.merge(&view, o1, o2, m)?,
++                AppHandler::Coincident(from, to) => handlers.coincident(&view, from, to)?,
++                AppHandler::Copy(from, to) => handlers.copy(&view, from, to)?,
++                AppHandler::Edit(edited) => handlers.edit(&view, edited)?,
++                AppHandler::Destruction(deleted) => handlers.destruction(&view, deleted)?,
++            };
++            self.apply_placements(h, placements, op)?;
++            Ok(true)
++        })()
++        .inspect_err(|_| note_application_failure())
+     }
+ 
+     /// Applies an application handler's placements for attribute `h`, in order.
+--- a/solidcore/crates/solidcore-ops/src/provenance.rs
++++ b/solidcore/crates/solidcore-ops/src/provenance.rs
+@@ -35,6 +35,17 @@
+ 
+ /// The lowest [`Provenance::ID`] an application may take.
+ pub const FIRST_ID: u64 = ids::USER_1;
++
++/// Audit application-handler failures during one synchronous operation.
++///
++/// The flag reports handler and placement errors returned by the attribute
++/// store's `run_application`, including errors a geometry operation later ignores.
++/// It does not detect other store errors or prove all notifications were emitted.
++/// Callers must reject incomplete provenance when the flag is set.
++/// A nested audit returns [`crate::Error::Reentered`] and flags the outer audit.
++pub fn with_failure_audit<T>(f: impl FnOnce() -> T) -> crate::Result<(T, bool)> {
++    solidcore::geom::attribute::with_application_failure_audit(f).ok_or(crate::Error::Reentered)
++}
+ 
+ /// `P::ID` is an application's, checked when the code using `P` is compiled.
+ struct ApplicationId<P>(std::marker::PhantomData<P>);
+@@ -310,4 +321,127 @@
+             .collect();
+         Ok(Ok((record, order, faces, edges)))
+     })?
++}
++
++#[cfg(test)]
++mod audit_tests {
++    use super::with_failure_audit;
++    use crate::{blend_ordered, boolean::boolean, make_box, Blend, Body, BooleanOp, Corners};
++    use solidcore::geom::attribute::{
++        Attribute, AttributeHandlers, AttributeView, Behavior, ObjectKey, Placement,
++    };
++    use solidcore::EntityRef;
++    use std::sync::{
++        atomic::{AtomicUsize, Ordering},
++        Arc,
++    };
++
++    #[derive(Clone, Debug)]
++    struct RefuseSplit(Arc<AtomicUsize>);
++    impl PartialEq for RefuseSplit {
++        fn eq(&self, other: &Self) -> bool {
++            Arc::ptr_eq(&self.0, &other.0)
++        }
++    }
++    impl AttributeHandlers for RefuseSplit {
++        fn split(
++            &self,
++            _: &AttributeView<'_>,
++            _: ObjectKey,
++            _: ObjectKey,
++            _: ObjectKey,
++        ) -> solidcore::Result<Vec<Placement>> {
++            self.0.fetch_add(1, Ordering::Relaxed);
++            Err(solidcore::SolidError::sm_err(
++                "injected attribute notification failure",
++            ))
++        }
++    }
++
++    /// Attach a test-only failing attribute to the exact operation body's handles.
++    fn inject(body: &Body, counter: &Arc<AtomicUsize>) {
++        let (_, order) = body.to_record().unwrap();
++        crate::session::with_body("inject audit test", body, |_, b| {
++            for f in &order.faces {
++                b.add_attribute(
++                    EntityRef::Face(*f),
++                    Attribute::application(
++                        super::FIRST_ID + 81,
++                        Behavior::Copy,
++                        RefuseSplit(Arc::clone(counter)),
++                    ),
++                )?;
++            }
++            for e in &order.edges {
++                b.add_attribute(
++                    EntityRef::Edge(*e),
++                    Attribute::application(
++                        super::FIRST_ID + 81,
++                        Behavior::Copy,
++                        RefuseSplit(Arc::clone(counter)),
++                    ),
++                )?;
++            }
++            Ok(())
++        })
++        .unwrap();
++    }
++
++    #[test]
++    fn boolean_reports_suppressed_attribute_failure() {
++        let a = make_box([0., 0., 0.], [3., 3., 3.]).unwrap();
++        let b = make_box([-1., -1., 1.], [5., 5., 1.]).unwrap();
++        let counter = Arc::new(AtomicUsize::new(0));
++        inject(&a, &counter);
++        inject(&b, &counter);
++        let (result, failed) = with_failure_audit(|| boolean(a, b, BooleanOp::Subtract)).unwrap();
++        assert!(
++            result.unwrap().is_some(),
++            "geometry must reach successful completion"
++        );
++        assert!(
++            counter.load(Ordering::Relaxed) > 0,
++            "the operation must reach the failing handler"
++        );
++        assert!(
++            failed,
++            "an ignored callback failure must invalidate history"
++        );
++        assert!(
++            !with_failure_audit(|| ()).unwrap().1,
++            "the scope must reset"
++        );
++    }
++
++    #[test]
++    fn blends_report_suppressed_attribute_failure() {
++        for kind in [Blend::Round, Blend::Chamfer] {
++            let b = make_box([0., 0., 0.], [10., 10., 10.]).unwrap();
++            let counter = Arc::new(AtomicUsize::new(0));
++            inject(&b, &counter);
++            let (_, order) = b.to_record().unwrap();
++            let (result, failed) = with_failure_audit(|| {
++                blend_ordered(
++                    &b,
++                    &order,
++                    kind,
++                    &[0],
++                    &[0.5],
++                    &[],
++                    Corners::Filled,
++                    Default::default(),
++                )
++            })
++            .unwrap();
++            result.unwrap();
++            assert!(
++                counter.load(Ordering::Relaxed) > 0,
++                "the operation must reach the failing handler"
++            );
++            assert!(
++                failed,
++                "an ignored callback failure must invalidate history"
++            );
++        }
++    }
+ }

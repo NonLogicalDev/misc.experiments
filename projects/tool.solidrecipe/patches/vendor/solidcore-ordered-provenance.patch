@@ -1,0 +1,87 @@
+--- a/solidcore/crates/solidcore-ops/src/provenance.rs
++++ b/solidcore/crates/solidcore-ops/src/provenance.rs
+@@ -230,3 +230,84 @@
+         .find(|(_, a)| a.attribute_id() == P::ID)?;
+     a.application_value::<Carried<P>>().map(|c| c.0.clone())
+ }
++
++/// Attach provenance to every face and edge in the supplied record's order.
++/// The record and order are checked while the body is locked. Orders are body-local;
++/// handle equality does not prove the order came from this body. A refusal leaves the body unchanged.
++pub fn write_provenance<P: Provenance>(
++    body: &crate::Body,
++    expected: &solidcore_record::brep::Brep,
++    expected_order: &crate::Order,
++    faces: &[P],
++    edges: &[P],
++) -> crate::Result<()> {
++    take::<P>()?;
++    crate::session::with_body("write provenance", body, |k, b| {
++        let (record, order) = match solidcore_convert::brep::to_record(k, b) {
++            Ok(v) => v,
++            Err(solidcore_convert::brep::Unsupported::Kernel(e)) => return Err(e),
++            Err(solidcore_convert::brep::Unsupported::Invalid(w)) => {
++                return Ok(Err(crate::Error::Record(w.to_owned())))
++            }
++            Err(solidcore_convert::brep::Unsupported::NotYet(w)) => {
++                return Ok(Err(crate::Error::Unsupported(w)))
++            }
++        };
++        if &record != expected
++            || order.faces != expected_order.faces
++            || order.edges != expected_order.edges
++            || order.vertices != expected_order.vertices
++            || faces.len() != order.faces.len()
++            || edges.len() != order.edges.len()
++        {
++            return Ok(Err(crate::Error::Argument));
++        }
++        for (face, value) in order.faces.iter().zip(faces) {
++            if let Err(e) = attach(b, EntityRef::Face(*face), value.clone()) {
++                return Ok(Err(e));
++            }
++        }
++        for (edge, value) in order.edges.iter().zip(edges) {
++            if let Err(e) = attach(b, EntityRef::Edge(*edge), value.clone()) {
++                return Ok(Err(e));
++            }
++        }
++        Ok(Ok(()))
++    })?
++}
++
++/// Read one record and the provenance of its faces and edges under one body lock.
++/// Each provenance entry has the same index as its entity in the returned record.
++pub fn read_provenance<P: Provenance>(
++    body: &crate::Body,
++) -> crate::Result<(
++    solidcore_record::brep::Brep,
++    crate::Order,
++    Vec<Option<P>>,
++    Vec<Option<P>>,
++)> {
++    take::<P>()?;
++    crate::session::with_body("read provenance", body, |k, b| {
++        let (record, order) = match solidcore_convert::brep::to_record(k, b) {
++            Ok(v) => v,
++            Err(solidcore_convert::brep::Unsupported::Kernel(e)) => return Err(e),
++            Err(solidcore_convert::brep::Unsupported::Invalid(w)) => {
++                return Ok(Err(crate::Error::Record(w.to_owned())))
++            }
++            Err(solidcore_convert::brep::Unsupported::NotYet(w)) => {
++                return Ok(Err(crate::Error::Unsupported(w)))
++            }
++        };
++        let faces = order
++            .faces
++            .iter()
++            .map(|f| read(b, EntityRef::Face(*f)))
++            .collect();
++        let edges = order
++            .edges
++            .iter()
++            .map(|e| read(b, EntityRef::Edge(*e)))
++            .collect();
++        Ok(Ok((record, order, faces, edges)))
++    })?
++}

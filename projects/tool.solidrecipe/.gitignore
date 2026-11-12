@@ -1,0 +1,11 @@
+/target/
+__pycache__/
+*.py[cod]
+/graph.json
+/bracket.obj
+/viewer.html
+
+/.venv/
+*.egg-info/
+/src/solidrecipe-viewer/node_modules/
+/src/solidrecipe-viewer/dist/

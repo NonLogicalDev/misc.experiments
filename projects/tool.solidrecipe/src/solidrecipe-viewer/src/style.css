@@ -1,0 +1,76 @@
+:root {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  color: #e9edf5;
+  background: #151a22;
+  font-size: 14px;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+main {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+input[type="file"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+}
+.workspace {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+.viewport {
+  position: absolute;
+  inset: 0;
+}
+.viewport canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.leva-position {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  max-height: calc(100% - 32px);
+  overflow: auto;
+}
+.empty {
+  position: absolute;
+  top: 26px;
+  left: 24px;
+  pointer-events: none;
+  color: #d8dfea;
+}
+.empty small {
+  display: block;
+  margin-top: 5px;
+  color: #98a5b6;
+}
+.error-panel {
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  bottom: 20px;
+  max-height: 35%;
+  overflow: auto;
+  padding: 14px 16px;
+  color: #ffe1df;
+  background: #3a2026ed;
+  border: 1px solid #a96168;
+  border-radius: 6px;
+}
+.error-panel pre {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}

@@ -1,0 +1,6 @@
+[submodule "solidrecipe-solidcore"]
+	path = projects/tool.solidrecipe/vendor/solidcore
+	url = https://github.com/tangency-labs/solidcore.git
+[submodule "solidrecipe-solidcraft"]
+	path = projects/tool.solidrecipe/vendor/solidcraft
+	url = https://github.com/tangency-labs/solidcraft.git

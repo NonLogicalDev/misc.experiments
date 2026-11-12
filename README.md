@@ -4,6 +4,9 @@ A ragtag collection of projects I am working on but am not yet ready to fully re
 
 ## Projects
 
+- [tool.solidrecipe](projects/tool.solidrecipe)
+  - A code-first CAD modeling experiment.
+
 - [cli.macctl](projects/cli.macctl)
   - A macOS command-line tool for brightness and sleep controls.
 

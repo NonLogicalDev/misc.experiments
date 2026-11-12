@@ -1,0 +1,15 @@
+[package]
+name = "solidrecipe-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+solidcore-record = { path = "../../vendor/solidcraft/solidcore/crates/solidcore-record" }
+solidcore-ops = { path = "../../vendor/solidcraft/solidcore/crates/solidcore-ops" }
+solidcore-tess = { path = "../../vendor/solidcraft/solidcore/crates/solidcore-tess" }
+solidcraft-sketch = { path = "../../vendor/solidcraft/crates/sketch" }
+serde_json = "1"
+
+[dev-dependencies]
+solidcore = { path = "../../vendor/solidcraft/solidcore/crates/solidcore" }
+solidcore-convert = { path = "../../vendor/solidcraft/solidcore/crates/solidcore-convert" }
