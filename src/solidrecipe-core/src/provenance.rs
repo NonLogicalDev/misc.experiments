@@ -97,7 +97,7 @@ pub(crate) fn boolean(
     // geometry or report from this operation may enter the cache in that case.
     if failed {
         return Err(
-            "kernel provenance is incomplete: an attribute callback or audit scope failed".into(),
+            "kernel provenance is incomplete: an attribute callback failed or operation provenance is unavailable".into(),
         );
     }
     result?.ok_or_else(|| "empty result".into())
@@ -135,7 +135,7 @@ pub(crate) fn blend(
     })?;
     if failed {
         return Err(
-            "kernel provenance is incomplete: an attribute callback or audit scope failed".into(),
+            "kernel provenance is incomplete: an attribute callback failed or operation provenance is unavailable".into(),
         );
     }
     Ok(result?)

@@ -1,0 +1,245 @@
+diff --git a/solidcore/crates/solidcore/src/boolean/merge/p4.rs b/solidcore/crates/solidcore/src/boolean/merge/p4.rs
+index 2097c4be..6831dbd7 100644
+--- a/solidcore/crates/solidcore/src/boolean/merge/p4.rs
++++ b/solidcore/crates/solidcore/src/boolean/merge/p4.rs
+@@ -177,6 +177,41 @@ pub struct FixedGaps {
+     pub deleted_edges: Vec<EdgeId>,
+ }
+ 
++/// Legacy slit cleanup for adapters without merge-owned notification identities.
++/// If cleanup edits topology or fails, any active application provenance audit
++/// is marked incomplete. Without an audit this retains the legacy behavior.
++///
++/// # Errors
++/// Those of slit-loop cleanup.
++fn remove_touch_slit_loops_with_local_notifications(
++    kernel: &mut Kernel,
++    primary: &mut Brep,
++    attributes: &mut AttributeStore,
++) -> Result<bool> {
++    let mut records = crate::topology::topology::NotifyRecords::new();
++    let mut env = edge::NotifyEnv {
++        records: &mut records,
++        attributes,
++        context: None,
++        key_of: &crate::topology::loopuse::notify_ref,
++    };
++    let result =
++        crate::topology::brep::p3::remove_slit_loops_where_solids_touch(kernel, primary, &mut env);
++    record_legacy_slit_result(result)
++}
++
++fn record_legacy_slit_result(result: Result<bool>) -> Result<bool> {
++    if !matches!(result, Ok(false)) {
++        crate::geom::attribute::note_application_failure();
++    }
++    result
++}
++
++#[cfg(test)]
++thread_local! {
++    static TEST_LEGACY_SLIT_CLEANUP: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
++}
++
+ /// Interface for calls into the canonical intersector and other merge units.
+ /// [`KernelManifoldIntersector`] implements the ported stages using one
+ /// `p1::MergeState<Relations>`, shared notification records and caller attributes.
+@@ -207,6 +242,16 @@ pub trait ManifoldIntersector {
+         attributes: &mut AttributeStore,
+     ) -> Result<()>;
+ 
++    /// Remove touching-solid slit loops using this merge's notification identities.
++    fn remove_touch_slit_loops(
++        &mut self,
++        kernels: &mut BooleanKernels<'_>,
++        primary: &mut Brep,
++        attributes: &mut AttributeStore,
++    ) -> Result<bool> {
++        remove_touch_slit_loops_with_local_notifications(kernels.primary, primary, attributes)
++    }
++
+     /// `GetMappedBrepObjects(SmEdge_TYPE)` before later topology copies.
+     fn mapped_edges(&self) -> Result<Vec<EdgeId>>;
+     /// `GetMappedBrepObjects(SmVertex_TYPE)` before later topology copies.
+@@ -1785,8 +1830,8 @@ fn manifold_boolean_translated(
+     // Not upstream (tangency-labs/solidcore#746, WR-360): a volumetric Boolean's result
+     // loses the zero-area inner loops a contact curve inside a face left, and the shells
+     // joined only through them are split (the fork's `RemoveSlitLoopsWhereSolidsTouch`
+-    // before `rpResult = m_vTI.m_pBrep`). The destroyed edge uses notify on call-local
+-    // records under their type code and arena index.
++    // before `rpResult = m_vTI.m_pBrep`). Notifications use the same identities
++    // and attribute store as the merge's other topology edits.
+     if matches!(
+         operation,
+         BooleanOperation::Union | BooleanOperation::Intersection | BooleanOperation::Difference
+@@ -1794,18 +1839,14 @@ fn manifold_boolean_translated(
+         if let Some(a) = primary.as_mut() {
+             let editing = a.editing_enabled();
+             a.set_editing_enabled(true);
+-            let mut records = crate::topology::topology::NotifyRecords::new();
+-            let mut env = edge::NotifyEnv {
+-                records: &mut records,
+-                attributes: &mut *attributes,
+-                context: None,
+-                key_of: &crate::topology::loopuse::notify_ref,
++            #[cfg(test)]
++            let removed = if TEST_LEGACY_SLIT_CLEANUP.with(std::cell::Cell::get) {
++                remove_touch_slit_loops_with_local_notifications(kernels.primary, a, attributes)
++            } else {
++                intersector.remove_touch_slit_loops(kernels, a, attributes)
+             };
+-            let removed = crate::topology::brep::p3::remove_slit_loops_where_solids_touch(
+-                &mut *kernels.primary,
+-                a,
+-                &mut env,
+-            );
++            #[cfg(not(test))]
++            let removed = intersector.remove_touch_slit_loops(kernels, a, attributes);
+             a.set_editing_enabled(editing);
+             removed?;
+         }
+@@ -1847,6 +1888,41 @@ fn finish_boolean(
+ 
+ #[cfg(test)]
+ mod tests {
++    #[test]
++    fn legacy_slit_cleanup_marks_audit_only_on_edit_or_error() {
++        use crate::boolean::api_brep::boolean_union;
++        use crate::geom::attribute::with_application_failure_audit;
++        use crate::math::Point3;
++        use crate::primitive::api_primitives::{create_box, create_cylinder};
++        let mut kernel = crate::kernel::Kernel::default();
++        let cube = create_box(&mut kernel, Point3::new(0., 0., 0.), 10., 10., 10.).unwrap();
++        let post = create_cylinder(&mut kernel, Point3::new(12.5, 5., 2.), 2.5, 6.).unwrap();
++        super::TEST_LEGACY_SLIT_CLEANUP.with(|flag| flag.set(true));
++        let (result, failed) =
++            with_application_failure_audit(|| boolean_union(&mut kernel, cube, post)).unwrap();
++        super::TEST_LEGACY_SLIT_CLEANUP.with(|flag| flag.set(false));
++        assert!(result.is_ok());
++        assert!(
++            failed,
++            "the actual touching union removed a slit without merge identities"
++        );
++        let (result, failed) =
++            with_application_failure_audit(|| super::record_legacy_slit_result(Ok(false))).unwrap();
++        assert_eq!(result.unwrap(), false);
++        assert!(!failed, "a no-op must keep the audit clean");
++        let (result, failed) = with_application_failure_audit(|| {
++            super::record_legacy_slit_result(Err(crate::SolidError::invalid_input(
++                "test", "injected",
++            )))
++        })
++        .unwrap();
++        assert!(result.is_err());
++        assert!(
++            failed,
++            "a possibly partial cleanup error must fail the audit"
++        );
++    }
++
+     use super::*;
+ 
+     #[test]
+diff --git a/solidcore/crates/solidcore/src/boolean/merge/p4/kernel_adapter.rs b/solidcore/crates/solidcore/src/boolean/merge/p4/kernel_adapter.rs
+index 11f3f57c..198b9659 100644
+--- a/solidcore/crates/solidcore/src/boolean/merge/p4/kernel_adapter.rs
++++ b/solidcore/crates/solidcore/src/boolean/merge/p4/kernel_adapter.rs
+@@ -1475,6 +1475,26 @@ impl ManifoldIntersector for ManifoldKernelAdapter<'_> {
+         )
+     }
+ 
++    fn remove_touch_slit_loops(
++        &mut self,
++        kernels: &mut BooleanKernels<'_>,
++        primary: &mut Brep,
++        attributes: &mut AttributeStore,
++    ) -> Result<bool> {
++        let keys = self.keys;
++        let key_of = |entity| keys.object(false, entity);
++        let records = &mut self.records;
++        Context::with_notification_context(kernels.primary, |k, context| {
++            let mut env = crate::topology::edge::NotifyEnv {
++                records,
++                attributes,
++                context: Some(context),
++                key_of: &key_of,
++            };
++            crate::topology::brep::p3::remove_slit_loops_where_solids_touch(k, primary, &mut env)
++        })?
++    }
++
+     fn post_process(
+         &mut self,
+         kernels: &mut BooleanKernels<'_>,
+--- a/solidcore/crates/solidcore-ops/src/provenance.rs
++++ b/solidcore/crates/solidcore-ops/src/provenance.rs
+@@ -39,8 +39,9 @@
+ /// Audit application-handler failures during one synchronous operation.
+ ///
+ /// The flag reports handler and placement errors returned by the attribute
+-/// store's `run_application`, including errors a geometry operation later ignores.
+-/// It does not detect other store errors or prove all notifications were emitted.
++/// store's `run_application`, including errors a geometry operation later ignores,
++/// and paths that explicitly report unavailable provenance. It does not detect
++/// other store errors or prove all notifications were emitted.
+ /// Callers must reject incomplete provenance when the flag is set.
+ /// A nested audit returns [`crate::Error::Reentered`] and flags the outer audit.
+ pub fn with_failure_audit<T>(f: impl FnOnce() -> T) -> crate::Result<(T, bool)> {
+@@ -258,10 +259,10 @@
+             Ok(v) => v,
+             Err(solidcore_convert::brep::Unsupported::Kernel(e)) => return Err(e),
+             Err(solidcore_convert::brep::Unsupported::Invalid(w)) => {
+-                return Ok(Err(crate::Error::Record(w.to_owned())))
++                return Ok(Err(crate::Error::Record(w.to_owned())));
+             }
+             Err(solidcore_convert::brep::Unsupported::NotYet(w)) => {
+-                return Ok(Err(crate::Error::Unsupported(w)))
++                return Ok(Err(crate::Error::Unsupported(w)));
+             }
+         };
+         if &record != expected
+@@ -303,10 +304,10 @@
+             Ok(v) => v,
+             Err(solidcore_convert::brep::Unsupported::Kernel(e)) => return Err(e),
+             Err(solidcore_convert::brep::Unsupported::Invalid(w)) => {
+-                return Ok(Err(crate::Error::Record(w.to_owned())))
++                return Ok(Err(crate::Error::Record(w.to_owned())));
+             }
+             Err(solidcore_convert::brep::Unsupported::NotYet(w)) => {
+-                return Ok(Err(crate::Error::Unsupported(w)))
++                return Ok(Err(crate::Error::Unsupported(w)));
+             }
+         };
+         let faces = order
+--- a/solidcore/crates/solidcore/src/geom/attribute.rs
++++ b/solidcore/crates/solidcore/src/geom/attribute.rs
+@@ -119,7 +119,8 @@
+ /// Run one synchronous operation and report application-handler failures.
+ ///
+ /// The flag records handler and placement errors returned by `run_application`,
+-/// even when a caller later ignores their status. It does not detect other
++/// even when a caller later ignores their status, and operations that explicitly
++/// report unavailable provenance. It does not detect other
+ /// attribute-store errors or notifications never emitted.
+ /// A nested audit is refused and makes the outer audit incomplete. Scope state
+ /// is reset on return or panic, and never shared between threads.
+@@ -149,7 +150,8 @@
+     Some((output, failed))
+ }
+ 
+-fn note_application_failure() {
++/// Record that an operation could not preserve application provenance.
++pub(crate) fn note_application_failure() {
+     APPLICATION_FAILURE.with(|state| {
+         if state.get().is_some() {
+             state.set(Some(true));
+--- a/solidcore/crates/solidcore/src/heal/stitch/p1.rs
++++ b/solidcore/crates/solidcore/src/heal/stitch/p1.rs
+@@ -3344,6 +3344,7 @@
+             stitch.edit_set_point(k, &mut b, vertex, Point3::X).unwrap();
+             stitch
+                 .edit_face_notify(
++                    k,
+                     &mut b,
+                     face,
+                     NotifyOperation::Copy,
