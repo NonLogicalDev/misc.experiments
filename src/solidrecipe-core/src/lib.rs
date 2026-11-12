@@ -1,5 +1,6 @@
 //! Evaluate a small model graph using SolidCore. Display meshes are not CAD geometry.
 mod provenance;
+pub mod rich_history;
 use serde_json::Value;
 use solidcore_ops::{make_box, make_cylinder, Body};
 use solidcore_record::brep::{Curve, Loop, Surface};
@@ -10,6 +11,149 @@ use std::{
 
 /// Propagate kernel, graph, and tessellation errors to the calling interface.
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
+
+/// Rebuild a sketch from authored curves and select one closed region.
+fn sketch_region(node: &Value) -> Result<solidcore_record::Region2> {
+    use solidcore_record::{Seg2, Vec2};
+    use solidcraft_sketch::{find_profiles_checked, CurveKind, Sketch};
+    let mut sketch = Sketch::new();
+    let curves = node["curves"].as_array().ok_or("expected sketch curves")?;
+    for value in curves {
+        let curve: Seg2 = serde_json::from_value(value.clone())?;
+        match curve {
+            Seg2::Line { a, b } => {
+                sketch.add_line(a, b, None, None, None)?;
+            }
+            Seg2::Arc {
+                center,
+                radius,
+                start,
+                sweep,
+            } => {
+                if !start.is_finite()
+                    || !sweep.is_finite()
+                    || !radius.is_finite()
+                    || radius <= 0.0
+                    || sweep.abs() < 1e-12
+                    || sweep.abs() > std::f64::consts::TAU + 1e-12
+                {
+                    return Err("invalid sketch arc".into());
+                }
+                if (sweep.abs() - std::f64::consts::TAU).abs() < 1e-12 {
+                    sketch.add_circle(center, radius, None, None)?;
+                } else {
+                    let at = |t: f64| {
+                        Vec2::new(center.x + radius * t.cos(), center.y + radius * t.sin())
+                    };
+                    let (a, b) = if sweep > 0.0 {
+                        (at(start), at(start + sweep))
+                    } else {
+                        (at(start + sweep), at(start))
+                    };
+                    sketch.add_arc(center, a, b, [None; 3], None)?;
+                }
+            }
+            Seg2::Cubic { p0, p1, p2, p3 } => {
+                let mut pts = Vec::new();
+                for p in [p0, p1, p2, p3] {
+                    pts.push(sketch.add_point(p, None)?);
+                }
+                sketch.add_curve(
+                    CurveKind::Spline {
+                        pts,
+                        control: true,
+                        degree: 3,
+                        periodic: false,
+                        nurbs: None,
+                    },
+                    None,
+                )?;
+            }
+            _ => return Err("unsupported sketch curve".into()),
+        }
+    }
+    if let Some(offsets) = node.get("offsets").and_then(Value::as_array) {
+        for offset in offsets {
+            let distance = offset["distance"]
+                .as_f64()
+                .ok_or("invalid offset distance")?;
+            if !distance.is_finite() || distance == 0.0 {
+                return Err("invalid offset distance".into());
+            }
+            let indices = offset["curves"].as_array().ok_or("invalid offset chain")?;
+            let mut chain = Vec::new();
+            let mut source = Vec::new();
+            for index in indices {
+                let i = index.as_u64().ok_or("invalid offset source")? as usize;
+                let seg: Seg2 = serde_json::from_value(
+                    curves.get(i).ok_or("offset source out of range")?.clone(),
+                )?;
+                let forward = !matches!(seg, Seg2::Arc { sweep, .. } if sweep < 0.0);
+                chain.push((i, forward));
+                source.push(seg);
+            }
+            if source.is_empty() {
+                return Err("offset chain is empty".into());
+            }
+            match source.as_slice() {
+                [Seg2::Line { a, b }] => {
+                    let dx = b.x - a.x;
+                    let dy = b.y - a.y;
+                    let length = dx.hypot(dy);
+                    if length <= 1e-12 {
+                        return Err("cannot offset a zero-length line".into());
+                    }
+                    let shift = Vec2::new(-dy * distance / length, dx * distance / length);
+                    sketch.add_line(*a + shift, *b + shift, None, None, None)?;
+                }
+                [Seg2::Arc {
+                    center,
+                    radius,
+                    sweep,
+                    ..
+                }] if (sweep.abs() - std::f64::consts::TAU).abs() < 1e-12 => {
+                    let radius = radius - distance * sweep.signum();
+                    sketch.add_circle(*center, radius, None, None)?;
+                }
+                [Seg2::Cubic { .. }] => {
+                    sketch.offset_freeform(chain[0].0, chain[0].1, distance)?;
+                }
+                _ => {
+                    sketch.offset_freeform_chain(&chain, distance)?;
+                }
+            }
+        }
+    }
+    let point: Vec2 = serde_json::from_value(node["point"].clone())?;
+    if !point.is_finite() {
+        return Err("profile selection point must be finite".into());
+    }
+    let found = find_profiles_checked(&sketch);
+    if found.incomplete {
+        return Err("sketch region search exceeded its complexity limit".into());
+    }
+    let matches: Vec<_> = found
+        .profiles
+        .iter()
+        .filter(|profile| profile.contains(point))
+        .collect();
+    if matches.len() != 1 {
+        return Err(format!(
+            "profile point matched {} closed regions; expected exactly one",
+            matches.len()
+        )
+        .into());
+    }
+    // Containment is sampled. Reject points on or extremely close to a boundary.
+    let eps = 1e-7 * (1.0_f64.max(point.x.abs()).max(point.y.abs()));
+    let profile = matches[0];
+    for (dx, dy) in [(eps, 0.0), (-eps, 0.0), (0.0, eps), (0.0, -eps)] {
+        if !profile.contains(Vec2::new(point.x + dx, point.y + dy)) {
+            return Err("profile point is on or too close to a region boundary".into());
+        }
+    }
+    Ok(profile.region.clone())
+}
 
 /// Parse the graph's three-dimensional coordinates without silently accepting bad data.
 fn vector(v: &Value) -> Result<[f64; 3]> {
@@ -22,6 +166,45 @@ fn vector(v: &Value) -> Result<[f64; 3]> {
         a[1].as_f64().ok_or("not a number")?,
         a[2].as_f64().ok_or("not a number")?,
     ])
+}
+
+/// Build a solid from one explicitly authored planar region. The graph retains
+/// its profile data, but this operation does not yet assign identities to the
+/// resulting faces or claim profile-segment provenance.
+fn extrude_profile(node: &Value) -> Result<Body> {
+    let plane = if let Some(name) = node["plane"].as_str() {
+        solidcore_record::Plane::named(name).ok_or("unknown profile plane")?
+    } else {
+        serde_json::from_value::<solidcore_record::Plane>(node["plane"].clone())?
+    };
+    let x = [plane.x.x, plane.x.y, plane.x.z];
+    let y = [plane.y.x, plane.y.y, plane.y.z];
+    let origin = [plane.origin.x, plane.origin.y, plane.origin.z];
+    let dot = |a: [f64; 3], b: [f64; 3]| a.iter().zip(b).map(|(u, v)| u * v).sum::<f64>();
+    if !origin.into_iter().chain(x).chain(y).all(f64::is_finite)
+        || (dot(x, x) - 1.0).abs() > 1e-9
+        || (dot(y, y) - 1.0).abs() > 1e-9
+        || dot(x, y).abs() > 1e-9
+    {
+        return Err("profile plane axes must be finite and orthonormal".into());
+    }
+    let distance = node["distance"]
+        .as_f64()
+        .ok_or("invalid extrusion distance")?;
+    if !distance.is_finite() || distance <= 0.0 {
+        return Err("extrusion distance must be finite and positive".into());
+    }
+    let region: solidcore_record::Region2 = if node.get("curves").is_some() {
+        sketch_region(node)?
+    } else {
+        serde_json::from_value(node["region"].clone())?
+    };
+    Ok(solidcore_ops::prism::extrude_planar_regions(
+        &plane,
+        &[region],
+        0.0,
+        distance,
+    )?)
 }
 
 /// Evaluate a prototype expression graph into a SolidCore B-rep.
@@ -679,6 +862,7 @@ fn inspect_tracked(
             node["radius"].as_f64().ok_or("invalid cylinder radius")?,
             node["height"].as_f64().ok_or("invalid cylinder height")?,
         )?,
+        Some("extrude") => extrude_profile(node)?,
         _ => return Err("unknown node".into()),
     };
     let (record, order) = body.to_record()?;
@@ -967,13 +1151,53 @@ pub fn display_mesh(body: &Body, size: f64) -> Result<solidcore_tess::Mesh> {
     // Tessellation consumes the neutral record representation for display. The original body
     // remains the geometry authority; a partially meshed result must not look successful.
     let (record, _) = body.to_record()?;
+    display_mesh_record(&record, size).map(|(mesh, _)| mesh)
+}
+
+/// Produce display geometry and inspection from the same body record and order.
+/// Face and edge indexes in the resulting mesh and report are revision-scoped;
+/// a separately constructed record is not an identity mapping. Inspection can
+/// fail independently of tessellation; retain the display mesh in that case.
+pub fn display_mesh_with_inspection(
+    body: &Body,
+    size: f64,
+) -> Result<(solidcore_tess::Mesh, std::result::Result<Value, String>)> {
+    let (record, order) = body.to_record()?;
+    let report = inspect_record(body, &record, &order).map_err(|error| error.to_string());
+    let (mesh, stats) = display_mesh_record(&record, size)?;
+    // The planner can return an empty plan for an unmeshed face without the
+    // evaluator refusing it. Do not certify a complete selectable topology from
+    // that partial display, or from edges that could not be sampled at all.
+    Ok((mesh, require_complete_selection(report, &stats)))
+}
+
+/// Selection requires every face and edge to have a display representation.
+fn require_complete_selection(
+    report: std::result::Result<Value, String>,
+    stats: &solidcore_tess::PlanStats,
+) -> std::result::Result<Value, String> {
+    if !stats.unmeshed.is_empty() || !stats.unsampled_edges.is_empty() {
+        Err(format!(
+            "selectable topology incomplete: {} unmeshed faces, {} unsampled edges",
+            stats.unmeshed.len(),
+            stats.unsampled_edges.len()
+        ))
+    } else {
+        report
+    }
+}
+
+fn display_mesh_record(
+    record: &solidcore_record::brep::Brep,
+    size: f64,
+) -> Result<(solidcore_tess::Mesh, solidcore_tess::PlanStats)> {
     let tolerance = solidcore_tess::MeshTolerance::display_of(size);
-    let (plan, _) = solidcore_tess::plan(&record, &tolerance, size)?;
+    let (plan, stats) = solidcore_tess::plan(record, &tolerance, size)?;
     let (mesh, refused) = plan.evaluate();
     if !refused.is_empty() {
         return Err(format!("meshing refused {} faces", refused.len()).into());
     }
-    Ok(mesh)
+    Ok((mesh, stats))
 }
 
 #[cfg(test)]
@@ -981,6 +1205,27 @@ mod tests {
 
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn incomplete_tessellation_does_not_certify_selection() {
+        let mut stats = solidcore_tess::PlanStats::default();
+        assert!(require_complete_selection(Ok(json!({})), &stats).is_ok());
+        stats.unmeshed.push(solidcore_tess::RefusedFace {
+            face: 3,
+            reason: "unsupported".into(),
+        });
+        assert!(require_complete_selection(Ok(json!({})), &stats)
+            .unwrap_err()
+            .contains("1 unmeshed faces"));
+        stats.unmeshed.clear();
+        stats.unsampled_edges.push(solidcore_tess::RefusedEdge {
+            edge: 4,
+            reason: "unsupported".into(),
+        });
+        assert!(require_complete_selection(Ok(json!({})), &stats)
+            .unwrap_err()
+            .contains("1 unsampled edges"));
+    }
 
     #[test]
     fn probe_kernel_entity_order_through_affine_transform() -> Result<()> {
@@ -1682,6 +1927,70 @@ mod tests {
         assert!((body.volume(1e-6)? - 2864.0).abs() < 1e-6);
         let mesh = display_mesh(&body, 100.0)?;
         assert!(!mesh.triangles.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn box_triangle_sides_map_to_their_actual_brep_edges() -> Result<()> {
+        let body = build(&json!({"kind":"box", "origin":[0,0,0], "size":[12,30,10]}))?;
+        let mesh = display_mesh(&body, 100.0)?;
+        assert_eq!(mesh.tri_edge.len(), mesh.triangles.len());
+        assert_eq!(mesh.tri_edge_segment.len(), mesh.triangles.len());
+        assert_eq!(mesh.boundary_complete.len(), 6);
+        assert!(mesh.boundary_complete.iter().all(|complete| *complete));
+        let mut observed = std::collections::HashSet::new();
+        let mut coverage =
+            std::collections::HashMap::<(u32, u32), std::collections::HashSet<usize>>::new();
+        for (((triangle, face), sides), segments) in mesh
+            .triangles
+            .iter()
+            .zip(&mesh.tri_face)
+            .zip(&mesh.tri_edge)
+            .zip(&mesh.tri_edge_segment)
+        {
+            for (side, edge) in sides.iter().enumerate() {
+                if let Some(edge) = edge {
+                    let points = &mesh.edges[*edge as usize];
+                    let a = mesh.positions[triangle[side] as usize];
+                    let b = mesh.positions[triangle[(side + 1) % 3] as usize];
+                    let ordinal = segments[side].expect("edge side has segment ordinal") as usize;
+                    let p = &points[ordinal..=ordinal + 1];
+                    assert!((p[0] == a && p[1] == b) || (p[0] == b && p[1] == a));
+                    assert!(mesh.edge_faces[*edge as usize].contains(face));
+                    assert!(coverage.entry((*face, *edge)).or_default().insert(ordinal));
+                    observed.insert(*edge);
+                }
+            }
+        }
+        assert_eq!(observed.len(), 12);
+        for (edge, faces) in mesh.edge_faces.iter().enumerate() {
+            for face in faces {
+                let ordinals = &coverage[&(*face, edge as u32)];
+                assert_eq!(ordinals.len(), mesh.edges[edge].len() - 1);
+                assert!((0..mesh.edges[edge].len() - 1).all(|ordinal| ordinals.contains(&ordinal)));
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn unsupported_boundary_does_not_claim_interior_sides() -> Result<()> {
+        let body = build(&json!({"kind":"cylinder", "origin":[0,0,0], "radius":3, "height":7}))?;
+        let mesh = display_mesh(&body, 100.0)?;
+        assert!(mesh.boundary_complete.iter().any(|complete| !complete));
+        assert_eq!(mesh.tri_edge.len(), mesh.triangles.len());
+        assert_eq!(mesh.tri_edge_segment.len(), mesh.triangles.len());
+        for ((face, sides), segments) in mesh
+            .tri_face
+            .iter()
+            .zip(&mesh.tri_edge)
+            .zip(&mesh.tri_edge_segment)
+        {
+            if !mesh.boundary_complete[*face as usize] {
+                assert_eq!(*sides, [None; 3]);
+                assert_eq!(*segments, [None; 3]);
+            }
+        }
         Ok(())
     }
 }

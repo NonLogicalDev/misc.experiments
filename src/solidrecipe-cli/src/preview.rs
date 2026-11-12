@@ -6,7 +6,9 @@ use pyo3::{
     types::{PyDict, PyModule},
 };
 use serde_json::{json, Value};
-use solidrecipe_core::{build, display_mesh, inspect_graph as inspect_brep_graph, BuildCache};
+use solidrecipe_core::{
+    build, display_mesh_with_inspection, inspect_graph as inspect_brep_graph, BuildCache,
+};
 use std::{
     collections::HashMap,
     ffi::OsString,
@@ -110,6 +112,9 @@ impl EmbeddedPython {
 /// One complete, internally consistent result ready to publish to the viewer.
 struct BuiltPreview {
     mesh: String,
+    inspection: Value,
+    topology: Value,
+    selection_error: Value,
     parameters: Value,
     cache: Value,
     outputs: Value,
@@ -132,6 +137,18 @@ struct Preview {
 
 impl Preview {
     fn new(model: PathBuf) -> Result<Self> {
+        // The random temporary name distinguishes revision 1 of this server from
+        // revision 1 after restart. The file is immediately removed on drop.
+        let session_file = tempfile::Builder::new()
+            .prefix("solidrecipe-preview-")
+            .tempfile()?;
+        let session = session_file
+            .path()
+            .file_name()
+            .ok_or("preview session has no name")?
+            .to_string_lossy()
+            .to_string();
+        drop(session_file);
         let name = model
             .file_name()
             .ok_or("model has no file name")?
@@ -139,8 +156,9 @@ impl Preview {
         Ok(Self {
             model: model.clone(),
             state: Mutex::new(State {
-                snapshot: json!({"revision": 0, "name": name, "mesh": null,
-                "error": null, "building": true, "parameters": [], "outputs": [], "output": null}),
+                snapshot: json!({"session": session, "revision": 0, "name": name, "mesh": null,
+                "error": null, "building": true, "parameters": [], "outputs": [], "output": null,
+                "inspection": null, "topology": null, "selection_error": null, "highlights": {"faces": [], "edges": []}, "selection_revision": 0}),
                 overrides: json!({}),
                 dirty: true,
                 selected: None,
@@ -252,6 +270,14 @@ impl Preview {
                         let revision = state.snapshot["revision"].as_u64().unwrap_or(0) + 1;
                         state.snapshot["revision"] = json!(revision);
                         state.snapshot["mesh"] = json!(built.mesh);
+                        state.snapshot["inspection"] = built.inspection;
+                        state.snapshot["topology"] = built.topology;
+                        state.snapshot["selection_error"] = built.selection_error;
+                        // Indices describe the previous result only. Invalidate them atomically
+                        // with the new body, even when its visual shape happens to be identical.
+                        state.snapshot["highlights"] = json!({"faces": [], "edges": []});
+                        state.snapshot["selection_revision"] =
+                            json!(state.snapshot["selection_revision"].as_u64().unwrap_or(0) + 1);
                         state.snapshot["parameters"] = built.parameters;
                         state.snapshot["cache"] = built.cache;
                         state.snapshot["outputs"] = built.outputs;
@@ -291,22 +317,161 @@ impl Preview {
             return Err(error.to_owned());
         }
         let (body, stats) = cache.build(&result["graph"]).map_err(|e| e.to_string())?;
-        let mesh = display_mesh(&body, 100.0).map_err(|e| e.to_string())?;
-        let mut obj = String::new();
-        for p in &mesh.positions {
-            writeln!(obj, "v {} {} {}", p.x, p.y, p.z).map_err(|e| e.to_string())?;
-        }
-        for t in &mesh.triangles {
-            writeln!(obj, "f {} {} {}", t[0] + 1, t[1] + 1, t[2] + 1).map_err(|e| e.to_string())?;
-        }
+        let (mesh, inspected) =
+            display_mesh_with_inspection(&body, 100.0).map_err(|e| e.to_string())?;
+        let (inspection, topology, selection_error) = match inspected {
+            Ok(inspection) => match display_topology(&mesh, &inspection) {
+                Ok(topology) => (inspection, topology, Value::Null),
+                Err(error) => (inspection, Value::Null, json!(error)),
+            },
+            Err(error) => (Value::Null, Value::Null, json!(error)),
+        };
+        let obj = display_obj(&mesh)?;
         Ok(BuiltPreview {
             mesh: obj,
+            inspection,
+            topology,
+            selection_error,
             parameters: result["parameters"].clone(),
             cache: json!({"hits": stats.hits, "misses": stats.misses}),
             outputs: result["outputs"].clone(),
             output: result["output"].clone(),
         })
     }
+}
+
+/// Keep the kernel's per-face surface normals: mesh vertices are shared within
+/// each face but not across faces, so sharp boundaries retain separate normals.
+/// OBJ vertex and normal indices both refer to the same position in those arrays.
+fn display_obj(mesh: &solidcore_tess::Mesh) -> std::result::Result<String, String> {
+    if mesh.normals.len() != mesh.positions.len() {
+        return Err("display normals do not match vertices".into());
+    }
+    let mut obj = String::new();
+    for p in &mesh.positions {
+        writeln!(obj, "v {} {} {}", p.x, p.y, p.z).map_err(|e| e.to_string())?;
+    }
+    for n in &mesh.normals {
+        writeln!(obj, "vn {} {} {}", n.x, n.y, n.z).map_err(|e| e.to_string())?;
+    }
+    for t in &mesh.triangles {
+        if t.iter()
+            .any(|index| *index as usize >= mesh.positions.len())
+        {
+            return Err("invalid display vertex".into());
+        }
+        let [a, b, c] = t.map(|index| index + 1);
+        writeln!(obj, "f {a}//{a} {b}//{b} {c}//{c}").map_err(|e| e.to_string())?;
+    }
+    Ok(obj)
+}
+
+/// Produce selectable geometry only when it maps completely to the inspected
+/// record. An unsupported mapping disables picking but keeps the display mesh.
+fn display_topology(
+    mesh: &solidcore_tess::Mesh,
+    inspection: &Value,
+) -> std::result::Result<Value, String> {
+    let face_count = inspection["faces"]
+        .as_array()
+        .ok_or("missing inspected faces")?
+        .len();
+    let edge_count = inspection["edges"]
+        .as_array()
+        .ok_or("missing inspected edges")?
+        .len();
+    if mesh.triangles.len() != mesh.tri_face.len()
+        || mesh.edges.len() != edge_count
+        || mesh.display_only_edges
+    {
+        return Err("display topology does not match inspected body".into());
+    }
+    let mut face_triangles: Vec<Vec<Value>> = vec![Vec::new(); face_count];
+    // Missing/inconsistent mapping cannot change the face/edge indices or block
+    // the viewer. Treat it as unknown so the frontend uses the polyline fallback.
+    let mapping_aligned = mesh.tri_edge.len() == mesh.triangles.len()
+        && mesh.tri_edge_segment.len() == mesh.triangles.len()
+        && mesh.boundary_complete.len() == face_count;
+    let mut face_complete = if mapping_aligned {
+        mesh.boundary_complete.clone()
+    } else {
+        vec![false; face_count]
+    };
+    let mut face_edge_ids: Vec<Vec<[Option<u32>; 3]>> = vec![Vec::new(); face_count];
+    let mut face_segment_ids: Vec<Vec<[Option<u32>; 3]>> = vec![Vec::new(); face_count];
+    for (triangle_index, (triangle, face)) in mesh.triangles.iter().zip(&mesh.tri_face).enumerate()
+    {
+        let vertices = triangle
+            .iter()
+            .map(|index| {
+                mesh.positions
+                    .get(*index as usize)
+                    .copied()
+                    .ok_or("invalid display vertex")
+            })
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        face_triangles
+            .get_mut(*face as usize)
+            .ok_or("invalid display face")?
+            .push(json!(vertices));
+        let face_index = *face as usize;
+        let mut ids = if mapping_aligned {
+            mesh.tri_edge[triangle_index]
+        } else {
+            [None; 3]
+        };
+        let mut segments = if mapping_aligned {
+            mesh.tri_edge_segment[triangle_index]
+        } else {
+            [None; 3]
+        };
+        // An edge identifier is only usable if this same inspected face uses it.
+        // This catches malformed or stale mappings without inventing a relation.
+        let incident = inspection["faces"][face_index]["edges"]
+            .as_array()
+            .ok_or("missing inspected face edges")?;
+        if (0..3).any(|side| match (ids[side], segments[side]) {
+            (None, None) => false,
+            (Some(edge), Some(segment)) => {
+                let polyline = mesh.edges.get(edge as usize);
+                let endpoints = polyline.and_then(|points| {
+                    points
+                        .get(segment as usize)
+                        .zip(points.get(segment as usize + 1))
+                });
+                let first = vertices[side];
+                let second = vertices[(side + 1) % 3];
+                !incident
+                    .iter()
+                    .any(|candidate| candidate.as_u64() == Some(u64::from(edge)))
+                    || !endpoints.is_some_and(|(a, b)| {
+                        (*a == first && *b == second) || (*a == second && *b == first)
+                    })
+            }
+            _ => true,
+        }) {
+            face_complete[face_index] = false;
+            ids = [None; 3];
+            segments = [None; 3];
+        }
+        face_edge_ids[face_index].push(ids);
+        face_segment_ids[face_index].push(segments);
+    }
+    // Never expose partial labels as a complete set of boundary edges.
+    for ((complete, ids), segments) in face_complete
+        .iter()
+        .zip(&mut face_edge_ids)
+        .zip(&mut face_segment_ids)
+    {
+        if !complete {
+            ids.fill([None; 3]);
+            segments.fill([None; 3]);
+        }
+    }
+    Ok(json!({
+        "faces": face_triangles.into_iter().zip(face_edge_ids).zip(face_segment_ids).zip(face_complete).enumerate().map(|(index, (((triangles, edge_ids), segment_ids), boundary_complete))| json!({"index": index, "triangles": triangles, "edge_ids": edge_ids, "segment_ids": segment_ids, "boundary_complete": boundary_complete})).collect::<Vec<_>>(),
+        "edges": mesh.edges.iter().enumerate().map(|(index, points)| json!({"index": index, "points": points})).collect::<Vec<_>>(),
+    }))
 }
 
 fn header<'a>(request: &'a Request, name: &'static str) -> Option<&'a str> {
@@ -335,6 +500,58 @@ fn json_reply(request: Request, status: u16, value: &Value) {
         "application/json",
         value.to_string().into_bytes(),
     );
+}
+
+/// Resolve snapshot-local indices against the topology published with that snapshot.
+/// Validate both groups before replacing the existing selection so an invalid request
+/// cannot leave a partially updated highlight. These numbers are not persistent IDs.
+fn selected_geometry(topology: &Value, payload: &Value) -> std::result::Result<Value, String> {
+    let mut result = serde_json::Map::new();
+    for group in ["faces", "edges"] {
+        let candidates = topology[group]
+            .as_array()
+            .ok_or("Topology is unavailable")?;
+        let indices = payload[group]
+            .as_array()
+            .ok_or(format!("{group} must be an array"))?;
+        let mut chosen = Vec::with_capacity(indices.len());
+        let mut seen = std::collections::HashSet::new();
+        for value in indices {
+            let index = value
+                .as_u64()
+                .and_then(|n| usize::try_from(n).ok())
+                .ok_or(format!("Invalid {group} index"))?;
+            if !seen.insert(index) {
+                return Err(format!("Duplicate {group} index"));
+            }
+            let item = candidates
+                .get(index)
+                .ok_or(format!("Unknown {group} index {index}"))?;
+            if item["index"].as_u64() != Some(index as u64) {
+                return Err("Topology index mismatch".into());
+            }
+            chosen.push(item.clone());
+        }
+        result.insert(group.to_owned(), Value::Array(chosen));
+    }
+    Ok(Value::Object(result))
+}
+
+/// Change highlights only if the complete request refers to this exact result.
+fn update_highlights(snapshot: &mut Value, payload: &Value) -> std::result::Result<Value, String> {
+    if payload["session"].as_str().is_none()
+        || payload["session"] != snapshot["session"]
+        || payload["revision"].as_u64().is_none()
+        || payload["revision"] != snapshot["revision"]
+        || snapshot["topology"].is_null()
+    {
+        return Err("Stale or unavailable model revision".to_owned());
+    }
+    let selection = selected_geometry(&snapshot["topology"], payload)?;
+    snapshot["highlights"] = selection;
+    snapshot["selection_revision"] =
+        json!(snapshot["selection_revision"].as_u64().unwrap_or(0) + 1);
+    Ok(json!({"ok": true, "selection_revision": snapshot["selection_revision"]}))
 }
 
 fn handle(mut request: Request, preview: &Preview, assets: &Path, port: u16) {
@@ -427,6 +644,10 @@ fn handle(mut request: Request, preview: &Preview, assets: &Path, port: u16) {
         }
     };
     let result = match path.as_str() {
+        "/api/highlights" => {
+            let mut state = preview.state.lock().expect("preview state");
+            update_highlights(&mut state.snapshot, &payload)
+        }
         "/api/parameters" => {
             if let Some(values) = payload.get("values").and_then(Value::as_object) {
                 let mut state = preview.state.lock().expect("preview state");
@@ -535,5 +756,123 @@ pub fn serve(model: PathBuf, resources: PathBuf, port: u16, open_browser: bool) 
 fn open_url(url: &str) {
     if let Err(error) = webbrowser::open(url) {
         eprintln!("Could not open the browser: {error}. Open {url} manually.");
+    }
+}
+
+#[cfg(test)]
+mod selection_tests {
+    use super::*;
+
+    #[test]
+    fn obj_preserves_surface_normals_and_rejects_inconsistent_meshes() {
+        let mut mesh = solidcore_tess::Mesh::default();
+        mesh.positions = vec![
+            [0., 0., 0.].into(),
+            [1., 0., 0.].into(),
+            [0., 1., 0.].into(),
+        ];
+        mesh.normals = vec![[0., 0., 1.].into(); 3];
+        mesh.triangles = vec![[0, 1, 2]];
+        let obj = display_obj(&mesh).unwrap();
+        assert_eq!(
+            obj.lines().filter(|line| line.starts_with("vn ")).count(),
+            3
+        );
+        assert!(obj.contains("f 1//1 2//2 3//3\n"));
+        mesh.normals.pop();
+        assert!(display_obj(&mesh).is_err());
+    }
+
+    #[test]
+    fn display_topology_pairs_triangle_sides_with_their_snapshot_faces() {
+        let mut mesh = solidcore_tess::Mesh::default();
+        mesh.positions = vec![
+            [0., 0., 0.].into(),
+            [1., 0., 0.].into(),
+            [0., 1., 0.].into(),
+            [0., 0., 1.].into(),
+        ];
+        mesh.triangles = vec![[0, 1, 2], [0, 1, 3]];
+        mesh.tri_face = vec![1, 0];
+        mesh.tri_edge = vec![[Some(0), None, Some(1)], [Some(0), None, None]];
+        mesh.tri_edge_segment = vec![[Some(0), None, Some(0)], [Some(0), None, None]];
+        mesh.boundary_complete = vec![true, true];
+        mesh.edges = vec![
+            vec![mesh.positions[0], mesh.positions[1]],
+            vec![mesh.positions[2], mesh.positions[0]],
+        ];
+        let inspection = json!({"faces": [{"edges": [0]}, {"edges": [0, 1]}], "edges": [{}, {}]});
+        let topology = display_topology(&mesh, &inspection).unwrap();
+        assert_eq!(topology["faces"][0]["edge_ids"], json!([[0, null, null]]));
+        assert_eq!(topology["faces"][1]["edge_ids"], json!([[0, null, 1]]));
+        assert_eq!(topology["faces"][1]["segment_ids"], json!([[0, null, 0]]));
+        assert_eq!(topology["faces"][1]["boundary_complete"], true);
+        assert_eq!(topology["faces"][1]["triangles"][0][2], json!([0., 1., 0.]));
+
+        // A label from an unrelated face must never be accepted as complete.
+        mesh.tri_edge[1] = [Some(1), None, None];
+        let invalid = display_topology(&mesh, &inspection).unwrap();
+        assert_eq!(invalid["faces"][0]["boundary_complete"], false);
+        assert_eq!(invalid["faces"][0]["edge_ids"], json!([[null, null, null]]));
+        assert_eq!(
+            invalid["faces"][0]["segment_ids"],
+            json!([[null, null, null]])
+        );
+        assert_eq!(invalid["faces"][1]["boundary_complete"], true);
+
+        // A missing mapping is unknown for every face, but the existing viewer
+        // still receives the mesh and B-rep edge polylines for fallback.
+        mesh.tri_edge.pop();
+        let missing = display_topology(&mesh, &inspection).unwrap();
+        assert_eq!(missing["faces"][1]["boundary_complete"], false);
+        assert_eq!(missing["faces"][1]["edge_ids"], json!([[null, null, null]]));
+        assert_eq!(
+            missing["faces"][1]["segment_ids"],
+            json!([[null, null, null]])
+        );
+        assert_eq!(missing["edges"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn highlights_require_valid_distinct_indices_in_both_groups() {
+        let topology = json!({"faces": [{"index":0,"triangles":[]},{"index":1,"triangles":[]}], "edges": [{"index":0,"points":[]}]});
+        let selected = selected_geometry(&topology, &json!({"faces":[1], "edges":[0]})).unwrap();
+        assert_eq!(selected["faces"][0]["index"], 1);
+        assert_eq!(selected["edges"][0]["index"], 0);
+        assert!(selected_geometry(&topology, &json!({"faces":[1], "edges":[1]})).is_err());
+        assert!(selected_geometry(&topology, &json!({"faces":[0,0], "edges":[]})).is_err());
+        assert!(selected_geometry(&topology, &json!({"faces":[], "edges":[-1]})).is_err());
+        assert!(selected_geometry(&topology, &json!({"faces":[]})).is_err());
+    }
+
+    #[test]
+    fn rejected_revision_or_selection_preserves_existing_highlights() {
+        let mut snapshot = json!({"session":"test", "revision": 2, "selection_revision": 4, "highlights": {"faces": [], "edges": []}, "topology": {"faces": [{"index":0,"triangles":[]}], "edges": []}});
+        let original = snapshot.clone();
+        assert!(update_highlights(
+            &mut snapshot,
+            &json!({"session":"test", "revision": 1, "faces": [0], "edges": []})
+        )
+        .is_err());
+        assert_eq!(snapshot, original);
+        assert!(update_highlights(
+            &mut snapshot,
+            &json!({"session":"test", "revision": 2, "faces": [0], "edges": [0]})
+        )
+        .is_err());
+        assert_eq!(snapshot, original);
+        assert!(update_highlights(
+            &mut snapshot,
+            &json!({"session":"old", "revision": 2, "faces": [0], "edges": []})
+        )
+        .is_err());
+        assert_eq!(snapshot, original);
+        assert!(update_highlights(
+            &mut snapshot,
+            &json!({"session":"test", "revision": 2, "faces": [0], "edges": []})
+        )
+        .is_ok());
+        assert_eq!(snapshot["selection_revision"], 5);
+        assert_eq!(snapshot["highlights"]["faces"][0]["index"], 0);
     }
 }

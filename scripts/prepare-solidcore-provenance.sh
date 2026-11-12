@@ -17,7 +17,31 @@ revision=9e805b7bdc843eeae419c7008561f829348acb57
 fail() { printf '%s\n' "solidcore preparation: $*" >&2; exit 1; }
 [ -e "$vendor/.git" ] || fail "initialize submodules first: git submodule update --init --recursive"
 [ "$(git -C "$vendor" rev-parse HEAD)" = "$revision" ] || fail "SolidCraft revision differs from the pinned revision"
-status=$(git -C "$vendor" status --porcelain --untracked-files=normal)
+# The tessellation patch is independent of the provenance patches. Accept only
+# all four pristine files or all four exact patched files; preserve every other
+# vendor edit and reject partially applied or locally modified variants.
+wire_mesh=solidcore/crates/solidcore-tess/src/mesh.rs
+wire_plan=solidcore/crates/solidcore-tess/src/plan.rs
+wire_mesher=solidcore/crates/solidcore-tess/src/mesher/mod.rs
+wire_tests=solidcore/crates/solidcore-tess/src/mesher/tests.rs
+wire_patch="$root/patches/vendor/solidcore-triangle-edge-map.patch"
+wire_hashes() {
+    for path in "$wire_mesh" "$wire_plan" "$wire_mesher" "$wire_tests"; do
+        git -C "$vendor" hash-object "$path"
+    done
+}
+wire_original=$(printf '%s\n' 6c2eea843920c569fb1dc1efa2e43a0d629035fe ed7b84141729dbf6cd4ef4bf914fd60e2aa05424 17bd3a0b9b15f1ed7926db997240a8e80bade9ce 3c7e9f36d2e08cb3cc1a9786668e83c7575eea72)
+wire_patched=$(printf '%s\n' e3dccd276b805c5e97b4c804a79bc5648a66c3b4 9b0c5e70f0c930f22373ab4742dba4232b8ed686 98f4a345f4d9c965b45e6764b2216186d8ac0b79 4cb559dffb51b0f733e3e45933bbdc827313667e)
+wire_current=$(wire_hashes)
+[ "$wire_current" = "$wire_original" ] || [ "$wire_current" = "$wire_patched" ] || fail "SolidCraft tessellation files contain unexpected changes"
+finish() {
+    if [ "$wire_current" = "$wire_original" ]; then
+        git -C "$vendor" apply --check "$wire_patch" || fail "triangle-edge patch does not match the pinned source"
+        git -C "$vendor" apply "$wire_patch" || fail "could not apply triangle-edge patch"
+    fi
+    [ "$(wire_hashes)" = "$wire_patched" ] || fail "triangle-edge patch has unexpected hashes"
+}
+status=$(git -C "$vendor" status --porcelain --untracked-files=normal | awk '$0 != " M solidcore/crates/solidcore-tess/src/mesh.rs" && $0 != " M solidcore/crates/solidcore-tess/src/plan.rs" && $0 != " M solidcore/crates/solidcore-tess/src/mesher/mod.rs" && $0 != " M solidcore/crates/solidcore-tess/src/mesher/tests.rs"')
 old_provenance=22342828da0d27ea46164136695778f63b02be6a
 new_provenance=f374d1e13aec04f8bfa488fc6c61be5c9a9bf3de
 audited_provenance=20ba647f92efae5736858c360a92a564fd030f65
@@ -45,6 +69,7 @@ prior_complete=$(printf ' M %s\n M %s\n M %s' "$provenance" "$stitch_one" "$stit
 audited=$(printf ' M %s\n M %s\n M %s\n M %s' "$provenance" "$attribute" "$stitch_one" "$stitch_two")
 complete=$(printf ' M %s\n M %s\n M %s\n M %s\n M %s\n M %s' "$provenance" "$slit_merge" "$slit_adapter" "$attribute" "$stitch_one" "$stitch_two")
 if [ "$status" = "$complete" ] && [ "$prov_blob" = "$final_provenance" ] && [ "$attribute_blob" = "$final_attribute" ] && [ "$one_blob" = "$final_one" ] && [ "$two_blob" = "$new_two" ] && [ "$merge_blob" = "$new_slit_merge" ] && [ "$adapter_blob" = "$new_slit_adapter" ]; then
+    finish
     exit 0
 fi
 [ "$merge_blob" = "$old_slit_merge" ] && [ "$adapter_blob" = "$old_slit_adapter" ] || fail "SolidCraft contains unexpected changes; preserve them and resolve the mismatch before applying the patches"
@@ -52,6 +77,7 @@ if [ "$status" = "$audited" ] && [ "$prov_blob" = "$audited_provenance" ] && [ "
     git -C "$vendor" apply --check "$slit_patch" || fail "slit notification patch does not match the pinned source"
     git -C "$vendor" apply "$slit_patch" || fail "could not apply slit notification patch"
     [ "$(git -C "$vendor" hash-object "$provenance")" = "$final_provenance" ] && [ "$(git -C "$vendor" hash-object "$attribute")" = "$final_attribute" ] && [ "$(git -C "$vendor" hash-object "$stitch_one")" = "$final_one" ] && [ "$(git -C "$vendor" hash-object "$stitch_two")" = "$new_two" ] && [ "$(git -C "$vendor" hash-object "$slit_merge")" = "$new_slit_merge" ] && [ "$(git -C "$vendor" hash-object "$slit_adapter")" = "$new_slit_adapter" ] || fail "patched files have unexpected hashes"
+    finish
     exit 0
 fi
 # A checkout prepared by an earlier SolidRecipe version is the only accepted
@@ -67,6 +93,7 @@ elif [ "$status" = "$prior_complete" ] && [ "$prov_blob" = "$new_provenance" ] &
     git -C "$vendor" apply --check "$slit_patch" || fail "slit notification patch does not match the pinned source"
     git -C "$vendor" apply "$slit_patch" || fail "could not apply slit notification patch"
     [ "$(git -C "$vendor" hash-object "$provenance")" = "$final_provenance" ] && [ "$(git -C "$vendor" hash-object "$attribute")" = "$final_attribute" ] && [ "$(git -C "$vendor" hash-object "$stitch_one")" = "$final_one" ] && [ "$(git -C "$vendor" hash-object "$stitch_two")" = "$new_two" ] && [ "$(git -C "$vendor" hash-object "$slit_merge")" = "$new_slit_merge" ] && [ "$(git -C "$vendor" hash-object "$slit_adapter")" = "$new_slit_adapter" ] || fail "patched files have unexpected hashes"
+    finish
     exit 0
 elif [ "$status" != "$previous" ] || [ "$prov_blob" != "$new_provenance" ] || [ "$attribute_blob" != "$old_attribute" ] || [ "$one_blob" != "$old_one" ] || [ "$two_blob" != "$old_two" ]; then
     fail "SolidCraft contains unexpected changes; preserve them and resolve the mismatch before applying the patches"
@@ -80,3 +107,4 @@ git -C "$vendor" apply "$audit_patch" || fail "could not apply attribute audit p
 git -C "$vendor" apply --check "$slit_patch" || fail "slit notification patch does not match the pinned source"
 git -C "$vendor" apply "$slit_patch" || fail "could not apply slit notification patch"
 [ "$(git -C "$vendor" hash-object "$provenance")" = "$final_provenance" ] && [ "$(git -C "$vendor" hash-object "$attribute")" = "$final_attribute" ] && [ "$(git -C "$vendor" hash-object "$stitch_one")" = "$final_one" ] && [ "$(git -C "$vendor" hash-object "$stitch_two")" = "$new_two" ] && [ "$(git -C "$vendor" hash-object "$slit_merge")" = "$new_slit_merge" ] && [ "$(git -C "$vendor" hash-object "$slit_adapter")" = "$new_slit_adapter" ] || fail "patched files have unexpected hashes"
+finish

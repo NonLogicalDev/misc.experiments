@@ -1,5 +1,7 @@
 # Checkout inventory
 
+- Migration in progress: move this project to `misc.experiments/projects/tool.solidrecipe` through a merge commit preserving its history. Preserve the dirty SolidCraft checkout, ignored local artifacts, and both submodule working trees; update the paths below after verifying the move.
+
 - Project: solidrecipe; source and checkout: `/Users/nonlogical/Projects/local/active/tool.solidrecipe` on the local host.
 - [Owners](../../OWNERS.md); [viewer work](../../theme-001-viewer/EXEC_STATE.md); [modeling and topology](../../theme-002-modeling/EXEC_STATE.md).
 - Git common directory: `/Users/nonlogical/Projects/local/active/tool.solidrecipe/.git`; branch: `master`.

@@ -15,36 +15,6 @@ main {
   display: flex;
   flex-direction: column;
 }
-header {
-  height: 62px;
-  padding: 0 22px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: #1d2430;
-  border-bottom: 1px solid #303b4b;
-}
-strong {
-  font-size: 18px;
-  letter-spacing: 0.01em;
-}
-.tag {
-  margin-left: 12px;
-  color: #b8abd6;
-  font-size: 12px;
-}
-.button {
-  background: #9d83dd;
-  color: #17121f;
-  border-radius: 6px;
-  padding: 9px 15px;
-  cursor: pointer;
-  font-weight: 600;
-}
-.button:focus-within {
-  outline: 2px solid #fff;
-  outline-offset: 3px;
-}
 input[type="file"] {
   position: absolute;
   width: 1px;
@@ -66,6 +36,13 @@ input[type="file"] {
   width: 100%;
   height: 100%;
 }
+.leva-position {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  max-height: calc(100% - 32px);
+  overflow: auto;
+}
 .empty {
   position: absolute;
   top: 26px;
@@ -77,27 +54,6 @@ input[type="file"] {
   display: block;
   margin-top: 5px;
   color: #98a5b6;
-}
-footer {
-  display: flex;
-  gap: 20px;
-  justify-content: space-between;
-  align-items: center;
-  padding: 9px 18px;
-  background: #1d2430;
-  color: #adb9c9;
-  border-top: 1px solid #303b4b;
-  font-size: 12px;
-}
-footer span:first-child {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-@media (max-width: 700px) {
-  footer span:nth-child(2) {
-    display: none;
-  }
 }
 .error-panel {
   position: absolute;
@@ -117,49 +73,4 @@ footer span:first-child {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font-size: 12px;
-}
-
-.parameters {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  width: 260px;
-  max-height: calc(100% - 32px);
-  overflow: auto;
-  padding: 16px;
-  background: #1d2430f2;
-  border: 1px solid #445166;
-  border-radius: 8px;
-}
-.parameter,
-.preset-controls label {
-  display: grid;
-  gap: 5px;
-  margin: 12px 0;
-}
-.parameters input:not([type="checkbox"]),
-.parameters select {
-  width: 100%;
-  padding: 7px;
-  color: #e9edf5;
-  background: #111821;
-  border: 1px solid #69768b;
-  border-radius: 4px;
-}
-.parameters button {
-  padding: 7px 10px;
-  cursor: pointer;
-}
-.parameters button:disabled {
-  cursor: default;
-  opacity: 0.55;
-}
-.preset-controls {
-  border-top: 1px solid #445166;
-  margin-top: 16px;
-}
-.parameters small {
-  display: block;
-  margin-top: 10px;
-  color: #b8abd6;
 }

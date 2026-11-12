@@ -2,6 +2,8 @@
 
 **Working research, 2026-11-11.** This supports the [topology query design](topology-queries-and-attached-profiles.md). The terms below describe capabilities, not a final Python API or implemented behavior.
 
+The later [construction-based query study](construction-query-study.md) applies this algebra to actual selections, operation history, curved and Boolean cases, and counterexamples. It supersedes any implication here that shape-specific roles are universal or that the current SolidRecipe provenance report is the intended limit of the design.
+
 ## What can be proved
 
 There is no meaningful absolute smallest list of verbs with maximum descriptive power without first defining the allowed inputs, operations and cost of a verb. An all-purpose programming-language expression could hide the entire problem in one verb. Instead, fix a finite, revision-scoped set of topology entities and a declared vocabulary of relations and properties. Then ask what a query can describe using those facts.

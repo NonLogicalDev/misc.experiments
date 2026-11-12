@@ -209,6 +209,268 @@ def Cylinder(radius, height, origin=(0, 0, 0)):
     )
 
 
+def Line(a, b):
+    """A directed 2D profile segment, from point `a` to point `b`."""
+    return {"type": "line", "a": list(a), "b": list(b)}
+
+
+def Arc(center, radius, start, sweep):
+    """A directed circular profile arc; angles are in radians."""
+    return {
+        "type": "arc",
+        "center": list(center),
+        "radius": radius,
+        "start": start,
+        "sweep": sweep,
+    }
+
+
+def CubicBezier(start, control1, control2, end):
+    """An exact cubic Bézier profile segment defined by its four control points."""
+    return {
+        "type": "cubic",
+        "p0": list(start),
+        "p1": list(control1),
+        "p2": list(control2),
+        "p3": list(end),
+    }
+
+
+def CatmullRom(points, *, closed=False):
+    """Interpolate 2D fit points with connected, uniform Catmull–Rom cubics.
+
+    Returns exact cubic Bézier segments. Open curves use repeated endpoint
+    neighbors; closed curves wrap. This is a specified interpolation rule, not
+    a claim to reproduce Fusion's fit-point spline algorithm.
+    """
+    points = [tuple(point) for point in points]
+    if len(points) < (3 if closed else 2) or any(
+        len(point) != 2
+        or any(not isinstance(v, (int, float)) or not math.isfinite(v) for v in point)
+        for point in points
+    ):
+        raise ValueError(
+            "CatmullRom needs finite 2D points: at least two, or three when closed"
+        )
+    count = len(points)
+
+    def point(i):
+        return points[i % count] if closed else points[max(0, min(i, count - 1))]
+
+    segments = []
+    for i in range(count if closed else count - 1):
+        before, start, end, after = (point(i - 1), point(i), point(i + 1), point(i + 2))
+        control1 = [start[j] + (end[j] - before[j]) / 6 for j in range(2)]
+        control2 = [end[j] - (after[j] - start[j]) / 6 for j in range(2)]
+        segments.append(CubicBezier(start, control1, control2, end))
+    return segments
+
+
+def Polygon(points):
+    """A closed, directed loop of straight segments through the given 2D points."""
+    points = [list(point) for point in points]
+    if len(points) < 3:
+        raise ValueError("a polygon needs at least three points")
+    return [
+        Line(point, points[(index + 1) % len(points)])
+        for index, point in enumerate(points)
+    ]
+
+
+def Circle(center, radius, *, clockwise=False):
+    """A complete circular loop; use clockwise=True when it forms a hole."""
+    return [Arc(center, radius, 0, -math.tau if clockwise else math.tau)]
+
+
+class Plane:
+    """A sketch coordinate frame in 3D; its normal is `x_dir` × `y_dir`.
+
+    Give any two perpendicular unit directions; the third follows the
+    right-hand rule. With no directions, the plane uses the world XY frame.
+    """
+
+    def __init__(self, *, origin=(0, 0, 0), x_dir=None, y_dir=None, z_dir=None):
+        directions = [d for d in (x_dir, y_dir, z_dir) if d is not None]
+        if not directions:
+            x_dir, y_dir = (1, 0, 0), (0, 1, 0)
+        elif len(directions) != 2:
+            raise ValueError("specify any two plane directions")
+        else:
+            a, b = map(tuple, directions)
+            if any(
+                len(d) != 3
+                or any(
+                    not isinstance(v, (int, float)) or not math.isfinite(v) for v in d
+                )
+                for d in (a, b)
+            ):
+                raise ValueError(
+                    "plane directions must contain three finite coordinates"
+                )
+            if (
+                any(abs(sum(v * v for v in d) - 1) > 1e-9 for d in (a, b))
+                or abs(sum(x * y for x, y in zip(a, b, strict=True))) > 1e-9
+            ):
+                raise ValueError("plane directions must be perpendicular unit vectors")
+
+            def cross(u, v):
+                return (
+                    u[1] * v[2] - u[2] * v[1],
+                    u[2] * v[0] - u[0] * v[2],
+                    u[0] * v[1] - u[1] * v[0],
+                )
+
+            if x_dir is None:
+                x_dir = cross(a, b)  # Y × Z
+            elif y_dir is None:
+                y_dir = cross(b, a)  # Z × X
+        self.origin = tuple(origin)
+        self.x_dir = tuple(x_dir)
+        self.y_dir = tuple(y_dir)
+
+    def _record(self):
+        return {"origin": self.origin, "x_dir": self.x_dir, "y_dir": self.y_dir}
+
+
+def _plane_record(plane):
+    if isinstance(plane, Plane):
+        return plane._record()
+    if isinstance(plane, str):
+        plane = plane.upper()
+        if plane in ("XY", "XZ", "YZ"):
+            return plane
+    # Preserve compatibility with authored graphs using the original mapping.
+    if isinstance(plane, dict):
+        return plane
+    raise ValueError("plane must be XY, XZ, YZ or a Plane")
+
+
+class Profile:
+    """A planar region with a directed outer loop and optional hole loops.
+
+    Loops are connected sequences of `Line`, `Arc`, and `CubicBezier` segments,
+    or those returned by `Polygon`, `Circle`, and `CatmullRom`. The outer loop must be counterclockwise and holes
+    clockwise in the plane's coordinates. `plane` is XY, XZ, YZ, or a `Plane`
+    with an origin and orthonormal `x_dir` and `y_dir` vectors. The plane's
+    positive normal is x_dir × y_dir. The kernel validates closure and geometry.
+    """
+
+    def __init__(self, outer, *, holes=(), plane="XY"):
+        plane = _plane_record(plane)
+        # Own the profile data: later mutations of the caller's lists must not
+        # retarget an extrusion already constructed from it.
+        self._data = json.loads(
+            json.dumps(
+                {
+                    "region": {
+                        "outer": {"segs": list(outer)},
+                        "holes": [{"segs": list(h)} for h in holes],
+                    },
+                    "plane": plane,
+                },
+                allow_nan=False,
+            )
+        )
+
+    def extrude(self, distance):
+        """Extrude the region along its positive normal by a positive distance."""
+        if (
+            not isinstance(distance, (int, float))
+            or not math.isfinite(distance)
+            or distance <= 0
+        ):
+            raise ValueError("extrusion distance must be finite and positive")
+        return Shape(
+            {
+                "kind": "extrude",
+                **json.loads(json.dumps(self._data)),
+                "distance": distance,
+            }
+        )
+
+
+class Sketch:
+    """Curves on a plane; crossings divide the drawing into closed regions.
+
+    Region selection uses a point strictly inside the desired region. The
+    point and original curves stay in the graph and are evaluated again when
+    the model is built. Curve order is not a persistent identity.
+    """
+
+    def __init__(self, curves, *, plane="XY"):
+        plane = _plane_record(plane)
+        self._data = json.loads(
+            json.dumps({"curves": list(curves), "plane": plane}, allow_nan=False)
+        )
+
+    def profile_at(self, point):
+        """Select one region by an interior point in sketch coordinates.
+
+        Point containment uses the sketch engine's sampled outlines; avoid
+        choosing a point close to a boundary.
+        """
+        if len(point) != 2 or any(
+            not isinstance(v, (int, float)) or not math.isfinite(v) for v in point
+        ):
+            raise ValueError("profile point must contain two finite coordinates")
+        return _SketchProfile(self._data, point)
+
+    def offset(self, curves, distance):
+        """Add an offset of an ordered, directed chain of authored curves.
+
+        Positive distance is to the left of the direction of the chain. The
+        original curves remain in the sketch. The source chain must identify
+        unique curves; duplicate coincident records are ambiguous.
+        """
+        if (
+            not isinstance(distance, (int, float))
+            or not math.isfinite(distance)
+            or distance == 0
+        ):
+            raise ValueError("offset distance must be finite and nonzero")
+        indices = []
+        for curve in curves:
+            matches = [
+                i
+                for i, candidate in enumerate(self._data["curves"])
+                if candidate == curve
+            ]
+            if len(matches) != 1:
+                raise ValueError(
+                    "each offset source must identify exactly one sketch curve"
+                )
+            indices.append(matches[0])
+        if not indices or len(set(indices)) != len(indices):
+            raise ValueError("offset needs a nonempty chain without repeated curves")
+        result = Sketch(self._data["curves"], plane=self._data["plane"])
+        result._data["offsets"] = [
+            *self._data.get("offsets", []),
+            {"curves": indices, "distance": distance},
+        ]
+        return result
+
+
+class _SketchProfile:
+    def __init__(self, sketch, point):
+        self._data = json.loads(json.dumps({**sketch, "point": list(point)}))
+
+    def extrude(self, distance):
+        """Extrude the selected closed region along its plane normal."""
+        if (
+            not isinstance(distance, (int, float))
+            or not math.isfinite(distance)
+            or distance <= 0
+        ):
+            raise ValueError("extrusion distance must be finite and positive")
+        return Shape(
+            {
+                "kind": "extrude",
+                **json.loads(json.dumps(self._data)),
+                "distance": distance,
+            }
+        )
+
+
 class Bounds:
     """Axis-aligned B-rep bounds, in millimeters."""
 

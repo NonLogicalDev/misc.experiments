@@ -39,7 +39,7 @@ Run `make format` to apply the Rust, Python and TypeScript formatters; `make for
 
 ## Scope
 
-Box and cylinder primitives, Boolean operations, translation, scaling, fillets and chamfers are implemented. Blend edges are selected by model-space points and checked for a unique match; they are not persistent topology references. The viewer does not support exact selection or measurements. STEP import/export, watching ordinary Python imports, a persistent B-rep and a stable API are not implemented. Geometry has not been validated for manufacturing.
+Box and cylinder primitives, Boolean operations, translation, scaling, fillets and chamfers are implemented. Blend edges are selected by model-space points or supported experimental references. The viewer supports inspecting and selecting topology, but selection uses display geometry rather than exact geometric picking. STEP import/export, watching ordinary Python imports, a persistent B-rep and a stable API are not implemented. Geometry has not been validated for manufacturing.
 
 ## Direction
 
@@ -64,6 +64,12 @@ The intended experience includes a responsive preview, useful parameter controls
 Call `sr.inspect(model, name="bracket")` in a model to write one JSON object per call to stderr. In a live preview, records appear in the CLI's terminal. A record includes the construction graph, node metadata, B-rep bounds and volume, face surfaces and areas, and edge curves, endpoints, lengths and adjacent faces. Face and edge indices refer only to that particular evaluated B-rep; they are not persistent references.
 
 Use `shape.with_metadata(name="stock", role="bracket")` to attach JSON-serializable author metadata to a graph node. Metadata stays with that node in the graph; it is not yet tracked onto resulting B-rep faces or edges. Inspection requires SolidRecipe’s embedded runtime; it does not start another process.
+
+### Selecting topology in the viewer
+
+Run `./target/release/solidrecipe serve examples/cooler_adapter.py` to open the adapter, or replace the path with another model. Choose **Edges** or **Faces**, then click the displayed geometry to add or remove entries from the selection. You can select multiple edges and faces, switch modes, and use **Clear** to remove the selection. The viewer also displays selection sent through its local preview API.
+
+Use **Copy for Python** to copy the selection with its model, output, applied parameters and evaluated revision. Selected entries include revision-scoped indices and hashes of their inspection records. These hashes help identify the displayed records; neither the hashes nor the indices are persistent topology identities. A successful rebuild clears the selection, because the new body can have different indices. Display geometry determines where a click lands; use the B-rep inspection data for measurements.
 
 ### Model parameters and presets
 
@@ -90,6 +96,34 @@ sr.export(bracket())
 Another file uses `mounts = sr.load("hardware.py").mounts` and calls `mounts.bracket(height=4.5)`. Relative paths resolve from the loading file. Loading exports does not put them into the caller's preview; explicitly export the resulting shape. Cycles and duplicate names are errors. Module and export names must be Python identifiers; names also support indexing, such as `hardware["mounts"]["bracket"]`.
 
 The viewer can select an exported factory with default arguments and presents controls for its arguments. Use `typing.Annotated[T, sr.Param(...)]` for description, unit, minimum, maximum, step, and options. For preview, arguments must be named and have defaults; factories can still be loaded and called with arguments from another model. See `examples/modules/`.
+
+### Sketch regions and extrusion
+
+Sketch curves can intersect to form multiple closed regions. Select a region by a point inside it, then extrude it into a solid:
+
+```python
+outline = sr.Polygon([(0, 0), (20, 0), (20, 10), (0, 10)])
+divider = sr.Line((0, 5), (20, 5))
+sketch = sr.Sketch([*outline, divider])
+upper = sketch.profile_at((10, 7)).extrude(3)
+
+# Add a parallel curve; positive distance is left of its direction.
+offset_sketch = sketch.offset([divider], 2)
+strip = offset_sketch.profile_at((10, 6)).extrude(3)
+sr.export("strip", strip)
+```
+
+Curves include `Line`, circular `Arc`, `CubicBezier`, and the segment lists returned by `Polygon`, `Circle`, and `CatmullRom`. `Sketch.offset` accepts an ordered chain of existing curves, preserves the originals, and recomputes the offset as part of the graph. It uses the sketch engine's offset algorithm and may reject difficult or degenerate inputs. Duplicate identical source curves are ambiguous. `Sketch` and `Profile` accept `plane="XY"`, `"XZ"`, `"YZ"`, or an explicit orthonormal frame. `Profile` also accepts an explicitly ordered outer loop and holes.
+
+Place a sketch in 3D with a plane. Supply any two perpendicular unit directions; the third follows the right-hand rule. Z is the extrusion direction:
+
+```python
+plane = sr.Plane(origin=(10, 0, 5), x_dir=(0, 1, 0), z_dir=(1, 0, 0))
+sketch = sr.Sketch(outline, plane=plane)
+solid = sketch.profile_at((10, 7.5)).extrude(3)  # extends along world +X
+```
+
+Point selection is a geometric query, not a persistent region identity: after an edit, the same point may select a different region. The sketch engine samples outlines for containment, so choose points well away from boundaries. Generated extrusion faces do not yet have persistent identities. Constraints, face-attached sketches, and sweeps along paths remain future work.
 
 ### Part placement and edge blends
 

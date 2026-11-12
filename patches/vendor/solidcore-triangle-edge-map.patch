@@ -1,0 +1,204 @@
+diff --git a/solidcore/crates/solidcore-tess/src/mesh.rs b/solidcore/crates/solidcore-tess/src/mesh.rs
+index 6c2eea84..e3dccd27 100644
+--- a/solidcore/crates/solidcore-tess/src/mesh.rs
++++ b/solidcore/crates/solidcore-tess/src/mesh.rs
+@@ -17,6 +17,17 @@ pub struct Mesh {
+     pub triangles: Vec<[u32; 3]>,
+     /// B-rep face index per triangle.
+     pub tri_face: Vec<u32>,
++    /// B-rep edge for each triangle side (0-1, 1-2, 2-0), aligned with triangles.
++    /// A missing edge means interior only when the face's boundary is complete.
++    #[serde(default)]
++    pub tri_edge: Vec<[Option<u32>; 3]>,
++    /// Sampled segment ordinal on each labeled edge, in `edges` polyline order.
++    /// Direction of the face's use does not change the ordinal.
++    #[serde(default)]
++    pub tri_edge_segment: Vec<[Option<u32>; 3]>,
++    /// Whether triangle-side labels cover every boundary of each record face.
++    #[serde(default)]
++    pub boundary_complete: Vec<bool>,
+     /// Edge polylines; mesh outlines have `display_only_edges` set.
+     pub edges: Vec<Vec<Vec3>>,
+     /// These polylines belong to a triangle mesh, not selectable B-rep edges. Rebuilt with
+diff --git a/solidcore/crates/solidcore-tess/src/mesher/mod.rs b/solidcore/crates/solidcore-tess/src/mesher/mod.rs
+index 17bd3a0b..98f4a345 100644
+--- a/solidcore/crates/solidcore-tess/src/mesher/mod.rs
++++ b/solidcore/crates/solidcore-tess/src/mesher/mod.rs
+@@ -237,7 +237,19 @@ pub(crate) fn plan_at(b: &brep::Brep, tol: f64, turn: Option<size::Turn>) -> Res
+         let (poles, averaged) = crate::pole::plan_poles(fi, eval.kernel(), &fp, fb.reach);
+         let mut stats = stats;
+         stats.averaged_poles = averaged;
+-        Ok((FacePlan { poles, ..fp }, stats))
++        let mut fp = FacePlan { poles, ..fp };
++        // Only certify faces whose boundary node IDs survived unchanged. Other
++        // faces remain drawable through their independently sampled edge curves.
++        let uncut_boundary = fp.boundary_complete;
++        fp.boundary_complete = false;
++        if uncut_boundary && stats.lenient.is_empty() && fp.poles.is_empty()
++            && let Some(mapping) = boundary_triangle_edges(fb, &fp)
++        {
++            fp.tri_edge = mapping.iter().map(|sides| sides.map(|side| side.map(|value| value.0))).collect();
++            fp.tri_edge_segment = mapping.iter().map(|sides| sides.map(|side| side.map(|value| value.1))).collect();
++            fp.boundary_complete = true;
++        }
++        Ok((fp, stats))
+     });
+     let mut plan = TessPlan::default();
+     let mut stats = PlanStats { unsampled_edges, kept_strict, ..PlanStats::default() };
+@@ -641,6 +653,52 @@ struct Boundary {
+     reach: f64,
+ }
+ 
++/// Match final triangle sides to the prepared boundary by local node index.
++/// Return none when polygon construction moved, duplicated or cut the loop,
++/// or when the triangle mesh does not account for each boundary side exactly
++/// once. In particular this refuses coincident loop nodes and repeated uses.
++fn boundary_triangle_edges(boundary: &Boundary, face: &FacePlan) -> Option<Vec<[Option<(u32, u32)>; 3]>> {
++    use std::collections::HashSet;
++    let mut pairs: HashMap<(u32, u32), (u32, u32)> = HashMap::new();
++    let mut uv_seen = HashSet::new();
++    let mut point_seen = HashSet::new();
++    let mut segment_seen = HashSet::new();
++    let mut offset = 0usize;
++    let pair = |a: u32, b: u32| (a.min(b), a.max(b));
++    for (lp, segments) in boundary.loops.iter().zip(&boundary.segments) {
++        let n = lp.uv.len();
++        if n < 3 || lp.pts.len() != n || segments.len() != n { return None; }
++        for k in 0..n {
++            let uv = lp.uv.get(k)?;
++            let p = lp.pts.get(k)?;
++            let seg = *segments.get(k)?;
++            let i = offset.checked_add(k)?;
++            if face.uv.get(i)? != uv || face.fixed.get(i)? != &kernel::record_vec3(*p)
++                || !uv_seen.insert(uv.map(|v| (v + 0.0).to_bits()))
++                || !point_seen.insert([p.x, p.y, p.z].map(|v| (v + 0.0).to_bits()))
++                || !segment_seen.insert(seg)
++            { return None; }
++            let a = u32::try_from(i).ok()?;
++            let b = u32::try_from(offset.checked_add((k + 1) % n)?).ok()?;
++            if pairs.insert(pair(a, b), seg).is_some() { return None; }
++        }
++        offset = offset.checked_add(n)?;
++    }
++    if boundary.loops.len() != boundary.segments.len() || offset != face.fixed.len() || pairs.is_empty() { return None; }
++    let mut uses: HashMap<(u32, u32), usize> = HashMap::new();
++    let mut mapped = Vec::with_capacity(face.triangles.len());
++    for &[a, b, c] in &face.triangles {
++        if a == b || b == c || c == a || [a, b, c].iter().any(|&i| (i as usize) >= face.uv.len()) { return None; }
++        let sides = [pair(a, b), pair(b, c), pair(c, a)];
++        for side in sides { *uses.entry(side).or_default() += 1; }
++        mapped.push(sides.map(|side| pairs.get(&side).copied()));
++    }
++    if pairs.keys().any(|side| uses.get(side) != Some(&1))
++        || uses.iter().any(|(side, n)| *n != if pairs.contains_key(side) { 1 } else { 2 })
++    { return None; }
++    Some(mapped)
++}
++
+ /// Edges are sampled to the chord tolerance each on its own, so where two curves of one face
+ /// run closer than their chords sag (the two arcs of a thin lune, a sliver cap between two
+ /// cylinders), the chords may cross although the curves do not, and no triangulation follows
+@@ -1467,7 +1525,8 @@ fn plan_face(
+     for q in &mut all {
+         *q = s.wrap(*q);
+     }
+-    Ok(FacePlan { face: u32::try_from(fi).unwrap_or(u32::MAX), surface: None, uv: all, fixed: fixed.into_iter().map(kernel::record_vec3).collect(), normals: Vec::new(), flip: false, triangles, poles: Vec::new() })
++    // Internal candidate flag only; plan_at clears it before certifying the map.
++    Ok(FacePlan { face: u32::try_from(fi).unwrap_or(u32::MAX), surface: None, uv: all, fixed: fixed.into_iter().map(kernel::record_vec3).collect(), normals: Vec::new(), flip: false, triangles, tri_edge: Vec::new(), tri_edge_segment: Vec::new(), boundary_complete: !seamed, poles: Vec::new() })
+ }
+ 
+ /// A face's (u, v) region and what meshing it needs.
+diff --git a/solidcore/crates/solidcore-tess/src/mesher/tests.rs b/solidcore/crates/solidcore-tess/src/mesher/tests.rs
+index 3c7e9f36..4cb559df 100644
+--- a/solidcore/crates/solidcore-tess/src/mesher/tests.rs
++++ b/solidcore/crates/solidcore-tess/src/mesher/tests.rs
+@@ -1,5 +1,31 @@
+ use super::*;
+ 
++#[test]
++fn boundary_side_labels_use_node_indices_and_refuse_ambiguous_loops() {
++    let uv = vec![[0., 0.], [1., 0.], [1., 1.], [0., 1.]];
++    let points: Vec<Vec3> = uv.iter().map(|q| Vec3::new(q[0], q[1], 0.)).collect();
++    let boundary = Boundary {
++        loops: vec![seam::Loop { uv: uv.clone(), pts: points.clone() }],
++        segments: vec![vec![(0, 0), (0, 1), (2, 0), (3, 0)]],
++        reach: 0.,
++    };
++    let mut face = FacePlan {
++        uv,
++        fixed: points.into_iter().map(kernel::record_vec3).collect(),
++        triangles: vec![[0, 1, 2], [0, 2, 3]],
++        ..FacePlan::default()
++    };
++    assert_eq!(boundary_triangle_edges(&boundary, &face), Some(vec![[Some((0, 0)), Some((0, 1)), None], [None, Some((2, 0)), Some((3, 0))]]));
++    // A flipped face must retain the same edge on the corresponding side.
++    face.triangles = vec![[0, 2, 1], [0, 3, 2]];
++    assert_eq!(boundary_triangle_edges(&boundary, &face), Some(vec![[None, Some((0, 1)), Some((0, 0))], [Some((3, 0)), Some((2, 0)), None]]));
++    face.uv[2] = face.uv[1];
++    assert_eq!(boundary_triangle_edges(&boundary, &face), None);
++    face.uv[2] = [1., 1.];
++    face.triangles.pop();
++    assert_eq!(boundary_triangle_edges(&boundary, &face), None);
++}
++
+ /// Seeds on a motorcycle trace start at the spacing of the boundary it leaves and grow
+ /// geometrically to the spacing at its other end (here 0.1 to 1 over 5 mm).
+ #[test]
+diff --git a/solidcore/crates/solidcore-tess/src/plan.rs b/solidcore/crates/solidcore-tess/src/plan.rs
+index ed7b8414..9b0c5e70 100644
+--- a/solidcore/crates/solidcore-tess/src/plan.rs
++++ b/solidcore/crates/solidcore-tess/src/plan.rs
+@@ -27,6 +27,13 @@ pub struct FacePlan {
+     pub flip: bool,
+     /// Counter-clockwise seen from outside (orientation already applied).
+     pub triangles: Vec<[u32; 3]>,
++    /// Record edge per oriented triangle side; absent sides are interior only
++    /// when `boundary_complete` is true.
++    pub tri_edge: Vec<[Option<u32>; 3]>,
++    /// Ordinal of each labeled sampled segment in the record edge's polyline.
++    pub tri_edge_segment: Vec<[Option<u32>; 3]>,
++    /// Whether boundary-side mapping is complete and unambiguous for this face.
++    pub boundary_complete: bool,
+     /// The face's boundary nodes at a pole of higher order, with the normal each gets.
+     pub poles: Vec<crate::PoleNode>,
+ }
+@@ -129,6 +136,7 @@ impl TessPlan {
+     #[must_use]
+     pub fn evaluate(&self) -> (Mesh, Vec<crate::RefusedFace>) {
+         let mut out = Mesh::default();
++        out.boundary_complete = vec![false; self.faces.len()];
+         let mut refused = Vec::new();
+         for f in &self.faces {
+             let base = out.positions.len();
+@@ -177,11 +185,20 @@ impl TessPlan {
+             let nodes = positions.len();
+             out.positions.extend(positions);
+             out.normals.extend(normals);
+-            for t in triangles.iter() {
++            let complete = f.boundary_complete
++                && f.tri_edge.len() == triangles.len()
++                && f.tri_edge_segment.len() == triangles.len()
++                && triangles.iter().all(|t| t.iter().all(|&i| (i as usize) < nodes));
++            if let Some(slot) = out.boundary_complete.get_mut(f.face as usize) {
++                *slot = complete;
++            }
++            for (ti, t) in triangles.iter().enumerate() {
+                 if t.iter().all(|&i| (i as usize) < nodes) {
+                     let at = |i: u32| u32::try_from(base + i as usize).unwrap_or(u32::MAX);
+                     out.triangles.push([at(t[0]), at(t[1]), at(t[2])]);
+                     out.tri_face.push(f.face);
++                    out.tri_edge.push(if complete { f.tri_edge.get(ti).copied().unwrap_or([None; 3]) } else { [None; 3] });
++                    out.tri_edge_segment.push(if complete { f.tri_edge_segment.get(ti).copied().unwrap_or([None; 3]) } else { [None; 3] });
+                 }
+             }
+         }
+@@ -412,6 +429,9 @@ mod tests {
+                 normals: vec![],
+                 flip: true,
+                 triangles: vec![[0, 1, 2], [0, 1, 7]],
++                tri_edge: vec![],
++                tri_edge_segment: vec![],
++                boundary_complete: false,
+                 poles: vec![],
+             }],
+             edges: vec![],
