@@ -22,18 +22,16 @@ The user prefers a small composable query language over a growing collection of 
 
 Represent queries as composable descriptions of sets, bound to a graph result and instance context. On each rebuild, resolve a query against that result's current body, record and kernel order—the same ones the consuming operation uses. A query is not a saved array of entity indices. Inspection snapshots are separately bound to one evaluated revision.
 
-```python
-# Illustrative only: names and exact syntax are open.
-cut = stock - tool
-faces = query.entities(cut, type="face")
-edges = query.entities(cut, type="edge")
-selected = edges.where(
-    adjacent_to(faces.where(originates_from(stock)))
-    & adjacent_to(faces.where(originates_from(tool)))
-    & on_side_of(datum_plane, side="positive", match="entire")
-)
-rounded = cut.fillet(edges=selected, radius=2)
+```text
+For each edge e in cut, select e when:
+  there exist distinct faces f and g in cut such that
+    e is incident to f and g,
+    f has stock as an origin, and g has tool as an origin;
+  and the whole edge is on the positive side of datum_plane.
+Fillet the selected edges.
 ```
+
+This is a specification, not proposed Python syntax. The earlier sketch used two independent adjacency checks, which could both be satisfied by one merged face with origins from both operands. The corrected version explicitly binds two distinct faces. The [query algebra and evidence](topology-query-algebra.md) explain the required general operations and the limits of the proof.
 
 This sketch expresses a set, not an assumed number of edges. An operation may require a nonempty set; the author may additionally assert an expected count or require one result. A count can detect some changes, but two different sets can have the same count. Query evaluation after a parameter edit may intentionally select a different set that satisfies the same criteria; it is not equivalent to following a particular persistent entity.
 
