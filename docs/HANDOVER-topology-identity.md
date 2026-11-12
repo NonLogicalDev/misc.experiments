@@ -11,8 +11,8 @@ Read the project `AGENTS.md`, `docs/plans/MEMORY.md`, `docs/plans/OWNERS.md`, an
 ## Checkout and current state
 
 - Project: `/Users/nonlogical/Projects/local/active/tool.solidrecipe`.
-- Latest checkpoint at this update: `3fa5130` (draft topology evaluation and instances). The prior checkpoint `fc9e8ca` pins `vendor/solidcraft` at `9e805b7b` and points SolidCore dependencies at its embedded tree. The prior `vendor/solidcore` submodule remains present; do not silently change or remove it.
-- The working tree and `vendor/solidcraft` contain further uncommitted work, including a versioned provenance patch and preparation script. Recheck both Git statuses and ownership before resuming; preserve the draft and any unrelated work.
+- Checkpoint `f7e7de9` contains the same-body provenance draft, versioned patch and preparation script. The earlier checkpoint `fc9e8ca` pins `vendor/solidcraft` at `9e805b7b` and points SolidCore dependencies at its embedded tree. The prior `vendor/solidcore` submodule remains present; do not silently change or remove it.
+- The prepared `vendor/solidcraft` checkout intentionally contains the tracked patch's modification. Recheck Git status and ownership before resuming; preserve any unrelated work.
 - `examples/topology_identity.py` demonstrates a reference-selected fillet after resizing and cutting a named box. `examples/cooler_adapter.py` is a comparison prototype, not a verified manufacturing model. Its generated setback edge still uses a point selector because it has no persistent identity.
 
 ## What the draft does
@@ -29,7 +29,7 @@ Read the project `AGENTS.md`, `docs/plans/MEMORY.md`, `docs/plans/OWNERS.md`, an
 - At checkpoint `fc9e8ca`, `UV_CACHE_DIR=/tmp/solidrecipe-uv-cache make check` passed: 7 Rust tests, 13 Python tests, formatting/lint, and the viewer build. This was before the uncommitted history implementation.
 - A temporary SolidCraft probe reported both source operands and a split face for a cut, and preserved face origins for a fillet. Temporary probe files were removed.
 - The latest `UV_CACHE_DIR=/tmp/solidrecipe-uv-cache make check` passed with localhost access: formatting, lint, build, 20 Rust tests and 17 Python tests. Both updated examples also produced preview meshes through the embedded server. Repeat affected checks after further edits.
-- The sandbox blocks localhost socket binding and process-group cleanup; run viewer tests where those are permitted. The pinned patch was reconstructed twice in isolation from local Git objects. Remote availability and a full clean project build remain unverified.
+- The sandbox blocks localhost socket binding and process-group cleanup; run viewer tests where those are permitted. At `f7e7de9`, an isolated checkout reconstructed both pinned submodules from local Git objects, installed viewer packages from the local offline store, and passed the full offline `make check` with localhost access (20 Rust and 17 Python tests). Remote dependency availability remains unverified.
 - Earlier compiler artifacts disappeared during a build, and an earlier separate kernel build exhausted disk space. Their causes were not established. Check build activity and available space before cleaning or restarting work; do not kill unrelated processes or remove shared build state without understanding ownership.
 
 ## Next work
@@ -37,4 +37,4 @@ Read the project `AGENTS.md`, `docs/plans/MEMORY.md`, `docs/plans/OWNERS.md`, an
 1. Establish where kernel callbacks provide complete history, including coincident and curved geometry; classify unsupported or incomplete cases without choosing nearby topology.
 2. Complete and test explicit deletion and generation semantics, graph instances and shared branches. Cover Boolean cuts, unions and intersections, both blend types, transforms, parameter edits, and negative cases through the real entry points.
 3. Give generated entities stable references where supported, then revisit the adapter's generated setback edge without changing its geometry.
-4. Verify a clean reconstruction and build from the pinned dependencies and patch, rerun full checks with localhost access, review the complete diff, update the live plan, and checkpoint locally.
+4. After changes, repeat affected checks through the real entry points, review the complete diff, update the live plan, and checkpoint locally.
