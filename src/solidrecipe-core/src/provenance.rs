@@ -47,7 +47,7 @@ fn tag(
     record: &solidcore_record::brep::Brep,
     order: &Order,
     operand: usize,
-) -> Result<()> {
+) -> solidcore_ops::Result<()> {
     let faces: Vec<_> = (0..record.faces.len())
         .map(|index| Origins(BTreeSet::from([(operand, index)])))
         .collect();
@@ -60,7 +60,7 @@ fn tag(
 
 /// An untagged output has no established source; it is not safe to infer one
 /// from proximity, or to claim that it is necessarily a newly generated entity.
-fn history(body: &Body) -> Result<History> {
+fn history(body: &Body) -> solidcore_ops::Result<History> {
     let (record, order, faces, edges) = provenance::read_provenance::<Origins>(body)?;
     let convert = |tags: Vec<Option<Origins>>| {
         tags.into_iter()
@@ -84,11 +84,23 @@ pub(crate) fn boolean(
     right_order: &Order,
     op: BooleanOp,
 ) -> Result<(Body, History)> {
-    tag(&left, left_record, left_order, 0)?;
-    tag(&right, right_record, right_order, 1)?;
-    let body = kernel_boolean(left, right, op)?.ok_or("empty result")?;
-    let history = history(&body)?;
-    Ok((body, history))
+    let (result, failed) = provenance::with_failure_audit(|| -> solidcore_ops::Result<_> {
+        tag(&left, left_record, left_order, 0)?;
+        tag(&right, right_record, right_order, 1)?;
+        let Some(body) = kernel_boolean(left, right, op)? else {
+            return Ok(None);
+        };
+        let history = history(&body)?;
+        Ok(Some((body, history)))
+    })?;
+    // An ignored notification error may have discarded a lineage update. No
+    // geometry or report from this operation may enter the cache in that case.
+    if failed {
+        return Err(
+            "kernel provenance is incomplete: an attribute callback or audit scope failed".into(),
+        );
+    }
+    result?.ok_or_else(|| "empty result".into())
 }
 
 /// The order and selected indices must come from this exact input body, avoiding
@@ -101,22 +113,30 @@ pub(crate) fn blend(
     kind: &str,
     size: f64,
 ) -> Result<(Body, History)> {
-    tag(&body, record, order, 0)?;
-    let blend = if kind == "fillet" {
-        Blend::Round
-    } else {
-        Blend::Chamfer
-    };
-    blend_ordered(
-        &body,
-        order,
-        blend,
-        selected,
-        &[size],
-        &[],
-        Corners::Filled,
-        Default::default(),
-    )?;
-    let history = history(&body)?;
-    Ok((body, history))
+    let (result, failed) = provenance::with_failure_audit(|| -> solidcore_ops::Result<_> {
+        tag(&body, record, order, 0)?;
+        let blend = if kind == "fillet" {
+            Blend::Round
+        } else {
+            Blend::Chamfer
+        };
+        blend_ordered(
+            &body,
+            order,
+            blend,
+            selected,
+            &[size],
+            &[],
+            Corners::Filled,
+            Default::default(),
+        )?;
+        let history = history(&body)?;
+        Ok((body, history))
+    })?;
+    if failed {
+        return Err(
+            "kernel provenance is incomplete: an attribute callback or audit scope failed".into(),
+        );
+    }
+    Ok(result?)
 }

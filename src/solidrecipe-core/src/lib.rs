@@ -1417,6 +1417,87 @@ mod tests {
     }
 
     #[test]
+    fn provenance_audit_refusal_preserves_previous_cache() -> Result<()> {
+        let graph = |height| json!({"kind":"subtract", "left":{"kind":"box", "origin":[0,0,0], "size":[12,30,10]}, "right":{"kind":"box", "origin":[-1,5,2], "size":[9,20,height]}});
+        let mut cache = BuildCache::default();
+        let (before, _) = cache.build(&graph(4.6))?;
+        // A nested scope is refused by the kernel audit. This exercises cache
+        // recovery without pretending to inject an attribute callback failure.
+        let (_, failed) = solidcore_ops::provenance::with_failure_audit(|| {
+            assert!(cache.build(&graph(4.7)).is_err());
+        })?;
+        assert!(failed);
+        let (after, stats) = cache.build(&graph(4.6))?;
+        assert_eq!(stats.hits, 1);
+        assert!((before.volume(1e-6)? - after.volume(1e-6)?).abs() < 1e-6);
+        Ok(())
+    }
+
+    #[test]
+    fn boolean_refuses_failure_from_an_operand_attribute_and_keeps_cache() -> Result<()> {
+        use solidcore_ops::provenance::{self, Provenance, FIRST_ID};
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+        #[derive(Clone, Debug)]
+        struct RefuseNestedAudit(Arc<AtomicUsize>);
+        impl PartialEq for RefuseNestedAudit {
+            fn eq(&self, other: &Self) -> bool {
+                Arc::ptr_eq(&self.0, &other.0)
+            }
+        }
+        impl Provenance for RefuseNestedAudit {
+            const ID: u64 = FIRST_ID + 82;
+            fn split(&self, _: Option<&Self>) -> Option<Self> {
+                // The callback deliberately ignores the nested-scope failure.
+                if provenance::with_failure_audit(|| ()).is_err() {
+                    self.0.fetch_add(1, Ordering::SeqCst);
+                }
+                Some(self.clone())
+            }
+            fn merge(&self, _: Option<&Self>) -> Option<Self> {
+                Some(self.clone())
+            }
+            fn coincident(&self, _: Option<&Self>) -> Option<Self> {
+                Some(self.clone())
+            }
+        }
+        let stock = json!({"kind":"box", "origin":[0,0,0], "size":[10,10,10]});
+        let cutter = json!({"kind":"box", "origin":[5,2,-1], "size":[10,5,12]});
+        let graph = json!({"kind":"subtract", "left":stock, "right":cutter});
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut cache = BuildCache::default();
+        let (before, _) = cache.build(&stock)?;
+        let entry = cache
+            .bodies
+            .get(&cache_key(&stock)?)
+            .ok_or("missing stock cache entry")?;
+        let marker = RefuseNestedAudit(calls.clone());
+        provenance::write_provenance(
+            &entry.body,
+            &entry.record,
+            &entry.order,
+            &vec![marker.clone(); entry.record.faces.len()],
+            &vec![marker; entry.record.edges.len()],
+        )?;
+        let error = cache
+            .build(&graph)
+            .err()
+            .ok_or("expected audit refusal")?
+            .to_string();
+        assert!(error.contains("kernel provenance is incomplete"), "{error}");
+        assert!(
+            calls.load(Ordering::SeqCst) > 0,
+            "the actual operand's split callback must run"
+        );
+        let (after, stats) = cache.build(&stock)?;
+        assert_eq!(stats.hits, 1);
+        assert!((before.volume(1e-6)? - after.volume(1e-6)?).abs() < 1e-6);
+        Ok(())
+    }
+
+    #[test]
     fn evaluates_a_slot_and_its_display_mesh() -> Result<()> {
         let graph = json!({"kind":"subtract", "left":{"kind":"box", "origin":[0,0,0], "size":[12,30,10]}, "right":{"kind":"box", "origin":[-1,5,2], "size":[9,20,4.6]}});
         let body = build(&graph)?;
