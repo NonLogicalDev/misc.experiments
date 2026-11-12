@@ -2,7 +2,9 @@
 
 Use the viewer parameters to inspect either bracket and the three slot variants.
 The source of truth remains homelab-cooler-adapters' slot-height-variants-label-08.
-The 2 mm slot-entry fillets and 1 mm full-length underside chamfer use the kernel.
+The 2 mm slot-entry fillets and 1 mm full-length underside chamfer use the kernel
+with point selectors. The setback creates the chamfer edge, which does not yet
+have a persistent identity; see topology_identity.py for reference-driven blends.
 The 0.5 mm ledge fillet, outer rounds and labels remain unmodeled; this model
 does not establish fit or safe mounting pressure.
 """
@@ -78,6 +80,8 @@ with sr.module("mounts"):
             shape -= sr.Cylinder(1.75, 9, origin=(hole_x, y, -0.1))
         if underside_chamfer:
             # The inner bottom edge spans the complete 71 mm length after setback.
+            # This cut-generated edge has no persistent ID, so keep the unique
+            # point selector rather than substituting a different named edge.
             inner_edge_x = 1 if side == "left" else 11.5
             shape = shape.chamfer(edge_points=[[inner_edge_x, 35.5, 0]], distance=1)
         return shape.with_metadata(

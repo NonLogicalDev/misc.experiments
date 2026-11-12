@@ -54,7 +54,12 @@ fn transform_body(body: Body, node: &Value, kind: &str) -> Result<Body> {
 }
 
 /// A point is accepted only if exactly one edge lies within the requested tolerance.
-fn select_blend_edges(body: &Body, node: &Value) -> Result<(solidcore_ops::Order, Vec<usize>)> {
+fn select_blend_edges(
+    body: &Body,
+    record: &solidcore_record::brep::Brep,
+    order: &solidcore_ops::Order,
+    node: &Value,
+) -> Result<(solidcore_ops::Order, Vec<usize>)> {
     let tolerance = node["tolerance"].as_f64().ok_or("invalid edge tolerance")?;
     if !tolerance.is_finite() || tolerance <= 0.0 {
         return Err("edge tolerance must be finite and positive".into());
@@ -63,13 +68,12 @@ fn select_blend_edges(body: &Body, node: &Value) -> Result<(solidcore_ops::Order
     if points.is_empty() {
         return Err("at least one edge point is required".into());
     }
-    let (record, order) = body.to_record()?;
     let mut selected = Vec::with_capacity(points.len());
     for point in points {
         let point = vector(point)?;
         let mut matches = Vec::new();
         for index in 0..record.edges.len() {
-            if let Some(found) = body.edge_closest_point(&order, index, point)? {
+            if let Some(found) = body.edge_closest_point(order, index, point)? {
                 if found.distance <= tolerance {
                     matches.push(index);
                 }
@@ -87,7 +91,72 @@ fn select_blend_edges(body: &Body, node: &Value) -> Result<(solidcore_ops::Order
         }
         selected.push(matches[0]);
     }
-    Ok((order, selected))
+    Ok((order.clone(), selected))
+}
+
+/// Resolve stable identities in the evaluated operand, never an index from a
+/// separately evaluated inspection. Split, merged, missing and duplicate picks
+/// all fail instead of selecting an arbitrary descendant.
+fn select_blend_refs(
+    body: &Body,
+    record: &solidcore_record::brep::Brep,
+    order: &solidcore_ops::Order,
+    report: &Value,
+    node: &Value,
+) -> Result<(solidcore_ops::Order, Vec<usize>)> {
+    if node.get("edge_identities").is_none() {
+        return select_blend_edges(body, record, order, node);
+    }
+    if node.get("points").is_some() || node.get("tolerance").is_some() {
+        return Err("choose either edge identities or edge points".into());
+    }
+    let refs = node["edge_identities"]
+        .as_array()
+        .filter(|refs| !refs.is_empty())
+        .ok_or("expected at least one edge identity")?;
+    let edges = report["edges"]
+        .as_array()
+        .ok_or("missing operand edge report")?;
+    if edges.len() != order.edges.len() {
+        return Err("operand edge report does not match body".into());
+    }
+    let mut selected = Vec::new();
+    for identity in refs {
+        if identity["kind"] != "edge" {
+            return Err("expected an edge identity".into());
+        }
+        let mut matches = Vec::new();
+        for (index, edge) in edges.iter().enumerate() {
+            let mut ids = Vec::new();
+            carry_identities(&mut ids, edge);
+            if ids.contains(identity) {
+                matches.push((index, ids.len()));
+            }
+        }
+        if matches.is_empty() {
+            let known = report["tracked_identities"]
+                .as_array()
+                .is_some_and(|ids| ids.contains(identity));
+            return Err(if known {
+                "edge identity has no surviving tracked descendant; deleted or untracked"
+            } else {
+                "edge identity is unknown or unavailable"
+            }
+            .into());
+        }
+        if matches.len() > 1 {
+            return Err("edge identity is split or ambiguous".into());
+        }
+        let (index, origins) = matches[0];
+        if origins != 1 || edges[index]["merged"] == true {
+            return Err("edge identity is merged with other identities".into());
+        }
+        if selected.contains(&index) {
+            return Err("edge selected more than once".into());
+        }
+        selected.push(index);
+    }
+    Ok((order.clone(), selected))
 }
 
 /// In-memory B-rep cache keyed by the full serialized expression subtree.
@@ -111,15 +180,16 @@ pub struct CacheStats {
 /// entities in this body's record, not entities in an independently evaluated graph.
 struct Evaluated {
     body: Body,
+    record: solidcore_record::brep::Brep,
+    order: solidcore_ops::Order,
     report: Value,
 }
 
 impl Evaluated {
     /// Copy for consuming operations and map the report using the kernel's copy map.
     fn copy(&self) -> Result<Self> {
-        let (_, source_order) = self.body.to_record()?;
-        let (body, mapped_order) = self.body.copy_with_order(&source_order)?;
-        let (_, target_order) = body.to_record()?;
+        let (body, mapped_order) = self.body.copy_with_order(&self.order)?;
+        let (record, target_order) = body.to_record()?;
         let mut report = self.report.clone();
         for (group, mapping) in [
             (
@@ -158,7 +228,7 @@ impl Evaluated {
             report[group] = Value::Array(new);
         }
         // Incidence and measurement fields are regenerated against the copied body's order.
-        let current = inspect(&body)?;
+        let current = inspect_record(&body, &record, &target_order)?;
         for group in ["faces", "edges"] {
             for (index, entity) in current[group]
                 .as_array()
@@ -168,6 +238,8 @@ impl Evaluated {
             {
                 let identity = report[group][index]["identity"].clone();
                 let identities = report[group][index]["identities"].clone();
+                let merged = report[group][index]["merged"].clone();
+                let origin_status = report[group][index]["origin_status"].clone();
                 report[group][index] = entity.clone();
                 if !identity.is_null() {
                     report[group][index]["identity"] = identity;
@@ -175,9 +247,20 @@ impl Evaluated {
                 if !identities.is_null() {
                     report[group][index]["identities"] = identities;
                 }
+                if merged == true {
+                    report[group][index]["merged"] = merged;
+                }
+                if !origin_status.is_null() {
+                    report[group][index]["origin_status"] = origin_status;
+                }
             }
         }
-        Ok(Self { body, report })
+        Ok(Self {
+            body,
+            record,
+            order: target_order,
+            report,
+        })
     }
 }
 
@@ -213,8 +296,7 @@ impl BuildCache {
             return result.copy();
         }
         stats.misses += 1;
-        let (body, report) = inspect_tracked(node, self, stats)?;
-        let result = Evaluated { body, report };
+        let result = inspect_tracked(node, self, stats)?;
         self.bodies.insert(key, result.copy()?);
         Ok(result)
     }
@@ -354,6 +436,14 @@ fn collect_keys(node: &Value, keys: &mut HashSet<String>) -> Result<()> {
 /// Describe a built B-rep for inspection; record indices apply only to this result.
 pub fn inspect(body: &Body) -> Result<Value> {
     let (record, order) = body.to_record()?;
+    inspect_record(body, &record, &order)
+}
+
+fn inspect_record(
+    body: &Body,
+    record: &solidcore_record::brep::Brep,
+    order: &solidcore_ops::Order,
+) -> Result<Value> {
     let (min, max) = body.bounds()?;
     let mut edges = Vec::with_capacity(record.edges.len());
     for (index, edge) in record.edges.iter().enumerate() {
@@ -365,15 +455,15 @@ pub fn inspect(body: &Body) -> Result<Value> {
             "interval": edge.interval,
             "start": record.vertices[edge.vertices[0] as usize].point,
             "end": record.vertices[edge.vertices[1] as usize].point,
-            "midpoint": body.edge_middle(&order, index)?,
-            "length": body.edge_length(&order, index, 1e-6)?,
+            "midpoint": body.edge_middle(order, index)?,
+            "length": body.edge_length(order, index, 1e-6)?,
             "adjacent_faces": faces,
         }));
     }
     let mut faces = Vec::with_capacity(record.faces.len());
     for (index, face) in record.faces.iter().enumerate() {
         // A failed optional measurement remains visible instead of hiding the entire body.
-        let area = body.face_area(&order, index, 1e-6);
+        let area = body.face_area(order, index, 1e-6);
         let (area, area_error) = match area {
             Ok(value) => (Some(value), None),
             Err(error) => (None, Some(error.to_string())),
@@ -395,14 +485,14 @@ pub fn inspect(body: &Body) -> Result<Value> {
     Ok(serde_json::json!({
         "schema": "solidrecipe.inspect.v1", "units": "mm", "indices": "temporary",
         "bounds": {"min": min, "max": max}, "volume": body.volume(1e-6)?,
-        "edges": edges, "faces": faces,
+        "edges": edges, "faces": faces, "tracked_identities": [],
     }))
 }
 
-/// Inspect a named box with stable semantic face and edge identities.
+/// Inspect a graph and report named identities carried by kernel provenance.
 ///
-/// Identities survive box dimension changes and checked affine transformations. Boolean
-/// and blend operations explicitly report unavailable until provenance is implemented.
+/// Indices are local to this result. A missing tracked descendant can have been
+/// deleted or lost to an untracked operation; generated entities have no stable ID.
 pub fn inspect_graph(node: &Value) -> Result<Value> {
     Ok(BuildCache::default().build_tracked(node)?.0.report)
 }
@@ -411,9 +501,14 @@ fn inspect_tracked(
     node: &Value,
     cache: &mut BuildCache,
     stats: &mut CacheStats,
-) -> Result<(Body, Value)> {
+) -> Result<Evaluated> {
     if node["kind"] == "instance" {
-        let Evaluated { body, mut report } = cache.evaluate(&node["body"], stats)?;
+        let Evaluated {
+            body,
+            record,
+            order,
+            mut report,
+        } = cache.evaluate(&node["body"], stats)?;
         let name = node["name"]
             .as_str()
             .filter(|name| !name.trim().is_empty())
@@ -451,57 +546,96 @@ fn inspect_tracked(
                 }
             }
         }
-        return Ok((body, report));
+        for identity in report["tracked_identities"]
+            .as_array_mut()
+            .ok_or("missing tracked identities")?
+        {
+            let object = identity.as_object_mut().ok_or("invalid tracked identity")?;
+            object
+                .entry("instance".to_owned())
+                .or_insert_with(|| Value::Array(Vec::new()))
+                .as_array_mut()
+                .ok_or("invalid instance identity")?
+                .insert(0, name.into());
+        }
+        return Ok(Evaluated {
+            body,
+            record,
+            order,
+            report,
+        });
     }
     if let Some(kind @ ("fillet" | "chamfer")) = node["kind"].as_str() {
         let Evaluated {
             body: input,
+            record: input_record,
+            order: input_order,
             report: input_report,
         } = cache.evaluate(&node["body"], stats)?;
-        // Keep selection stricter than the kernel's nearest-edge picker.
-        select_blend_edges(&input, node)?;
-        let points = node["points"]
-            .as_array()
-            .ok_or("expected edge points")?
-            .iter()
-            .map(vector)
-            .collect::<Result<Vec<_>>>()?;
+        let (order, selected) =
+            select_blend_refs(&input, &input_record, &input_order, &input_report, node)?;
         let size = node["size"].as_f64().ok_or("invalid blend size")?;
-        let (body, history) = provenance::blend(&input, kind, &points, size)?;
-        let mut report = inspect(&body)?;
+        let (body, history) =
+            provenance::blend(input, &input_record, &order, &selected, kind, size)?;
+        let mut report = inspect_record(&body, &history.record, &history.order)?;
         apply_history(&mut report, &history, &[input_report]);
-        return Ok((body, report));
+        return Ok(Evaluated {
+            body,
+            record: history.record,
+            order: history.order,
+            report,
+        });
     }
     if let Some(kind @ ("subtract" | "union" | "intersect")) = node["kind"].as_str() {
         let Evaluated {
             body: left,
+            record: left_record,
+            order: left_order,
             report: left_report,
         } = cache.evaluate(&node["left"], stats)?;
         let Evaluated {
             body: right,
+            record: right_record,
+            order: right_order,
             report: right_report,
         } = cache.evaluate(&node["right"], stats)?;
         let operands = [left_report, right_report];
         let op = match kind {
-            "subtract" => solidcraft_kernel::BoolOp::Cut,
-            "union" => solidcraft_kernel::BoolOp::Union,
-            _ => solidcraft_kernel::BoolOp::Intersect,
+            "subtract" => solidcore_ops::BooleanOp::Subtract,
+            "union" => solidcore_ops::BooleanOp::Union,
+            _ => solidcore_ops::BooleanOp::Intersect,
         };
-        let (body, history) = provenance::boolean(&left, &right, op)?;
-        let mut report = inspect(&body)?;
+        let (body, history) = provenance::boolean(
+            left,
+            &left_record,
+            &left_order,
+            right,
+            &right_record,
+            &right_order,
+            op,
+        )?;
+        let mut report = inspect_record(&body, &history.record, &history.order)?;
         apply_history(&mut report, &history, &operands);
-        return Ok((body, report));
+        return Ok(Evaluated {
+            body,
+            record: history.record,
+            order: history.order,
+            report,
+        });
     }
     if let Some(kind @ ("translate" | "scale")) = node["kind"].as_str() {
         let Evaluated {
             body,
+            order: old_order,
             report: old_report,
+            ..
         } = cache.evaluate(&node["body"], stats)?;
-        let (_, old_order) = body.to_record()?;
         let body = transform_body(body, node, kind)?;
-        let (_, new_order) = body.to_record()?;
-        let mut report = inspect(&body)?;
+        let (record, order) = body.to_record()?;
+        let new_order = &order;
+        let mut report = inspect_record(&body, &record, &order)?;
         report["identity_status"] = old_report["identity_status"].clone();
+        report["tracked_identities"] = old_report["tracked_identities"].clone();
         if old_report["identity_status"] == "exact_named_box"
             || old_report["identity_status"] == "kernel_history"
         {
@@ -513,6 +647,9 @@ fn inspect_tracked(
                     .ok_or("transform changed face handles; refusing identities")?;
                 report["faces"][new]["identity"] = old_report["faces"][old]["identity"].clone();
                 report["faces"][new]["identities"] = old_report["faces"][old]["identities"].clone();
+                report["faces"][new]["merged"] = old_report["faces"][old]["merged"].clone();
+                report["faces"][new]["origin_status"] =
+                    old_report["faces"][old]["origin_status"].clone();
             }
             for (old, entity) in old_order.edges.iter().enumerate() {
                 let new = new_order
@@ -522,9 +659,17 @@ fn inspect_tracked(
                     .ok_or("transform changed edge handles; refusing identities")?;
                 report["edges"][new]["identity"] = old_report["edges"][old]["identity"].clone();
                 report["edges"][new]["identities"] = old_report["edges"][old]["identities"].clone();
+                report["edges"][new]["merged"] = old_report["edges"][old]["merged"].clone();
+                report["edges"][new]["origin_status"] =
+                    old_report["edges"][old]["origin_status"].clone();
             }
         }
-        return Ok((body, report));
+        return Ok(Evaluated {
+            body,
+            record,
+            order,
+            report,
+        });
     }
     let body = match node["kind"].as_str() {
         Some("box") => make_box(vector(&node["origin"])?, vector(&node["size"])?)?,
@@ -535,18 +680,28 @@ fn inspect_tracked(
         )?,
         _ => return Err("unknown node".into()),
     };
-    let mut report = inspect(&body)?;
+    let (record, order) = body.to_record()?;
+    let mut report = inspect_record(&body, &record, &order)?;
     report["identity_status"] = Value::String("unavailable".into());
     let Some(name) = node["metadata"]["id"]
         .as_str()
         .filter(|name| !name.is_empty())
     else {
-        return Ok((body, report));
+        return Ok(Evaluated {
+            body,
+            record,
+            order,
+            report,
+        });
     };
     if node["kind"].as_str() != Some("box") {
-        return Ok((body, report));
+        return Ok(Evaluated {
+            body,
+            record,
+            order,
+            report,
+        });
     }
-    let (record, _) = body.to_record()?;
     if record.faces.len() != 6 || record.edges.len() != 12 {
         return Err("named box has unexpected topology; refusing identities".into());
     }
@@ -605,34 +760,54 @@ fn inspect_tracked(
         report["edges"][index]["identity"] =
             serde_json::json!({"feature":name, "kind":"edge", "roles":adjacent});
     }
+    let mut tracked = Vec::new();
+    for group in ["faces", "edges"] {
+        for entity in report[group].as_array().ok_or("missing topology report")? {
+            carry_identities(&mut tracked, entity);
+        }
+    }
+    report["tracked_identities"] = Value::Array(tracked);
     report["identity_status"] = Value::String("exact_named_box".into());
-    Ok((body, report))
+    Ok(Evaluated {
+        body,
+        record,
+        order,
+        report,
+    })
 }
 
 /// Compose each kernel-reported origin into this graph node's entity identities.
-fn apply_history(
-    report: &mut Value,
-    history: &solidcraft_kernel::history::History,
-    operands: &[Value],
-) {
-    use solidcraft_kernel::history::{EdgeOrigin, FaceOrigin};
-    for (index, face) in history.faces.iter().enumerate() {
-        let mut identities = Vec::new();
-        for origin in &face.origins {
-            if let FaceOrigin::Face { operand, face } = *origin {
-                carry_identities(&mut identities, &operands[operand]["faces"][face]);
+fn apply_history(report: &mut Value, history: &provenance::History, operands: &[Value]) {
+    let mut tracked = Vec::new();
+    for operand in operands {
+        if let Some(identities) = operand["tracked_identities"].as_array() {
+            for identity in identities {
+                if !tracked.contains(identity) {
+                    tracked.push(identity.clone());
+                }
             }
         }
-        attach_identities(&mut report["faces"][index], identities);
     }
-    for (index, edge) in history.edges.iter().enumerate() {
-        let mut identities = Vec::new();
-        for origin in &edge.origins {
-            if let EdgeOrigin::Edge { operand, edge } = *origin {
-                carry_identities(&mut identities, &operands[operand]["edges"][edge]);
+    report["tracked_identities"] = Value::Array(tracked);
+    for (group, origins) in [("faces", &history.faces), ("edges", &history.edges)] {
+        for (index, origins) in origins.iter().enumerate() {
+            let mut identities = Vec::new();
+            let mut merged = origins.len() > 1;
+            let mut untracked = origins.is_empty();
+            for &(operand, source) in origins {
+                let entity = &operands[operand][group][source];
+                carry_identities(&mut identities, entity);
+                merged |= entity["merged"] == true;
+                untracked |= entity["origin_status"] == "generated or untracked";
+            }
+            attach_identities(&mut report[group][index], identities);
+            if untracked {
+                report[group][index]["origin_status"] = "generated or untracked".into();
+            }
+            if merged {
+                report[group][index]["merged"] = true.into();
             }
         }
-        attach_identities(&mut report["edges"][index], identities);
     }
     report["identity_status"] = Value::String("kernel_history".into());
 }
@@ -768,6 +943,229 @@ mod tests {
     }
 
     #[test]
+    fn intersection_tracks_both_operand_faces() -> Result<()> {
+        let a = json!({"kind":"box", "origin":[0,0,0], "size":[10,10,10], "metadata":{"id":"a"}});
+        let b = json!({"kind":"box", "origin":[5,2,-1], "size":[10,5,12], "metadata":{"id":"b"}});
+        let report = inspect_graph(&json!({"kind":"intersect", "left":a, "right":b}))?;
+        for feature in ["a", "b"] {
+            assert!(
+                report["faces"].as_array().unwrap().iter().any(|face| {
+                    let mut ids = Vec::new();
+                    carry_identities(&mut ids, face);
+                    ids.iter().any(|id| id["feature"] == feature)
+                }),
+                "intersection must retain faces from {feature}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn shared_instanced_branches_and_parameter_edits_resolve_on_actual_body() -> Result<()> {
+        let model = |size| {
+            let part = json!({"kind":"box", "origin":[0,0,0], "size":[size,10,10], "metadata":{"id":"part"}, "occurrence":1});
+            let stock = json!({"kind":"instance", "name":"stock", "body":part, "occurrence":2});
+            let tool = json!({"kind":"instance", "name":"tool", "body":part, "occurrence":3});
+            json!({"kind":"subtract", "left":stock, "right":{"kind":"translate", "body":tool, "offset":[5,2,-1], "occurrence":4}, "occurrence":5})
+        };
+        let identity = json!({"feature":"part", "kind":"edge", "roles":["x_min","y_min"], "instance":["stock"]});
+        let mut cache = BuildCache::default();
+        for size in [10, 12] {
+            let graph = model(size);
+            let (result, _) = cache.build_tracked(&graph)?;
+            assert!(result.report["tracked_identities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|id| id["instance"] == json!(["tool"])));
+            let blend =
+                json!({"kind":"fillet", "body":graph, "edge_identities":[identity], "size":0.25});
+            let (result, _) = cache.build_tracked(&blend)?;
+            assert!(result.report["faces"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|face| face["origin_status"] == "generated or untracked"));
+            // The cached copy must retain explicit uncertainty about untagged entities.
+            let (cached, stats) = cache.build_tracked(&blend)?;
+            assert_eq!(stats.hits, 1);
+            assert!(cached.report["faces"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|face| face["origin_status"] == "generated or untracked"));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn chained_boolean_preserves_untracked_origin_uncertainty() -> Result<()> {
+        let stock =
+            json!({"kind":"box", "origin":[0,0,0], "size":[10,10,10], "metadata":{"id":"stock"}});
+        let rounded = json!({"kind":"fillet", "body":stock, "points":[[0,0,5]], "tolerance":0.01, "size":0.5});
+        let cutter = json!({"kind":"box", "origin":[8,8,-1], "size":[4,4,12]});
+        let mut cache = BuildCache::default();
+        let (input, _) = cache.build_tracked(&rounded)?;
+        let (tool, _) = cache.build_tracked(&cutter)?;
+        let untracked: Vec<usize> = input.report["faces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .enumerate()
+            .filter_map(|(i, face)| {
+                (face["origin_status"] == "generated or untracked").then_some(i)
+            })
+            .collect();
+        assert!(
+            !untracked.is_empty(),
+            "blend must produce a face without an established origin"
+        );
+        let inputs = [input.report, tool.report];
+        let (body, history) = provenance::boolean(
+            input.body,
+            &input.record,
+            &input.order,
+            tool.body,
+            &tool.record,
+            &tool.order,
+            solidcore_ops::BooleanOp::Subtract,
+        )?;
+        let mut result = inspect_record(&body, &history.record, &history.order)?;
+        apply_history(&mut result, &history, &inputs);
+        let carried: Vec<usize> = history
+            .faces
+            .iter()
+            .enumerate()
+            .filter_map(|(i, origins)| {
+                origins
+                    .iter()
+                    .any(|(operand, source)| *operand == 0 && untracked.contains(source))
+                    .then_some(i)
+            })
+            .collect();
+        assert!(
+            !carried.is_empty(),
+            "the boolean must retain a face from the blend"
+        );
+        for index in carried {
+            assert_eq!(
+                result["faces"][index]["origin_status"],
+                "generated or untracked"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn downstream_blend_reports_split_missing_and_unknown_identities() -> Result<()> {
+        let stock =
+            json!({"kind":"box", "origin":[0,0,0], "size":[10,10,10], "metadata":{"id":"stock"}});
+        let edge = json!({"feature":"stock", "kind":"edge", "roles":["x_min","y_min"]});
+        let cut = |tool| json!({"kind":"subtract", "left":stock, "right":tool});
+        let slab = json!({"kind":"box", "origin":[-1,-1,4], "size":[12,12,2]});
+        let split =
+            json!({"kind":"fillet", "body":cut(slab), "edge_identities":[edge], "size":0.25});
+        assert!(build(&split)
+            .unwrap_err()
+            .to_string()
+            .contains("split or ambiguous"));
+        let bottom = json!({"kind":"box", "origin":[-1,-1,-1], "size":[12,12,6]});
+        let removed = json!({"feature":"stock", "kind":"edge", "roles":["y_min","z_min"]});
+        let missing =
+            json!({"kind":"fillet", "body":cut(bottom), "edge_identities":[removed], "size":0.25});
+        assert!(build(&missing)
+            .unwrap_err()
+            .to_string()
+            .contains("deleted or untracked"));
+        let unknown = json!({"kind":"fillet", "body":stock, "edge_identities":[{"feature":"unknown", "kind":"edge", "roles":["x_min","y_min"]}], "size":0.25});
+        assert!(build(&unknown)
+            .unwrap_err()
+            .to_string()
+            .contains("unknown or unavailable"));
+        Ok(())
+    }
+
+    #[test]
+    fn boolean_union_reports_merged_face_and_edge_origins() -> Result<()> {
+        let a = json!({"kind":"box", "origin":[0,0,0], "size":[1,1,1], "metadata":{"id":"a"}});
+        let b = json!({"kind":"box", "origin":[1,0,0], "size":[1,1,1], "metadata":{"id":"b"}});
+        let report = inspect_graph(&json!({"kind":"union", "left":a, "right":b}))?;
+        for group in ["faces", "edges"] {
+            assert!(
+                report[group].as_array().unwrap().iter().any(|entity| {
+                    entity["identities"].as_array().is_some_and(|ids| {
+                        ids.iter().any(|id| id["feature"] == "a")
+                            && ids.iter().any(|id| id["feature"] == "b")
+                    })
+                }),
+                "union must report merged {group} origins"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn merge_with_unnamed_geometry_stays_ambiguous() -> Result<()> {
+        let a = json!({"kind":"box", "origin":[0,0,0], "size":[1,1,1], "metadata":{"id":"a"}});
+        let b = json!({"kind":"box", "origin":[1,0,0], "size":[1,1,1]});
+        let union = json!({"kind":"union", "left":a, "right":b});
+        let translated = json!({"kind":"translate", "body":union, "offset":[0,0,1]});
+        let mut cache = BuildCache::default();
+        for _ in 0..2 {
+            let (result, _) = cache.build_tracked(&translated)?;
+            let edge = result.report["edges"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|edge| {
+                    edge["merged"] == true
+                        && edge["identities"]
+                            .as_array()
+                            .is_some_and(|ids| ids.len() == 1)
+                })
+                .expect("named and unnamed edges merge");
+            let identity = edge["identities"][0].clone();
+            assert!(select_blend_refs(
+                &result.body,
+                &result.record,
+                &result.order,
+                &result.report,
+                &json!({"edge_identities":[identity]})
+            )
+            .is_err());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn known_identity_without_a_tracked_descendant_remains_in_inventory() -> Result<()> {
+        let stock =
+            json!({"kind":"box", "origin":[0,0,0], "size":[10,10,10], "metadata":{"id":"stock"}});
+        let cutter = json!({"kind":"box", "origin":[-1,-1,-1], "size":[12,12,6]});
+        let graph = json!({"kind":"instance", "name":"part", "body":{"kind":"subtract", "left":stock, "right":cutter}});
+        let mut cache = BuildCache::default();
+        for _ in 0..2 {
+            let (result, _) = cache.build_tracked(&graph)?;
+            let identity =
+                json!({"feature":"stock", "kind":"face", "role":"z_min", "instance":["part"]});
+            assert!(result.report["tracked_identities"]
+                .as_array()
+                .unwrap()
+                .contains(&identity));
+            assert!(!result.report["faces"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|face| {
+                    let mut ids = Vec::new();
+                    carry_identities(&mut ids, face);
+                    ids.contains(&identity)
+                }));
+        }
+        Ok(())
+    }
+
+    #[test]
     fn blends_propagate_surviving_face_identities() -> Result<()> {
         let stock =
             json!({"kind":"box", "origin":[0,0,0], "size":[10,10,10], "metadata":{"id":"stock"}});
@@ -781,6 +1179,70 @@ mod tests {
                 .iter()
                 .any(|face| face["identity"]["feature"] == "stock"));
         }
+        Ok(())
+    }
+
+    #[test]
+    fn identity_blends_select_the_evaluated_operand_edge() -> Result<()> {
+        let stock =
+            json!({"kind":"box", "origin":[0,0,0], "size":[10,10,10], "metadata":{"id":"stock"}});
+        let report = inspect_graph(&stock)?;
+        let edge = report["edges"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|edge| edge["identity"]["roles"] == json!(["x_min", "y_min"]))
+            .unwrap();
+        let identity = edge["identity"].clone();
+        for kind in ["fillet", "chamfer"] {
+            let by_id =
+                json!({"kind":kind, "body":stock, "edge_identities":[identity], "size":0.5});
+            let by_point = json!({"kind":kind, "body":stock, "points":[[0,0,5]], "tolerance":0.01, "size":0.5});
+            let result = inspect_graph(&by_id)?;
+            let point_result = inspect_graph(&by_point)?;
+            assert!(
+                (result["volume"].as_f64().unwrap() - point_result["volume"].as_f64().unwrap())
+                    .abs()
+                    < 1e-7
+            );
+            assert!(result["faces"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|face| face["identity"]["feature"] == "stock"));
+            let mut duplicate = by_id.clone();
+            duplicate["edge_identities"] = json!([identity, identity]);
+            assert!(build(&duplicate).is_err());
+            let mut missing = by_id.clone();
+            missing["edge_identities"][0]["feature"] = json!("missing");
+            assert!(build(&missing).is_err());
+            let mut mixed = by_id.clone();
+            mixed["points"] = json!([[0, 0, 5]]);
+            assert!(build(&mixed).is_err());
+        }
+        let body = build(&stock)?;
+        let mut split = report.clone();
+        split["edges"][1]["identity"] = identity.clone();
+        assert!(select_blend_refs(
+            &body,
+            &body.to_record()?.0,
+            &body.to_record()?.1,
+            &split,
+            &json!({"edge_identities":[identity]})
+        )
+        .is_err());
+        let mut merged = report.clone();
+        let index = edge["index"].as_u64().unwrap() as usize;
+        merged["edges"][index]["identities"] =
+            json!([identity, {"feature":"other", "kind":"edge", "roles":["x_min", "y_min"]}]);
+        assert!(select_blend_refs(
+            &body,
+            &body.to_record()?.0,
+            &body.to_record()?.1,
+            &merged,
+            &json!({"edge_identities":[identity]})
+        )
+        .is_err());
         Ok(())
     }
 

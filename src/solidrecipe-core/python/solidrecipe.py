@@ -26,7 +26,9 @@ def _entity_identities(entity):
     return identities
 
 
-def _resolve_entity(items, matches_identity, description, multiple_error):
+def _resolve_entity(
+    items, matches_identity, description, multiple_error, missing_error=None
+):
     """Return one unmerged descendant, or report why selection is unsafe."""
     matches = [
         (item, identities)
@@ -35,11 +37,13 @@ def _resolve_entity(items, matches_identity, description, multiple_error):
         and any(matches_identity(identity) for identity in identities)
     ]
     if not matches:
+        if missing_error is not None:
+            raise ValueError(missing_error)
         raise ValueError(f"{description} is missing or identity is unavailable")
     if len(matches) > 1:
         raise ValueError(f"{description} {multiple_error}")
     item, identities = matches[0]
-    if len(identities) > 1:
+    if len(identities) > 1 or item.get("merged"):
         raise ValueError(f"{description} is merged with other identities")
     return item
 
@@ -96,11 +100,16 @@ class Shape:
             raise ValueError("expected a face or edge identity from inspect_data")
         data = inspect_data(self)
         items = data["faces" if identity["kind"] == "face" else "edges"]
+        if identity in (data.get("tracked_identities") or []):
+            missing_error = "no surviving tracked descendant; deleted or untracked"
+        else:
+            missing_error = "identity is unknown or unavailable"
         return _resolve_entity(
             items,
             lambda candidate: candidate == identity,
             "identity",
             "is split or ambiguous",
+            missing_error,
         )
 
     def translate(self, x, y, z):
@@ -125,39 +134,47 @@ class Shape:
             raise ValueError("instance name must be a nonempty string")
         return Shape({"kind": "instance", "name": name, "body": self.node})
 
-    def fillet(self, *, edge_points, radius, tolerance=0.01):
-        """Round edges passing uniquely near the given model-space points, in mm.
+    def _blend(self, kind, size, edge_points, edge_refs, tolerance):
+        """Build one blend node with exactly one edge-selection method."""
+        if (edge_points is None) == (edge_refs is None):
+            raise ValueError("provide either edge_points or edge_refs")
+        node = {"kind": kind, "body": self.node, "size": size}
+        if edge_refs is not None:
+            if not isinstance(edge_refs, (list, tuple)) or not edge_refs:
+                raise ValueError("edge_refs must be a nonempty sequence of identities")
+            if any(
+                not isinstance(identity, dict) or identity.get("kind") != "edge"
+                for identity in edge_refs
+            ):
+                raise ValueError("edge_refs must contain edge identities")
+            # Copy the references: a caller changing a result dictionary later must
+            # not silently retarget an already constructed graph.
+            node["edge_identities"] = json.loads(json.dumps(edge_refs, allow_nan=False))
+        else:
+            node["points"] = edge_points
+            node["tolerance"] = tolerance
+        return Shape(node)
+
+    def fillet(self, *, radius, edge_points=None, edge_refs=None, tolerance=0.01):
+        """Round edges selected by persistent identities or model-space points.
 
         Points are geometric selectors, not persistent topology identities. A rebuild
         fails if any point identifies no edge or more than one edge within tolerance.
+        Pass edge identity dictionaries from inspection as `edge_refs`; resolution
+        fails if an identity is missing, split, merged, or ambiguous.
         """
-        return Shape(
-            {
-                "kind": "fillet",
-                "body": self.node,
-                "points": edge_points,
-                "size": radius,
-                "tolerance": tolerance,
-            }
-        )
+        return self._blend("fillet", radius, edge_points, edge_refs, tolerance)
 
-    def chamfer(self, *, edge_points, distance, tolerance=0.01):
-        """Bevel edges passing uniquely near the given points, with equal setbacks in mm."""
-        return Shape(
-            {
-                "kind": "chamfer",
-                "body": self.node,
-                "points": edge_points,
-                "size": distance,
-                "tolerance": tolerance,
-            }
-        )
+    def chamfer(self, *, distance, edge_points=None, edge_refs=None, tolerance=0.01):
+        """Bevel selected edges with equal setbacks, using identities or points."""
+        return self._blend("chamfer", distance, edge_points, edge_refs, tolerance)
 
     def with_metadata(self, **metadata):
         """Return a shape whose graph node carries JSON-serializable author metadata.
 
         Metadata belongs to this node, not automatically to faces made from it.
-        Names and labels are useful for later provenance, but are not stable topology IDs.
+        An `id` on a box names its semantic face and edge identities; other
+        metadata and IDs on other node kinds do not create topology identities.
         """
         # Validate early rather than letting a rebuild fail while writing the graph.
         json.dumps(metadata, allow_nan=False)

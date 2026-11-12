@@ -6,7 +6,7 @@ The initial example is a synthetic slotted block, not a verified cooler adapter.
 
 ## Build and run
 
-Install Rust, `uv`, pnpm, Node.js, and Python. Initialize the SolidCore submodule and install the viewer dependencies, then build the embedded viewer and optimized CLI (the first build can take a few minutes):
+Install Rust, `uv`, pnpm, Node.js, and Python. Initialize the vendor submodules and install the viewer dependencies, then build the embedded viewer and optimized CLI (the first build can take a few minutes):
 
 ```sh
 git submodule update --init --recursive
@@ -14,6 +14,8 @@ pnpm -C src/solidrecipe-viewer install
 make build
 ./target/release/solidrecipe serve examples/slotted_block.py
 ```
+
+`make build`, `make lint`, and `make check` prepare the pinned SolidCraft checkout with the project-owned [ordered provenance patch](patches/vendor/solidcore-ordered-provenance.patch). The preparation checks the pinned revision and refuses unexpected changes in that checkout. The patched submodule appears modified; the patch is stored in this repository and can be reapplied after submodule initialization. Before invoking Cargo directly, run `make prepare-solidcore`.
 
 The CLI opens a loopback viewer and rebuilds when the selected Python file or a file loaded via `sr.load` changes. A model can call `sr.export(shape)` to provide a default output; the legacy variable `model` is also supported. If a rebuild fails, the previous preview remains visible and the error appears in the viewer. Ordinary Python imports are not watched. Model files run as Python code with your permissions.
 
@@ -117,4 +119,4 @@ same_edge = placed.resolve(edge["identity"])
 
 Measurements evaluate the B-rep in-process. Bounds use millimeters and volume uses cubic millimeters; `.bounds` exposes `minimum`, `maximum`, `size`, and `center`. `sr.inspect_data(shape)` returns detailed B-rep data as a Python value, while `sr.inspect(shape)` prints JSONL.
 
-Exact face and edge identities currently cover a single explicitly named box and its translations/scales. They do **not** yet propagate through Boolean operations or fillets. Unsupported resolution raises an error rather than guessing. See [feature tracking](docs/feature-tracking.md).
+Named-box face and edge identities can propagate through transforms, Boolean operations, and blends. A unique surviving edge can also select a blend: `placed.fillet(edge_refs=[edge["identity"]], radius=1)`. Named instances distinguish repeated parts. This support is experimental: kernel provenance is not yet proven complete for every operation, and generated topology does not have stable identities. Missing, split, merged, or ambiguous references raise an error rather than selecting a nearby edge. See [feature tracking](docs/feature-tracking.md).
