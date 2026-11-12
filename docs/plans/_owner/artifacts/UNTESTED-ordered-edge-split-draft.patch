@@ -1,0 +1,110 @@
+diff --git a/solidcore/crates/solidcore-ops/src/split.rs b/solidcore/crates/solidcore-ops/src/split.rs
+index bf4e5d02..75c0c654 100644
+--- a/solidcore/crates/solidcore-ops/src/split.rs
++++ b/solidcore/crates/solidcore-ops/src/split.rs
+@@ -56,6 +56,65 @@ pub const MAX_FACES: usize = 100_000;
+ /// The most tools one call takes.
+ pub const MAX_TOOLS: usize = 4096;
+ 
++/// A split body and the two actual children, indexed by its accompanying order.
++/// The children are in kernel reused/new order, not a geometric direction.
++pub struct EdgeSplit {
++    pub body: Body,
++    pub record: solidcore_record::brep::Brep,
++    pub order: Order,
++    pub edges: [usize; 2],
++}
++
++/// Split a record edge at a strictly interior curve parameter on a private copy.
++///
++/// `expected` and `order` must belong to `body`; equal numeric handles cannot
++/// establish body ownership. Callback errors detected by the scoped audit and
++/// kernel refusals discard the copy. This does not assign persistent identities.
++pub fn edge_ordered(
++    body: &Body,
++    expected: &solidcore_record::brep::Brep,
++    order: &Order,
++    edge: usize,
++    parameter: f64,
++) -> Result<EdgeSplit> {
++    if !parameter.is_finite() {
++        return Err(Error::Argument);
++    }
++    let (record, current) = body.to_record()?;
++    if &record != expected || current.faces != order.faces || current.edges != order.edges
++        || current.vertices != order.vertices
++    {
++        return Err(Error::Argument);
++    }
++    let interval = record.edges.get(edge).ok_or(Error::Argument)?.interval;
++    if parameter <= interval[0] || parameter >= interval[1] {
++        return Err(Error::Argument);
++    }
++    let (copy, mapped) = body.copy_with_order(order)?;
++    let (copied_record, _) = copy.to_record()?;
++    if copied_record != record {
++        return Err(Error::Argument);
++    }
++    let selected = *mapped.edges.get(edge).ok_or(Error::Argument)?;
++    let (result, failed) = crate::provenance::with_failure_audit(|| {
++        crate::session::with_body("split edge", &copy, |k, b| {
++            let output = solidcore::topology::brep::p9::split_edge_with_attributes(k, b, selected, parameter)?;
++            Ok(if output.split { output.edges.ok_or(Error::NoEffect) } else { Err(Error::NoEffect) })
++        })
++    })?;
++    if failed {
++        return Err(Error::Unsupported("split provenance callback failed"));
++    }
++    let children = result??;
++    let (record, order) = copy.to_record()?;
++    let find = |child| order.edges.iter().position(|edge| *edge == child).ok_or(Error::NoEffect);
++    let edges = [find(children[0])?, find(children[1])?];
++    if edges[0] == edges[1] {
++        return Err(Error::NoEffect);
++    }
++    Ok(EdgeSplit { body: copy, record, order, edges })
++}
++
+ /// A tool surface: a record surface over `domain`, `[[u0, u1], [v0, v1]]` in the record's
+ /// parameters (radians for angles; a spline's own knots), as [`from_parameters`] takes it.
+ #[derive(Clone, Debug, PartialEq)]
+diff --git a/solidcore/crates/solidcore/src/topology/brep/p9.rs b/solidcore/crates/solidcore/src/topology/brep/p9.rs
+index 165187b4..85a81396 100644
+--- a/solidcore/crates/solidcore/src/topology/brep/p9.rs
++++ b/solidcore/crates/solidcore/src/topology/brep/p9.rs
+@@ -1118,6 +1118,35 @@ pub fn make_vertex_split_edge_with_kernel_curve_identity(
+     )
+ }
+ 
++/// Split an edge while carrying the B-rep's own application attributes through
++/// the real kernel notification context. The caller owns rollback on failure.
++pub fn split_edge_with_attributes(
++    k: &mut Kernel,
++    b: &mut Brep,
++    edge_id: EdgeId,
++    parameter: f64,
++) -> Result<SplitEdgeOutput> {
++    let mut state = crate::topology::brep::p2::ArenaNotifyState::with_attributes_of(b);
++    let was_editing = b.editing_enabled();
++    b.set_editing_enabled(true);
++    let result = make_vertex_split_edge_with_kernel_curve_identity(
++        k,
++        b,
++        edge_id,
++        parameter,
++        &mut edge::NotificationStores {
++            records: &mut state.records,
++            attributes: &mut state.attributes,
++            key_of: &crate::topology::loopuse::notify_ref,
++        },
++        CurveIdentity::Actual(&issue_curve_identity),
++    );
++    b.set_editing_enabled(was_editing);
++    state.restore_attributes(b)?;
++    b.refresh_cached_topology();
++    result
++}
++
+ pub(crate) fn make_vertex_split_edge_with_curve_identity_state(
+     k: &mut Kernel,
+     b: &mut Brep,

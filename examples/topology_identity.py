@@ -1,25 +1,30 @@
-"""Reuse a named edge after resizing, cutting, and blending a box.
+"""Use an edge reference after a cut to measure and round the same edge.
 
-Run with `solidrecipe serve examples/topology_identity.py`; inspect the JSONL output
-in the terminal. Boolean and blend provenance is experimental: the current kernel
-conversion does not yet prove correspondence for every possible topology.
+Run `solidrecipe serve examples/topology_identity.py` and choose an output in
+the viewer. Change `height` and rebuild to see the edge measurement update.
+Topology tracking is experimental; kernel provenance is not yet proven complete
+for every operation. Do not treat this example as a manufacturing model.
 """
 
 import solidrecipe as sr
 
-# An explicit ID gives this feature the same identity when its dimensions change.
-stock = sr.Box(12, 30, 10).with_metadata(id="stock")
-edge = stock.edge("x_min", "y_min")
-resized = sr.Box(12, 30, 14).with_metadata(id="stock")
+height = 14
 
-# The cut leaves the chosen outer edge intact. Resolve the old reference against
-# the cut body rather than relying on an edge index or its previous position.
-cut = resized - sr.Box(2, 2, 16, origin=(5, 14, -1))
-current_edge = cut.resolve(edge["identity"])
-rounded = cut.fillet(edge_refs=[edge["identity"]], radius=0.5)
-sr.inspect(rounded)
+# Name the box so its faces and edges can be referenced across operations.
+# Each face has four edges; the lowest-X and lowest-Y faces share one edge.
+blank = sr.Box(12, 30, height).with_metadata(id="blank")
+edge = blank.edge_between_faces("x_min", "y_min")
 
-# Use the current measured edge length in a separate feature.
-indicator = sr.Box(2, 2, current_edge["length"]).translate(15, 0, 0)
-sr.export("stock", rounded)
-sr.export("measured_edge_indicator", indicator)
+# Cut a hole, then find the same edge on the resulting shape. Resolution fails
+# if the edge is missing, split into multiple descendants, merged, or otherwise
+# ambiguous; it never picks a nearby edge as a substitute.
+with_hole = blank - sr.Box(2, 2, height + 2, origin=(5, 14, -1))
+edge_length = with_hole.resolve(edge)["length"]
+
+# The reference also selects the edge to round. The separate bar makes the
+# current edge length visible: changing height changes the bar's height too.
+bracket = with_hole.fillet(edge_refs=[edge], radius=0.5)
+length_bar = sr.Box(2, 2, edge_length).translate(15, 0, 0)
+
+sr.export("bracket", bracket)
+sr.export("edge_length_bar", length_bar)

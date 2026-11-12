@@ -2,7 +2,7 @@
 mod provenance;
 use serde_json::Value;
 use solidcore_ops::{make_box, make_cylinder, Body};
-use solidcore_record::brep::Loop;
+use solidcore_record::brep::{Curve, Loop, Surface};
 use std::{
     collections::{HashMap, HashSet},
     error::Error,
@@ -637,6 +637,7 @@ fn inspect_tracked(
         report["identity_status"] = old_report["identity_status"].clone();
         report["tracked_identities"] = old_report["tracked_identities"].clone();
         if old_report["identity_status"] == "exact_named_box"
+            || old_report["identity_status"] == "exact_named_cylinder"
             || old_report["identity_status"] == "kernel_history"
         {
             for (old, entity) in old_order.faces.iter().enumerate() {
@@ -694,6 +695,15 @@ fn inspect_tracked(
             report,
         });
     };
+    if node["kind"] == "cylinder" {
+        seed_cylinder_identities(&mut report, &record, node, name)?;
+        return Ok(Evaluated {
+            body,
+            record,
+            order,
+            report,
+        });
+    }
     if node["kind"].as_str() != Some("box") {
         return Ok(Evaluated {
             body,
@@ -776,6 +786,123 @@ fn inspect_tracked(
     })
 }
 
+/// Seed only the analytic cap, side, and circular rim identities of a freshly
+/// constructed cylinder. Its representation seam has no authored identity.
+fn seed_cylinder_identities(
+    report: &mut Value,
+    record: &solidcore_record::brep::Brep,
+    node: &Value,
+    name: &str,
+) -> Result<()> {
+    let origin = vector(&node["origin"])?;
+    let radius = node["radius"].as_f64().ok_or("invalid cylinder radius")?;
+    let height = node["height"].as_f64().ok_or("invalid cylinder height")?;
+    let tolerance = radius.abs().max(height.abs()).max(1.0) * 1e-8;
+    let near = |a: f64, b: f64| a.is_finite() && b.is_finite() && (a - b).abs() <= tolerance;
+    let parallel_xy = |a: &[f64; 3]| a[2].is_finite() && a[2].abs() <= 1e-10;
+    if height <= 2.0 * tolerance
+        || radius <= tolerance
+        || record.faces.len() != 3
+        || record.edges.len() != 3
+    {
+        return Err("named cylinder topology is unsupported or ambiguous".into());
+    }
+    let mut roles = Vec::new();
+    for face in &record.faces {
+        let role = match &face.surface {
+            Surface::Cylinder {
+                frame,
+                radius: actual,
+            } if near(*actual, radius)
+                && near(frame.origin[0], origin[0])
+                && near(frame.origin[1], origin[1])
+                && parallel_xy(&frame.x_axis)
+                && parallel_xy(&frame.y_axis) =>
+            {
+                "side"
+            }
+            Surface::Plane {
+                origin: point,
+                u_axis,
+                v_axis,
+            } if parallel_xy(u_axis) && parallel_xy(v_axis) && near(point[2], origin[2]) => "base",
+            Surface::Plane {
+                origin: point,
+                u_axis,
+                v_axis,
+            } if parallel_xy(u_axis)
+                && parallel_xy(v_axis)
+                && near(point[2], origin[2] + height) =>
+            {
+                "top"
+            }
+            _ => return Err("named cylinder face is unsupported or ambiguous".into()),
+        };
+        if roles.contains(&role) {
+            return Err("named cylinder face roles are ambiguous".into());
+        }
+        roles.push(role);
+    }
+    let mut rims = HashSet::new();
+    for (index, edge) in record.edges.iter().enumerate() {
+        if edge.uses.len() != 2 {
+            return Err("named cylinder edge uses are unsupported or ambiguous".into());
+        }
+        let mut adjacent = Vec::new();
+        for usage in &edge.uses {
+            let role = *roles
+                .get(usage.face as usize)
+                .ok_or("invalid cylinder edge adjacency")?;
+            if !adjacent.contains(&role) {
+                adjacent.push(role);
+            }
+        }
+        adjacent.sort_unstable();
+        let rim = match adjacent.as_slice() {
+            ["base", "side"] => Some(("base", origin[2])),
+            ["side", "top"] => Some(("top", origin[2] + height)),
+            ["side"] => None,
+            _ => return Err("named cylinder edge adjacency is unsupported or ambiguous".into()),
+        };
+        if let Some((role, z)) = rim {
+            match &edge.curve {
+                Curve::Circle {
+                    frame,
+                    radius: actual,
+                } if near(*actual, radius)
+                    && near(frame.origin[0], origin[0])
+                    && near(frame.origin[1], origin[1])
+                    && near(frame.origin[2], z)
+                    && parallel_xy(&frame.x_axis)
+                    && parallel_xy(&frame.y_axis)
+                    && edge.vertices[0] == edge.vertices[1] => {}
+                _ => return Err("named cylinder rim is unsupported or ambiguous".into()),
+            }
+            if !rims.insert(role) {
+                return Err("named cylinder rims are ambiguous".into());
+            }
+            report["edges"][index]["identity"] =
+                serde_json::json!({"feature":name,"kind":"edge","roles":adjacent});
+        }
+    }
+    if rims.len() != 2 {
+        return Err("named cylinder rims are incomplete".into());
+    }
+    for (index, role) in roles.iter().enumerate() {
+        report["faces"][index]["identity"] =
+            serde_json::json!({"feature":name,"kind":"face","role":role});
+    }
+    let mut tracked = Vec::new();
+    for group in ["faces", "edges"] {
+        for entity in report[group].as_array().ok_or("missing topology report")? {
+            carry_identities(&mut tracked, entity);
+        }
+    }
+    report["tracked_identities"] = Value::Array(tracked);
+    report["identity_status"] = "exact_named_cylinder".into();
+    Ok(())
+}
+
 /// Compose each kernel-reported origin into this graph node's entity identities.
 fn apply_history(report: &mut Value, history: &provenance::History, operands: &[Value]) {
     let mut tracked = Vec::new();
@@ -851,6 +978,7 @@ pub fn display_mesh(body: &Body, size: f64) -> Result<solidcore_tess::Mesh> {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
     use serde_json::json;
 
@@ -873,6 +1001,55 @@ mod tests {
         for edge in before.edges {
             assert!(after.edges.contains(&edge));
         }
+        Ok(())
+    }
+
+    #[test]
+    fn named_cylinder_seeds_survive_parameter_edits_and_transforms() -> Result<()> {
+        let cylinder = |radius, height| json!({"kind":"cylinder", "origin":[1,2,3], "radius":radius, "height":height, "metadata":{"id":"bore"}});
+        let a = inspect_graph(&cylinder(2, 5))?;
+        let b = inspect_graph(&cylinder(4, 7))?;
+        let moved =
+            inspect_graph(&json!({"kind":"translate", "body":cylinder(2, 5), "offset":[10,0,-1]}))?;
+        for group in ["faces", "edges"] {
+            let ids = |report: &Value| -> HashSet<String> {
+                report[group]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|e| !e["identity"].is_null())
+                    .map(|e| e["identity"].to_string())
+                    .collect()
+            };
+            assert_eq!(ids(&a), ids(&b));
+            assert_eq!(ids(&a), ids(&moved));
+            assert_eq!(ids(&a).len(), if group == "faces" { 3 } else { 2 });
+        }
+        assert_eq!(a["identity_status"], "exact_named_cylinder");
+        assert_eq!(a["tracked_identities"].as_array().unwrap().len(), 5);
+        assert_eq!(
+            a["edges"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|e| e["identity"].is_null())
+                .count(),
+            1
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn named_cylinder_rejects_ambiguous_or_unsupported_topology() -> Result<()> {
+        let node = json!({"kind":"cylinder", "origin":[1,2,3], "radius":2, "height":5, "metadata":{"id":"bore"}});
+        let body = make_cylinder([1.0, 2.0, 3.0], 2.0, 5.0)?;
+        let (mut record, order) = body.to_record()?;
+        let mut report = inspect_record(&body, &record, &order)?;
+        record.faces[1] = record.faces[2].clone();
+        assert!(seed_cylinder_identities(&mut report, &record, &node, "bore").is_err());
+        let (mut record, _) = body.to_record()?;
+        record.edges.pop();
+        assert!(seed_cylinder_identities(&mut report, &record, &node, "bore").is_err());
         Ok(())
     }
 

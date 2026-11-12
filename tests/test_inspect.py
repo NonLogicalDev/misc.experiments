@@ -84,10 +84,16 @@ class InspectTest(unittest.TestCase):
         ):
             self.assertEqual(shape.face("z_max")["area"], 6)
             self.assertEqual(shape.edge("y_min", "x_min")["length"], 4)
+            self.assertEqual(shape.face_ref("z_max"), face_id)
+            self.assertEqual(shape.edge_between_faces("y_min", "x_min"), edge_id)
             self.assertEqual(shape.resolve(face_id)["area"], 6)
         with inspect_with([], []):
             with self.assertRaisesRegex(ValueError, "unknown or unavailable"):
                 shape.resolve(face_id)
+            with self.assertRaisesRegex(
+                ValueError, "missing or identity is unavailable"
+            ):
+                shape.edge_between_faces("x_min", "y_min")
         with patch.object(
             sr,
             "_inspect_graph",
@@ -100,6 +106,8 @@ class InspectTest(unittest.TestCase):
         with inspect_with([{"identity": face_id}, {"identity": face_id}], []):
             with self.assertRaisesRegex(ValueError, "split or ambiguous"):
                 shape.resolve(face_id)
+            with self.assertRaisesRegex(ValueError, "ambiguous or split"):
+                shape.face_ref("z_max")
         with inspect_with([{"identities": [face_id, other_id]}], []):
             with self.assertRaisesRegex(ValueError, "merged"):
                 shape.resolve(face_id)
@@ -109,6 +117,8 @@ class InspectTest(unittest.TestCase):
         with inspect_with([{"identity": face_id, "merged": True}], []):
             with self.assertRaisesRegex(ValueError, "merged"):
                 shape.resolve(face_id)
+            with self.assertRaisesRegex(ValueError, "merged"):
+                shape.face_ref("z_max")
 
     def test_metadata_stays_on_its_node(self):
         original = sr.Box(10, 8, 6)
@@ -172,7 +182,8 @@ class InspectTest(unittest.TestCase):
         # kernel output for each result instead of constructing mock reports.
         with patch.object(sr, "_inspect_graph", side_effect=inspect):
             stock = sr.Box(10, 10, 10).with_metadata(id="stock")
-            split_id = stock.edge("x_min", "y_min")["identity"]
+            split_id = stock.edge_between_faces("x_min", "y_min")
+            self.assertEqual(stock.face_ref("z_max")["role"], "z_max")
             split = stock - sr.Box(12, 12, 2, origin=(-1, -1, 4))
             with self.assertRaisesRegex(ValueError, "split or ambiguous"):
                 split.resolve(split_id)

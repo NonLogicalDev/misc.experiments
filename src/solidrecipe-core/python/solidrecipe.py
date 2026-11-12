@@ -88,6 +88,17 @@ class Shape:
             "is ambiguous or split",
         )
 
+    def face_ref(self, role):
+        """Return the unique persistent reference for a named box face role."""
+        return _entity_identities(self.face(role))[0]
+
+    def edge_between_faces(self, first_face, second_face):
+        """Return the edge reference where two named box faces meet.
+
+        For example, `x_min` and `y_min` name the lowest-X and lowest-Y faces.
+        """
+        return _entity_identities(self.edge(first_face, second_face))[0]
+
     def resolve(self, identity):
         """Resolve an exact face or edge identity on the current shape.
 
