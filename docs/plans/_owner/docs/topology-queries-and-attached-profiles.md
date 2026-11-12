@@ -16,20 +16,28 @@ Those requests involve several related but different questions:
 
 One type of identifier cannot answer all of these questions. In particular, a unique geometric query today does not prove that it will continue to select the same entity after an edit.
 
-## Query model: a proposal to test
+## Query model: agreed direction
+
+The user prefers a small composable query language over a growing collection of narrowly tailored fluent methods. Select entities, express general relationships and geometric predicates, and combine them. Fluent conveniences may be added where useful, but they should compose the same core model rather than define a separate concept for every modeling task. The exact syntax and primitive vocabulary remain open.
 
 Represent queries as composable descriptions of sets, bound to a graph result and instance context. On each rebuild, resolve a query against that result's current body, record and kernel order—the same ones the consuming operation uses. A query is not a saved array of entity indices. Inspection snapshots are separately bound to one evaluated revision.
 
 ```python
 # Illustrative only: names and exact syntax are open.
 cut = stock - tool
-edges = cut.edges().interface_of(stock, tool).parallel_to((0, 0, 1))
-rounded = cut.fillet(edges=edges, radius=2)
+faces = query.entities(cut, type="face")
+edges = query.entities(cut, type="edge")
+selected = edges.where(
+    adjacent_to(faces.where(originates_from(stock)))
+    & adjacent_to(faces.where(originates_from(tool)))
+    & within(half_space(datum_plane))
+)
+rounded = cut.fillet(edges=selected, radius=2)
 ```
 
 This sketch expresses a set, not an assumed number of edges. An operation may require a nonempty set; the author may additionally assert an expected count or require one result. A count can detect some changes, but two different sets can have the same count. Query evaluation after a parameter edit may intentionally select a different set that satisfies the same criteria; it is not equivalent to following a particular persistent entity.
 
-`interface_of` needs an exact contract. One possible definition is edges incident to output faces whose verified origins belong to opposite operands. That is not the same as “edges newly created by the Boolean”: a coincident or pre-existing contact edge can belong to an interface. Other useful concepts include created-by, modified-by, adjacent-to, owned-by, and descendants-of. Do not call any of them complete until its underlying lineage can support that claim. The user should be able to combine geometric and construction predicates without depending on boxes.
+An interface query needs an exact contract. One possible definition is edges incident to output faces whose verified origins belong to opposite operands. That is not the same as “edges newly created by the Boolean”: a coincident or pre-existing contact edge can belong to an interface. Other useful concepts include created-by, modified-by, adjacent-to, owned-by, and descendants-of. Do not call any of them complete until its underlying lineage can support that claim. The user should be able to combine geometric and construction predicates without depending on boxes.
 
 An eventual contract must say whether operand membership means the immediate inputs to one identified Boolean or transitive origins elsewhere in the graph. Reused branches and instances need distinct occurrence scopes even when geometry is identical. It must also specify crossing versus tangent contact, coincident faces, inherited edges, same-source adjacency, merged faces, and unknown contributors. Set algebra must preserve the body and revision domain; mixing snapshot handles from different bodies or revisions requires an explicit mapping.
 
