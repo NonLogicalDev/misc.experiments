@@ -8,3 +8,7 @@ solidcore-record = { path = "../../vendor/solidcraft/solidcore/crates/solidcore-
 solidcore-ops = { path = "../../vendor/solidcraft/solidcore/crates/solidcore-ops" }
 solidcore-tess = { path = "../../vendor/solidcraft/solidcore/crates/solidcore-tess" }
 serde_json = "1"
+
+[dev-dependencies]
+solidcore = { path = "../../vendor/solidcraft/solidcore/crates/solidcore" }
+solidcore-convert = { path = "../../vendor/solidcraft/solidcore/crates/solidcore-convert" }

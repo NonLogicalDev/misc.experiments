@@ -10,6 +10,45 @@ from solidrecipe_runtime import evaluate_source
 
 
 class CoolerAdapterTest(unittest.TestCase):
+    def test_parameter_extremes_and_optional_blends_build(self):
+        root = Path(__file__).resolve().parents[1]
+        source = root / "examples/cooler_adapter.py"
+        with TemporaryDirectory() as temp:
+            graph = Path(temp) / "graph.json"
+            mesh = Path(temp) / "adapter.obj"
+            for side, height in (("left", 4.5), ("right", 4.7)):
+                volumes = {}
+                for enabled in (False, True):
+                    with self.subTest(side=side, height=height, blends=enabled):
+                        values = {
+                            "side": side,
+                            "slot_height": height,
+                            "entry_fillets": enabled,
+                            "underside_chamfer": enabled,
+                        }
+                        evaluated = json.loads(
+                            evaluate_source(
+                                str(source), source.read_text(), json.dumps(values)
+                            )
+                        )
+                        self.assertNotIn("error", evaluated)
+                        graph.write_text(json.dumps(evaluated["graph"]))
+                        result = subprocess.run(
+                            [
+                                str(root / "target/debug/solidrecipe"),
+                                str(graph),
+                                str(mesh),
+                            ],
+                            check=True,
+                            capture_output=True,
+                            text=True,
+                        )
+                        stats = json.loads(result.stdout)
+                        self.assertGreater(stats["triangles"], 0)
+                        volumes[enabled] = stats["volume"]
+                # Both optional operations remove material from the same part.
+                self.assertLess(volumes[True], volumes[False])
+
     def test_default_adapter_builds(self):
         root = Path(__file__).resolve().parents[1]
         with TemporaryDirectory() as temp:

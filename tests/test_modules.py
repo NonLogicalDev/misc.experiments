@@ -228,6 +228,73 @@ class ModulesTest(unittest.TestCase):
                 os.killpg(process.pid, signal.SIGINT)
                 process.communicate(timeout=15)
 
+    def test_embedded_instances_drive_measurement_and_reference_blend(self):
+        root = Path(__file__).resolve().parents[1]
+        cli = root / "target/debug/solidrecipe"
+        with tempfile.TemporaryDirectory() as temp:
+            model = Path(temp) / "model.py"
+            model.write_text(
+                "import solidrecipe as sr\n"
+                "@sr.exportf\n"
+                "def assembly(height=10.0):\n"
+                '    part = sr.Box(10, 10, height).with_metadata(id="part")\n'
+                '    left = part.instance("left")\n'
+                '    right = part.instance("right").translate(5, 2, -1)\n'
+                '    left_id = left.edge("x_min", "y_min")["identity"]\n'
+                '    right_id = right.edge("x_min", "y_min")["identity"]\n'
+                '    assert left_id["instance"] == ["left"]\n'
+                '    assert right_id["instance"] == ["right"]\n'
+                "    assert left_id != right_id\n"
+                "    cut = left - right\n"
+                '    assert abs(cut.resolve(left_id)["length"] - height) < 0.001\n'
+                "    return cut.fillet(edge_refs=[left_id], radius=0.25)\n"
+            )
+            process = subprocess.Popen(
+                [str(cli), "serve", str(model), "--port", "0", "--no-browser"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                start_new_session=True,
+            )
+            try:
+                process.stdout.readline()
+                url = (
+                    process.stdout.readline()
+                    .strip()
+                    .removeprefix("Viewer: ")
+                    .rstrip("/")
+                )
+                self.assertTrue(url.startswith("http://127.0.0.1:"), url)
+
+                def wait_for(revision):
+                    deadline = time.monotonic() + 60
+                    while time.monotonic() < deadline:
+                        with urlopen(url + "/api/preview", timeout=5) as response:
+                            state = json.load(response)
+                        if state["error"]:
+                            self.fail(state["error"])
+                        if state["revision"] >= revision and not state["building"]:
+                            return state
+                        time.sleep(0.1)
+                    self.fail("preview did not finish")
+
+                initial = wait_for(1)
+                self.assertTrue(initial["mesh"])
+                request = Request(
+                    url + "/api/parameters",
+                    data=json.dumps({"values": {"height": 12.0}}).encode(),
+                    method="POST",
+                    headers={"Content-Type": "application/json", "Origin": url},
+                )
+                with urlopen(request, timeout=5) as response:
+                    json.load(response)
+                changed = wait_for(2)
+                self.assertNotEqual(changed["mesh"], initial["mesh"])
+                self.assertEqual(changed["parameters"][0]["value"], 12.0)
+            finally:
+                os.killpg(process.pid, signal.SIGINT)
+                process.communicate(timeout=15)
+
     def test_embedded_measurements_drive_later_geometry(self):
         root = Path(__file__).resolve().parents[1]
         cli = root / "target/debug/solidrecipe"

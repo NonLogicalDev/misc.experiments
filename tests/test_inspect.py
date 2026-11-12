@@ -156,6 +156,44 @@ class InspectTest(unittest.TestCase):
         result = inspect_graph(stock.fillet(edge_refs=[missing], radius=0.5))
         self.assertNotEqual(result.returncode, 0)
 
+    def test_python_resolution_reports_real_kernel_history(self):
+        cli = Path(__file__).resolve().parents[1] / "target/debug/solidrecipe"
+
+        def inspect(graph):
+            return subprocess.run(
+                [str(cli), "inspect-graph"],
+                input=graph,
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+
+        # Use the same bridge contract as the embedded runtime, but exercise real
+        # kernel output for each result instead of constructing mock reports.
+        with patch.object(sr, "_inspect_graph", side_effect=inspect):
+            stock = sr.Box(10, 10, 10).with_metadata(id="stock")
+            split_id = stock.edge("x_min", "y_min")["identity"]
+            split = stock - sr.Box(12, 12, 2, origin=(-1, -1, 4))
+            with self.assertRaisesRegex(ValueError, "split or ambiguous"):
+                split.resolve(split_id)
+
+            removed_id = stock.edge("y_min", "z_min")["identity"]
+            removed = stock - sr.Box(12, 12, 6, origin=(-1, -1, -1))
+            with self.assertRaisesRegex(ValueError, "no surviving tracked descendant"):
+                removed.resolve(removed_id)
+            with self.assertRaisesRegex(ValueError, "unknown or unavailable"):
+                stock.resolve({**split_id, "feature": "unknown"})
+
+            left = sr.Box(1, 1, 1).with_metadata(id="left")
+            joined = left + sr.Box(1, 1, 1, origin=(1, 0, 0))
+            merged = next(
+                edge
+                for edge in sr.inspect_data(joined)["edges"]
+                if edge.get("merged") and edge.get("identity")
+            )
+            with self.assertRaisesRegex(ValueError, "merged"):
+                joined.resolve(merged["identity"])
+
     def test_rust_inspection_describes_real_brep(self):
         root = Path(__file__).resolve().parents[1]
         cli = root / "target/debug/solidrecipe"
