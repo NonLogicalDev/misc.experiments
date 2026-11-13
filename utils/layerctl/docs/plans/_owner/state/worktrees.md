@@ -25,3 +25,5 @@
 - Latest local checkpoints: layerctl `7e06e241a550f835808816eae2e9e05dfdb963de` on misc.experiments `main`; Deluge definitions `e8c71d7b103e95a050e51c0c759308e512f27038` on `layerctl-conversion`. Neither checkpoint has been pushed; checkout storage and recovery limitations remain as described above.
 
 - Latest local checkpoints (2026-11-11): layerctl implementation `f4264d3725e599074b431a1dbb099d4a89ef2882` on misc.experiments `main`, and Deluge definitions `417e6f9e4211ce6891e557e60285cfdbb5080418` on `layerctl-conversion`. The source checkout and remote refs are unchanged; neither checkpoint has been pushed. The earlier 7f7c and e8c checkpoints above are historical.
+
+- Current layerctl checkpoint (2026-11-13 22:40:14 UTC): `505a6e6d5bed8fb6d64f9c2525f0de48012a67e3` on local `main`, merge base and `origin/main` `65c933091f74a19f3080cb99cb9f7dc50d0ec03f`, ahead 27, behind 0. The checkout is non-sparse and uses its local `.git`; the new checkpoint has not been pushed, and host replacement durability is unverified. It contains the compatibility removal and validation record.

@@ -28,4 +28,4 @@ Completed: [pre-checkout script and optional clone directory](completed/plan-03%
 
 Completed: [align script working directories](completed/plan-04%20Align%20script%20working%20directories.md). Both scripts use the composed workspace root; the clone hook retains its bare Git context.
 
-- 2026-11-13: /root completed implementation: removed legacy formats and commands; validating the checkout. See the active plan.
+- 2026-11-13: /root completed: removed legacy formats and commands; full Go suite and CLI smoke passed. See the active plan.
