@@ -106,3 +106,7 @@ Active. User requested multiple repositories and a `git-clone` operation with a 
 - User requested clone preparation for case-only renames. Add a layer-relative `pre-checkout-patch` to `git-clone`, apply it to a temporary Git index before checkout, preserve source commit ancestry and transformed objects, and include the patch in refresh and recovery fingerprints. Validate on a case-insensitive filesystem.
 
 - Implemented and reviewed `pre-checkout-patch`; focused and full Go tests, refresh/recovery tests, and a full SSH rebuild on a case-insensitive workspace and `TMPDIR` passed. The original source commit remains the base layer parent.
+
+- 2026-11-13: User requested removal of backwards compatibility. /root: active; remove the old upstream.json projection and COMMIT_EDITMSG layer formats and migration command, retain current composition and recovery, update documentation, and verify the CLI and tests. Preserve unrelated checkout changes.
+
+- 2026-11-13: Removed the legacy projection and upstream engines, legacy layer loading and migration, and stale authoring guidance. Modern composition, clone hooks, capture, and recovery remain. Full Go suite passed in the temporary implementation; a CLI smoke test verified two source parents, the bare clone hook, capture, replay, and cleanup. The Deluge manifest graph loaded. Existing incomplete recovery records may require recreation because fingerprint serialization changed. Checkout verification follows.

@@ -12,7 +12,7 @@ import (
 
 func TestLoad_overlayPreservesBlobKinds(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "upstream.json"), `{"tag":"rust-v1.2.3","commit":"abc123"}`)
+
 	writeLayer(t, root, "0000-foundation", false)
 	entries := []definition.OverlayEntry{
 		{Path: "binary", Mode: "100644", Data: []byte{0, 255, 1}},
@@ -21,6 +21,7 @@ func TestLoad_overlayPreservesBlobKinds(t *testing.T) {
 		{Path: "nested/file", Mode: "100644", Data: []byte("source\n")},
 	}
 	directory := filepath.Join(root, "layers", "0000-foundation")
+	writeFile(t, filepath.Join(directory, "layer.toml"), "[vcs]\ncommit-msg = 'test'\n[[operation]]\n[operation.overlay]\ndirectory = 'overlay'\n")
 	if err := definition.WriteOverlay(directory, entries); err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +29,7 @@ func TestLoad_overlayPreservesBlobKinds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := loaded.Layers[0].Overlay
+	got := loaded.Layers[0].Operations[0].Overlay
 	if len(got) != len(entries) {
 		t.Fatalf("overlay entries = %d", len(got))
 	}
@@ -52,12 +53,13 @@ func TestOverlayEntry_rejectsUnsafePaths(t *testing.T) {
 
 func TestLoad_rejectsOverlayRootSymlinkAndExec(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "upstream.json"), `{"tag":"rust-v1.2.3","commit":"abc123"}`)
+
 	writeLayer(t, root, "0000-foundation", false)
 	directory := filepath.Join(root, "layers", "0000-foundation")
 	if err := os.Symlink(t.TempDir(), filepath.Join(directory, "overlay")); err != nil {
 		t.Fatal(err)
 	}
+	writeFile(t, filepath.Join(directory, "layer.toml"), "[vcs]\ncommit-msg = 'test'\n[[operation]]\n[operation.overlay]\ndirectory = 'overlay'\n")
 	if _, err := definition.Load(root); err == nil {
 		t.Fatal("overlay root symlink accepted")
 	}

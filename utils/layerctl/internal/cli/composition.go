@@ -41,22 +41,20 @@ func runComposition(ctx context.Context, canonical *definition.Repository, git *
 		return runProjection(ctx, service, args[1:], stdout, stderr)
 	case "layer":
 		layers := &layer.Service{Definition: canonical, Git: git, Projection: service}
-		if len(args) > 2 && args[1] == "refresh" {
-			for _, unit := range canonical.Layers {
-				if unit.ID != args[2] || unit.Message == nil {
-					continue
-				}
-				flags := flag.NewFlagSet("layer refresh", flag.ContinueOnError)
-				flags.SetOutput(stderr)
-				from := flags.String("from", "", "capture from projection")
-				if err := flags.Parse(args[3:]); err != nil {
-					return err
-				}
-				if flags.NArg() != 0 || *from == "" {
-					return errors.New("usage: layerctl layer refresh ID --from PROJECTION")
-				}
-				return layers.RefreshComposition(ctx, unit.ID, *from, service)
+		if len(args) > 1 && args[1] == "refresh" {
+			if len(args) < 3 {
+				return errors.New("usage: layerctl layer refresh ID --from PROJECTION")
 			}
+			flags := flag.NewFlagSet("layer refresh", flag.ContinueOnError)
+			flags.SetOutput(stderr)
+			from := flags.String("from", "", "capture from projection")
+			if err := flags.Parse(args[3:]); err != nil {
+				return err
+			}
+			if flags.NArg() != 0 || *from == "" {
+				return errors.New("usage: layerctl layer refresh ID --from PROJECTION")
+			}
+			return layers.RefreshComposition(ctx, args[2], *from, service)
 		}
 		return runLayer(ctx, layers, args[1:], stderr)
 	case "check":
@@ -80,8 +78,6 @@ func runComposition(ctx context.Context, canonical *definition.Repository, git *
 			return fmt.Errorf("remove check projection: %w", err)
 		}
 		return nil
-	case "upstream":
-		return errors.New("composition mode has no special upstream; change git-clone operations in layer.toml")
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}

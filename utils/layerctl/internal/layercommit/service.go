@@ -1,7 +1,6 @@
 // Modified from abg-OAI/codex: module import path changed for this extraction.
 // Package layercommit translates between accepted Git commits and canonical
-// Saffrodex layer definitions. A layer owns a commit message, a patch and
-// additive overlay; callers own layer ordering and lifecycle policy.
+// layer definitions. Callers own layer ordering and lifecycle policy.
 package layercommit
 
 import (
@@ -18,9 +17,6 @@ import (
 	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/gitrepo"
 	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/operations"
 )
-
-// OverlayCollisionError is retained for callers that classify recoverable conflicts.
-type OverlayCollisionError = operations.OverlayCollisionError
 
 // Service captures, applies, and verifies generated layer commits.
 type Service struct {
@@ -95,12 +91,8 @@ func (s *Service) Apply(ctx context.Context, worktree string, unit definition.Un
 	return s.Commit(ctx, worktree, unit)
 }
 
-// StepCount includes the legacy patch and overlay as one step, preserving its
-// single three-way application and its staged additions during conflicts.
+// StepCount returns the number of ordered operations in the layer.
 func (s *Service) StepCount(unit definition.Unit) int {
-	if unit.Message == nil {
-		return 1
-	}
 	return len(unit.Operations)
 }
 
@@ -110,22 +102,17 @@ func (s *Service) ApplyStep(ctx context.Context, worktree string, unit definitio
 	if index < 0 || index >= s.StepCount(unit) {
 		return fmt.Errorf("invalid operation index %d for layer %q", index, unit.ID)
 	}
-	if unit.Message != nil {
-		op := unit.Operations[index]
-		unit.PatchPath = ""
-		unit.Overlay = nil
-		switch op.Kind {
-		case "script":
-			return operations.RunScript(ctx, worktree, filepath.Dir(filepath.Dir(unit.Directory)), unit.ID, unit.Directory, index, op)
-		case "patch":
-			unit.PatchPath = op.Path
-		case "overlay":
-			unit.Overlay = op.Overlay
-		default:
-			return fmt.Errorf("unsupported operation %q", op.Kind)
-		}
+	op := unit.Operations[index]
+	switch op.Kind {
+	case "script":
+		return operations.RunScript(ctx, worktree, filepath.Dir(filepath.Dir(unit.Directory)), unit.ID, unit.Directory, index, op)
+	case "patch":
+		return operations.ApplyPatchOverlay(ctx, s.Git, worktree, op.Path, nil)
+	case "overlay":
+		return operations.ApplyPatchOverlay(ctx, s.Git, worktree, "", op.Overlay)
+	default:
+		return fmt.Errorf("unsupported operation %q", op.Kind)
 	}
-	return operations.ApplyPatchOverlay(ctx, s.Git, worktree, unit.PatchPath, unit.Overlay)
 }
 
 // Commit records the staged tree using unit's exact commit message. It is also
@@ -153,14 +140,7 @@ func (s *Service) HasConflicts(ctx context.Context, worktree string) (bool, erro
 
 // Message reads the exact generated commit message from unit.
 func (s *Service) Message(unit definition.Unit) ([]byte, error) {
-	if unit.Message != nil {
-		return commitauthors.Message(unit, unit.Message)
-	}
-	message, err := os.ReadFile(unit.MessagePath)
-	if err != nil {
-		return nil, fmt.Errorf("read layer message %q: %w", unit.MessagePath, err)
-	}
-	return commitauthors.Message(unit, message)
+	return commitauthors.Message(unit, unit.Message)
 }
 
 // Matches applies unit from before in a disposable worktree and reports

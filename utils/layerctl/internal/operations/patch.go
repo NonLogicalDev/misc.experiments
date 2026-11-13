@@ -9,9 +9,7 @@ import (
 	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/gitrepo"
 )
 
-// ApplyPatchOverlay applies one patch and its optional additive overlay. The
-// legacy format combines both into a single three-way application, so clean
-// overlay additions remain staged when the patch has conflicts.
+// ApplyPatchOverlay stages a patch or additive overlay.
 func ApplyPatchOverlay(ctx context.Context, git *gitrepo.Repository, worktree, patchPath string, overlay []definition.OverlayEntry) error {
 	patch, err := applicationPatch(ctx, git, patchPath, overlay)
 	if err != nil {

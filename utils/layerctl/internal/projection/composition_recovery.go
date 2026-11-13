@@ -37,9 +37,9 @@ type fingerprintOperation struct {
 	Depth                       int
 	Patch                       []byte
 	Overlay                     []definition.OverlayEntry
-	PreCheckoutPatchPath        string `json:",omitempty"`
-	PreCheckoutPatch            []byte `json:",omitempty"`
-	PreCheckoutScriptPath       string `json:",omitempty"`
+	PreCheckoutPatchPath        string
+	PreCheckoutPatch            []byte
+	PreCheckoutScriptPath       string
 }
 type fingerprintAsset struct {
 	Path string
@@ -60,57 +60,37 @@ type fingerprintUnit struct {
 func fingerprintUnits(units []definition.Unit) (string, error) {
 	layers := make([]fingerprintUnit, 0, len(units))
 	for _, u := range units {
-		msg := u.Message
-		if msg == nil {
-			var err error
-			msg, err = os.ReadFile(u.MessagePath)
-			if err != nil {
-				return "", err
-			}
-		}
-		f := fingerprintUnit{ID: u.ID, Message: msg, DependsOn: u.DependsOn, CoAuthors: u.CoAuthors}
-		if u.Message == nil {
-			op := fingerprintOperation{Kind: "legacy", Overlay: u.Overlay}
-			if u.PatchPath != "" {
+		f := fingerprintUnit{ID: u.ID, Message: u.Message, DependsOn: u.DependsOn, CoAuthors: u.CoAuthors}
+		for _, o := range u.Operations {
+			op := fingerprintOperation{Kind: o.Kind, URL: o.URL, Dir: o.Dir, Ref: o.Ref, Commit: o.Commit, Depth: o.Depth, Args: o.Args, Overlay: o.Overlay}
+			if o.PreCheckoutScript != "" {
 				var err error
-				op.Patch, err = os.ReadFile(u.PatchPath)
+				op.PreCheckoutScriptPath, err = filepath.Rel(u.Directory, o.PreCheckoutScript)
+				if err != nil {
+					return "", fmt.Errorf("fingerprint pre-checkout script path: %w", err)
+				}
+				op.PreCheckoutScriptPath = filepath.ToSlash(op.PreCheckoutScriptPath)
+			}
+			if o.PreCheckoutPatch != "" {
+				var err error
+				op.PreCheckoutPatchPath, err = filepath.Rel(u.Directory, o.PreCheckoutPatch)
+				if err != nil {
+					return "", fmt.Errorf("fingerprint pre-checkout patch path: %w", err)
+				}
+				op.PreCheckoutPatchPath = filepath.ToSlash(op.PreCheckoutPatchPath)
+				op.PreCheckoutPatch, err = os.ReadFile(o.PreCheckoutPatch)
+				if err != nil {
+					return "", fmt.Errorf("fingerprint pre-checkout patch: %w", err)
+				}
+			}
+			if o.Kind == "patch" || o.Kind == "script" {
+				var err error
+				op.Patch, err = os.ReadFile(o.Path)
 				if err != nil {
 					return "", err
 				}
 			}
 			f.Operations = append(f.Operations, op)
-		} else {
-			for _, o := range u.Operations {
-				op := fingerprintOperation{Kind: o.Kind, URL: o.URL, Dir: o.Dir, Ref: o.Ref, Commit: o.Commit, Depth: o.Depth, Args: o.Args, Overlay: o.Overlay}
-				if o.PreCheckoutScript != "" {
-					var err error
-					op.PreCheckoutScriptPath, err = filepath.Rel(u.Directory, o.PreCheckoutScript)
-					if err != nil {
-						return "", fmt.Errorf("fingerprint pre-checkout script path: %w", err)
-					}
-					op.PreCheckoutScriptPath = filepath.ToSlash(op.PreCheckoutScriptPath)
-				}
-				if o.PreCheckoutPatch != "" {
-					var err error
-					op.PreCheckoutPatchPath, err = filepath.Rel(u.Directory, o.PreCheckoutPatch)
-					if err != nil {
-						return "", fmt.Errorf("fingerprint pre-checkout patch path: %w", err)
-					}
-					op.PreCheckoutPatchPath = filepath.ToSlash(op.PreCheckoutPatchPath)
-					op.PreCheckoutPatch, err = os.ReadFile(o.PreCheckoutPatch)
-					if err != nil {
-						return "", fmt.Errorf("fingerprint pre-checkout patch: %w", err)
-					}
-				}
-				if o.Kind == "patch" || o.Kind == "script" {
-					var err error
-					op.Patch, err = os.ReadFile(o.Path)
-					if err != nil {
-						return "", err
-					}
-				}
-				f.Operations = append(f.Operations, op)
-			}
 		}
 		// Scripts may read any supporting file within their layer directory.
 		// Bind recovery to the whole directory without following symlinks.
@@ -364,7 +344,7 @@ func (s *CompositionService) runComposition(ctx context.Context, dir string, rec
 				return result(), err
 			}
 			var err error
-			if unit.Message != nil && unit.Operations[index].Kind == "git-clone" {
+			if unit.Operations[index].Kind == "git-clone" {
 				op := unit.Operations[index]
 				var source string
 				source, err = operations.GitClone(ctx, record.Workspace, operations.GitCloneRequest{
@@ -385,7 +365,7 @@ func (s *CompositionService) runComposition(ctx context.Context, dir string, rec
 						record.Parents = append(record.Parents, source)
 					}
 				}
-			} else if unit.Message != nil && unit.Operations[index].Kind == "script" {
+			} else if unit.Operations[index].Kind == "script" {
 				err = operations.RunScript(ctx, record.Workspace, s.Definition.Root, unit.ID, unit.Directory, index, unit.Operations[index])
 			} else {
 				err = layers.ApplyStep(ctx, record.Workspace, unit, index)
@@ -393,14 +373,14 @@ func (s *CompositionService) runComposition(ctx context.Context, dir string, rec
 			if err != nil {
 				// A failed script can already have arbitrary external side effects;
 				// do not treat it as a Git conflict that can be skipped on resume.
-				if unit.Message != nil && (unit.Operations[index].Kind == "script" || unit.Operations[index].PreCheckoutScript != "") {
+				if unit.Operations[index].Kind == "script" || unit.Operations[index].PreCheckoutScript != "" {
 					return result(), fmt.Errorf("layer %q script operation %d failed; workspace %q is retained, delete the projection before retrying: %w", unit.ID, index+1, record.Workspace, err)
 				}
 				hasConflicts, inspectErr := layers.HasConflicts(ctx, record.Workspace)
 				if inspectErr != nil {
 					return result(), errors.Join(err, inspectErr)
 				}
-				var collision *layercommit.OverlayCollisionError
+				var collision *operations.OverlayCollisionError
 				if hasConflicts || errors.As(err, &collision) {
 					record.StepInProgress = false
 					record.Resolving = true

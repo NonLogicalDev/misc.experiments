@@ -1,6 +1,6 @@
 # Project map
 
-Read [owner instructions](AGENTS.md) and [ownership](OWNERS.md) before owner work. [README](README.md) links the work. The layer manifest, capture, replay, and migration work and its verified implementation are tracked in [execution state](theme-001-layer-format/EXEC_STATE.md). The implementation is in `../../internal/`; existing upstream behavior is described in `../../UPSTREAM_GUIDE.md`. [Worktree inventory](_owner/state/worktrees.md) records recovery information. [Task zero](theme-000-meta/EXEC_STATE.md) maintains this plan home.
+Read [owner instructions](AGENTS.md) and [ownership](OWNERS.md) before owner work. [README](README.md) links the work. The layer manifest, capture, replay, and migration work and its verified implementation are tracked in [execution state](theme-001-layer-format/EXEC_STATE.md). The implementation is in `../../internal/`; the current model uses manifest-defined composition only. [Worktree inventory](_owner/state/worktrees.md) records recovery information. [Task zero](theme-000-meta/EXEC_STATE.md) maintains this plan home.
 
 Last audited: 2026-11-11. Evidence: user direction, current checkout and upstream guide. Audited after implementation against the plan, source, and validation; audit on the next material change.
 
@@ -19,3 +19,5 @@ Completed layerctl follow-up: bare Git pre-checkout scripts return a commit or t
 Completed Deluge follow-up: use the upstream SynthstromAudible repository as the base; see [plan](../../../../../fork.DelugeFirmware-layerctl/docs/plans/theme-002-deluge-conversion/completed/plan-03%20Use%20upstream%20source.md).
 
 Script operations and clone hooks use the workspace root as their current directory. Clone hooks retain bare Git context and expose `LAYERCTL_GITCLONE_BARE_DIR` and `LAYERCTL_GITCLONE_INDEX_FILE`; see the [completed follow-up](theme-001-layer-format/completed/plan-04%20Align%20script%20working%20directories.md).
+
+2026-11-13: Removed the original `upstream.json` mode, legacy layers and migration command at the user’s request. Old definitions are rejected; incomplete projections made by earlier versions may require recreation. The current Deluge definitions use manifests.

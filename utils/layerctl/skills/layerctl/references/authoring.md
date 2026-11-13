@@ -4,7 +4,7 @@ This walkthrough creates a Git repository of definitions and a separate generate
 
 ## Start a definition
 
-Create a new Git repository and a first layer. Set `url` and `commit` to a real source repository and commit you can access. Use an absolute path for a local source. Do not create `upstream.json`, which selects legacy mode.
+Create a new Git repository and a first layer. Set `url` and `commit` to a real source repository and commit you can access. Use an absolute path for a local source.
 
 ```sh
 mkdir definitions

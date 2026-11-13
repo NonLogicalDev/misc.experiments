@@ -66,9 +66,6 @@ func (s *Service) RefreshComposition(ctx context.Context, id, projectionName str
 	if !reflect.DeepEqual(original, currentUnit) {
 		return fmt.Errorf("layer %q changed since it was loaded", id)
 	}
-	if original.Message == nil {
-		return fmt.Errorf("layer %q is not a manifest", id)
-	}
 	through, err := composer.Through(ctx, projectionName)
 	if err != nil {
 		return err

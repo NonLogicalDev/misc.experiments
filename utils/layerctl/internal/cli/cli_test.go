@@ -15,13 +15,3 @@ func TestProjectionCreateRequiresNameBeforeFlags(t *testing.T) {
 		t.Fatalf("runProjectionCreate() error = %v", err)
 	}
 }
-
-func TestProjectionCheckoutRequiresWorktree(t *testing.T) {
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-
-	err := runProjectionCheckout(t.Context(), nil, []string{"example"}, &stdout, &stderr)
-	if err == nil || !strings.Contains(err.Error(), "--worktree PATH") {
-		t.Fatalf("runProjectionCheckout() error = %v", err)
-	}
-}

@@ -1,8 +1,8 @@
 # Layer format
 
-Goal: represent each layer with `layer.toml`, commit message, and ordered patch/overlay operations while preserving legacy layers and providing migration.
+Goal: represent each layer with `layer.toml`, commit message, and ordered operations in a composed workspace.
 
-Status: implementation and walkthrough verified and checkpointed; Deluge integration is in progress. [Active plan](active/plan-02%20Repository%20composition.md). Previous manifest work is completed. [Plan](completed/plan-01%20Manifest%20operations.md) · [owners](../OWNERS.md).
+Status: composition and Deluge integration implemented; legacy format support removed locally. [Active plan](active/plan-02%20Repository%20composition.md). Previous manifest work is completed. [Plan](completed/plan-01%20Manifest%20operations.md) · [owners](../OWNERS.md).
 
 ## Workers
 
@@ -27,3 +27,5 @@ Completed: [pre-checkout script and optional clone directory](completed/plan-03%
 - /root/model and /root/projection: completed extraction of patch/overlay and clone/script operations; owner integrated and verified.
 
 Completed: [align script working directories](completed/plan-04%20Align%20script%20working%20directories.md). Both scripts use the composed workspace root; the clone hook retains its bare Git context.
+
+- 2026-11-13: /root completed implementation: removed legacy formats and commands; validating the checkout. See the active plan.

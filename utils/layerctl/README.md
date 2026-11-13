@@ -1,6 +1,6 @@
 # layerctl
 
-`layerctl` manages ordered Git patch layers and materializes them as projection worktrees. This is a standalone extraction of the tool from [abg-OAI/codex](https://github.com/abg-OAI/codex), at commit [`a780a437d8a29c0cb76067d4f540c0a03c301a3d`](https://github.com/abg-OAI/codex/commit/a780a437d8a29c0cb76067d4f540c0a03c301a3d). This copy changes the module path and adds manifest-defined operations and legacy migration; two upstream tests were also adapted for filesystem behavior on macOS. The upstream project is copyright OpenAI and distributed under the [Apache License 2.0](LICENSE).
+`layerctl` manages ordered Git patch layers and materializes them as projection worktrees. This is a standalone extraction of the tool from [abg-OAI/codex](https://github.com/abg-OAI/codex), at commit [`a780a437d8a29c0cb76067d4f540c0a03c301a3d`](https://github.com/abg-OAI/codex/commit/a780a437d8a29c0cb76067d4f540c0a03c301a3d). This copy changes the module path and adds manifest-defined operations and repository composition. The upstream project is copyright OpenAI and distributed under the [Apache License 2.0](LICENSE).
 
 ## Build and test
 
@@ -89,6 +89,4 @@ A script-bearing layer may include supporting files, which scripts can read thro
 
 The workspace path must not already exist. Without `--worktree`, layerctl creates a workspace in its local Git state directory. `projection delete` removes the owned workspace, including uncaptured changes. Patch files and overlay directories are relative to the layer directory. An overlay adds files without silently replacing an existing path. Commit messages must be nonempty UTF-8 without NUL. Without co-authors their exact bytes, including trailing newlines, are preserved; configured co-authors are added as standard `Co-authored-by` trailers.
 
-## Legacy definitions
-
-Definitions with `upstream.json` use the original single-repository format and its Codex-specific advance workflow. They remain readable; see [the upstream guide](UPSTREAM_GUIDE.md). `upstream.json` records a tag and commit but no source URL, so conversion to `git-clone` requires choosing the source URL rather than guessing it. Legacy `COMMIT_EDITMSG`/`patch`/`overlay` layers can be converted individually with `layerctl layer migrate <layer-id>`.
+Definitions require `layer.toml` for every layer. The original `upstream.json` format, its `upstream` commands, and `layer migrate` are unsupported. Existing incomplete projections created by older versions may need to be recreated because their recovery fingerprints have changed. Old projection refs and worktrees are not removed automatically.

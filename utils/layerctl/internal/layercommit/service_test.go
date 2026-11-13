@@ -76,8 +76,8 @@ func TestServiceCaptureAndApplyMessageOnlyCommit(t *testing.T) {
 		t.Fatalf("Capture().Patch = %q, want empty", captured.Patch)
 	}
 	unit := writeLayer(t, t.TempDir(), "0001-message", captured)
-	if unit.PatchPath != "" {
-		t.Fatalf("unit.PatchPath = %q, want empty", unit.PatchPath)
+	if len(unit.Operations) != 0 {
+		t.Fatal("message-only layer has operations")
 	}
 	matches, err := service.Matches(t.Context(), unit, before, after)
 	if err != nil || !matches {
@@ -117,8 +117,8 @@ func TestServiceApplyLeavesConflictsForResolution(t *testing.T) {
 	if !hasConflicts {
 		t.Fatal("HasConflicts() = false, want true")
 	}
-	if got, err := os.ReadFile(filepath.Join(root, "new.txt")); err != nil || string(got) != "addition survives conflict\n" {
-		t.Fatalf("overlay during conflict = %q, %v", got, err)
+	if _, err := os.Stat(filepath.Join(root, "new.txt")); !os.IsNotExist(err) {
+		t.Fatalf("later overlay ran during conflict: %v", err)
 	}
 	writeFile(t, filepath.Join(root, "text.txt"), []byte("resolved\n"), 0o644)
 	gitRun(t, root, "add", "-A")
@@ -185,11 +185,11 @@ func TestServiceApply_rejectsOverlappingRepresentations(t *testing.T) {
 	captured.Overlay = []definition.OverlayEntry{{Path: "text.txt", Mode: "100644", Data: []byte("overlap")}}
 	unit := writeLayer(t, t.TempDir(), "0001-invalid", captured)
 	gitRun(t, root, "switch", "--detach", before)
-	if err := service.Apply(t.Context(), root, unit); err == nil || !strings.Contains(err.Error(), "overlaps") {
+	if err := service.Apply(t.Context(), root, unit); err == nil || !strings.Contains(err.Error(), "collide") {
 		t.Fatalf("Apply overlapping layer = %v", err)
 	}
-	if got := gitOutput(t, root, "status", "--porcelain"); got != "" {
-		t.Fatalf("invalid definition changed worktree: %s", got)
+	if got := gitOutput(t, root, "status", "--porcelain"); got == "" {
+		t.Fatal("prior patch operation should have been staged before the overlay collision")
 	}
 }
 
@@ -210,12 +210,14 @@ func newRepository(t *testing.T) (string, string) {
 func writeLayer(t *testing.T, root, id string, captured layercommit.Captured) definition.Unit {
 	t.Helper()
 	directory := filepath.Join(root, id)
-	messagePath := filepath.Join(directory, "COMMIT_EDITMSG")
-	writeFile(t, messagePath, captured.Message, 0o644)
-	unit := definition.Unit{ID: id, Directory: directory, MessagePath: messagePath, Overlay: captured.Overlay}
+	unit := definition.Unit{ID: id, Directory: directory, Message: captured.Message}
 	if len(captured.Patch) > 0 {
-		unit.PatchPath = filepath.Join(directory, "patch")
-		writeFile(t, unit.PatchPath, captured.Patch, 0o644)
+		path := filepath.Join(directory, "patch")
+		writeFile(t, path, captured.Patch, 0o644)
+		unit.Operations = append(unit.Operations, definition.Operation{Kind: "patch", Path: path})
+	}
+	if len(captured.Overlay) > 0 {
+		unit.Operations = append(unit.Operations, definition.Operation{Kind: "overlay", Overlay: captured.Overlay})
 	}
 	return unit
 }

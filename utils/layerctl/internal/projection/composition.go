@@ -73,9 +73,6 @@ func (s *CompositionService) Create(ctx context.Context, req CreateRequest) (Pro
 		return Projection{}, err
 	}
 	// Avoid colliding with the original projection namespace.
-	if err := (&Service{Git: s.Git}).requireAbsent(ctx, name); err != nil {
-		return Projection{}, err
-	}
 	store, err := s.storage(ctx)
 	if err != nil {
 		return Projection{}, err
@@ -284,7 +281,7 @@ func (s *CompositionService) List(ctx context.Context) ([]Projection, error) {
 }
 
 // Delete removes only the workspace whose embedded ownership marker matches the
-// registered projection. As with legacy projection delete, dirty work is lost.
+// registered projection, including uncaptured work.
 func (s *CompositionService) Delete(ctx context.Context, name string) error {
 	release, err := s.acquireCompositionLock(ctx, name)
 	if err != nil {

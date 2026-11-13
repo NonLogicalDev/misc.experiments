@@ -1,14 +1,12 @@
 // Modified from abg-OAI/codex: manifest-based layer definitions added.
-// Package definition reads and validates the canonical Saffrodex repository.
+// Package definition reads and validates a layer definition repository.
 // It owns the on-disk layer representation, while projection and maintenance
 // packages own operations performed with those definitions.
 package definition
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -16,22 +14,11 @@ import (
 
 var layerIDPattern = regexp.MustCompile(`^[0-9]{4}-[a-z0-9]+(-[a-z0-9]+)*$`)
 
-// FoundationLayerID identifies the required first generated commit.
-const FoundationLayerID = "0000-foundation"
-
-// Repository is one complete canonical Saffrodex definition.
+// Repository is one complete layer definition.
 // Layers are ordered lexically by their numbered directory names.
 type Repository struct {
-	Root     string
-	Upstream Upstream
-	Layers   []Unit
-}
-
-// Upstream identifies the annotated or lightweight release tag and the commit
-// it must resolve to. Keeping both values detects a locally moved tag.
-type Upstream struct {
-	Tag    string `json:"tag"`
-	Commit string `json:"commit"`
+	Root   string
+	Layers []Unit
 }
 
 // Operation describes one validated manifest operation, in declared order.
@@ -52,18 +39,15 @@ type Operation struct {
 	PreCheckoutScript string
 }
 
-// Unit is one generated commit, in legacy or manifest form.
+// Unit is one generated commit, defined by a manifest.
 type Unit struct {
-	ID          string
-	Directory   string
-	Message     []byte
-	CoAuthors   []string
-	Disabled    bool
-	DependsOn   []string
-	Operations  []Operation
-	MessagePath string
-	PatchPath   string
-	Overlay     []OverlayEntry
+	ID         string
+	Directory  string
+	Message    []byte
+	CoAuthors  []string
+	Disabled   bool
+	DependsOn  []string
+	Operations []Operation
 }
 
 // Load reads the canonical repository rooted at root and rejects malformed or
@@ -74,20 +58,11 @@ func Load(root string) (*Repository, error) {
 		return nil, fmt.Errorf("resolve repository root %q: %w", root, err)
 	}
 
-	// An absent upstream file selects repository-neutral composition. A file
-	// that exists but cannot be read or decoded must never select that mode.
-	var upstream Upstream
-	upstreamPath := filepath.Join(absRoot, "upstream.json")
-	_, statErr := os.Lstat(upstreamPath)
-	legacy := statErr == nil
-	if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
-		return nil, fmt.Errorf("inspect upstream definition: %w", statErr)
-	}
-	if legacy {
-		upstream, err = loadUpstream(upstreamPath)
-		if err != nil {
-			return nil, err
-		}
+	// Do not silently reinterpret an old definition as a composition.
+	if _, err := os.Lstat(filepath.Join(absRoot, "upstream.json")); err == nil {
+		return nil, errors.New("upstream.json is no longer supported; define sources with git-clone in layer.toml")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("inspect upstream.json: %w", err)
 	}
 
 	layers, err := loadLayers(filepath.Join(absRoot, "layers"))
@@ -96,9 +71,6 @@ func Load(root string) (*Repository, error) {
 	}
 	if len(layers) == 0 {
 		return nil, errors.New("at least one layer is required")
-	}
-	if legacy && layers[0].ID != FoundationLayerID {
-		return nil, fmt.Errorf("first layer must be %q", FoundationLayerID)
 	}
 	seen := make(map[string]Unit, len(layers))
 	for _, unit := range layers {
@@ -123,46 +95,9 @@ func Load(root string) (*Repository, error) {
 	}
 
 	return &Repository{
-		Root:     absRoot,
-		Upstream: upstream,
-		Layers:   layers,
+		Root:   absRoot,
+		Layers: layers,
 	}, nil
-}
-
-func loadUpstream(path string) (Upstream, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return Upstream{}, fmt.Errorf("open %q: %w", path, err)
-	}
-	defer file.Close()
-
-	var upstream Upstream
-	decoder := json.NewDecoder(file)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&upstream); err != nil {
-		return Upstream{}, fmt.Errorf("decode %q: %w", path, err)
-	}
-	if err := requireJSONEnd(decoder); err != nil {
-		return Upstream{}, fmt.Errorf("decode %q: %w", path, err)
-	}
-	if upstream.Tag == "" {
-		return Upstream{}, errors.New("upstream tag is required")
-	}
-	if upstream.Commit == "" {
-		return Upstream{}, errors.New("upstream commit is required")
-	}
-	return upstream, nil
-}
-
-func requireJSONEnd(decoder *json.Decoder) error {
-	var extra any
-	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return errors.New("unexpected value after object")
-		}
-		return err
-	}
-	return nil
 }
 
 func loadLayers(path string) ([]Unit, error) {
@@ -204,42 +139,7 @@ func LoadUnit(id, directory string) (Unit, error) {
 			return loadManifest(id, directory, entries)
 		}
 	}
-	unit := Unit{
-		ID:          id,
-		Directory:   directory,
-		MessagePath: filepath.Join(directory, "COMMIT_EDITMSG"),
-	}
-	for _, entry := range entries {
-		path := filepath.Join(directory, entry.Name())
-		switch entry.Name() {
-		case "COMMIT_EDITMSG":
-			if err := requireNonemptyRegularFile(entry, path); err != nil {
-				return Unit{}, err
-			}
-		case "patch":
-			if err := requireNonemptyRegularFile(entry, path); err != nil {
-				return Unit{}, err
-			}
-			unit.PatchPath = path
-		case "overlay":
-			if !entry.IsDir() {
-				return Unit{}, fmt.Errorf("overlay %q must be a directory", path)
-			}
-			unit.Overlay, err = readOverlay(path)
-			if err != nil {
-				return Unit{}, err
-			}
-		default:
-			return Unit{}, fmt.Errorf("invalid entry %q in layer %q", entry.Name(), id)
-		}
-	}
-	if _, err := os.Stat(unit.MessagePath); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return Unit{}, fmt.Errorf("layer %q is missing COMMIT_EDITMSG", id)
-		}
-		return Unit{}, fmt.Errorf("inspect layer message %q: %w", unit.MessagePath, err)
-	}
-	return unit, nil
+	return Unit{}, fmt.Errorf("layer %q is missing layer.toml", id)
 }
 
 func requireNonemptyRegularFile(entry os.DirEntry, path string) error {

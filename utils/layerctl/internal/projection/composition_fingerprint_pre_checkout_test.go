@@ -1,28 +1,12 @@
 package projection
 
 import (
-	"crypto/sha256"
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/definition"
 )
-
-func TestFingerprintWithoutClonePreCheckoutPatchRemainsCompatible(t *testing.T) {
-	unit := definition.Unit{ID: "0001-base", Message: []byte("message"), Operations: []definition.Operation{{Kind: "git-clone", URL: "repo"}}}
-	got, err := fingerprintUnits([]definition.Unit{unit})
-	if err != nil {
-		t.Fatal(err)
-	}
-	// This is the fingerprint representation used before pre-checkout patches.
-	previous := `[{"AssetDigest":"","ID":"0001-base","Message":"bWVzc2FnZQ==","Operations":[{"Kind":"git-clone","URL":"repo","Dir":"","Ref":"","Commit":"","Args":null,"Depth":0,"Patch":null,"Overlay":null}],"DependsOn":null,"CoAuthors":null}]`
-	want := fmt.Sprintf("%x", sha256.Sum256([]byte(previous)))
-	if got != want {
-		t.Fatalf("fingerprint = %s, want %s", got, want)
-	}
-}
 
 func TestFingerprintIncludesClonePreCheckoutPatchIdentityAndContents(t *testing.T) {
 	dir := t.TempDir()

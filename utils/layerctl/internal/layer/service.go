@@ -1,5 +1,5 @@
 // Modified from abg-OAI/codex: module import path changed for this extraction.
-// Package layer captures accepted projection commits as canonical Saffrodex
+// Package layer captures accepted projection commits as canonical
 // layer definitions.
 package layer
 
@@ -98,57 +98,6 @@ func (s *Service) Add(ctx context.Context, req AddRequest) error {
 		return fmt.Errorf("projection %q base: %w", req.Projection, err)
 	}
 	return s.writeLayer(ctx, req.ID, source.Base, source.Head, false)
-}
-
-// Refresh replaces an existing layer so its generated result becomes the
-// source projection head. The projection base must be that layer's generated
-// commit, making its first parent the comparison tree.
-func (s *Service) Refresh(ctx context.Context, id, projectionName string) error {
-	if err := definition.ValidateLayerID(id); err != nil {
-		return err
-	}
-	current := s.findUnit(id)
-	if current == nil {
-		return fmt.Errorf("layer %q does not exist", id)
-	}
-	source, err := s.Projection.Get(ctx, projectionName)
-	if err != nil {
-		return err
-	}
-	if source.WorktreePath != "" {
-		workspaceGit, err := gitrepo.Discover(ctx, source.WorktreePath)
-		if err != nil {
-			return fmt.Errorf("open projection repository: %w", err)
-		}
-		copy := *s
-		copy.Git = workspaceGit
-		s = &copy
-	}
-	for _, operation := range current.Operations {
-		if operation.Kind == "git-clone" {
-			return fmt.Errorf("cannot refresh layer %q with git-clone operations without preserving its source ancestry", id)
-		}
-	}
-	baseMatches, err := s.isGeneratedUnit(ctx, source.Base, *current)
-	if err != nil {
-		return err
-	}
-	before := source.Base + "^"
-	if !baseMatches {
-		headMatches, err := s.isGeneratedUnit(ctx, source.Head, *current)
-		if err != nil {
-			return err
-		}
-		if !headMatches {
-			return fmt.Errorf("projection %q does not end at generated layer %q", projectionName, id)
-		}
-		before = source.Head + "^"
-	}
-	parent, err := s.Git.Output(ctx, s.Git.Root, "rev-parse", before)
-	if err != nil {
-		return fmt.Errorf("resolve parent of generated layer %q: %w", id, err)
-	}
-	return s.writeLayer(ctx, id, parent, source.Head, true)
 }
 
 func (s *Service) findUnit(id string) *definition.Unit {
@@ -264,42 +213,6 @@ func writeManifestLayer(directory string, captured layercommit.Captured, metadat
 		}
 	}
 	return os.WriteFile(filepath.Join(directory, "layer.toml"), manifest.Bytes(), 0o644)
-}
-
-// Migrate converts one legacy layer without changing its patch, overlay or
-// message. The original remains in place until the complete candidate loads.
-func (s *Service) Migrate(id string) error {
-	unit := s.findUnit(id)
-	if unit == nil {
-		return fmt.Errorf("layer %q does not exist", id)
-	}
-	if unit.Message != nil {
-		return nil
-	}
-	message, err := os.ReadFile(unit.MessagePath)
-	if err != nil {
-		return err
-	}
-	var patch []byte
-	if unit.PatchPath != "" {
-		patch, err = os.ReadFile(unit.PatchPath)
-		if err != nil {
-			return err
-		}
-	}
-	root := filepath.Join(s.Definition.Root, "layers")
-	temporary, err := os.MkdirTemp(root, ".layerctl-migrate-"+id+"-")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(temporary)
-	if err := writeManifestLayer(temporary, layercommit.Captured{Message: message, Patch: patch, Overlay: unit.Overlay}, nil); err != nil {
-		return fmt.Errorf("write migrated layer: %w", err)
-	}
-	if _, err := definition.LoadUnit(id, temporary); err != nil {
-		return fmt.Errorf("validate migrated layer: %w", err)
-	}
-	return installLayer(root, id, temporary, true)
 }
 
 func installLayer(layersRoot, id, temporaryPath string, replaceExisting bool) error {

@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/NonLogicalDev/misc.experiments/utils/layerctl/internal/definition"
@@ -12,7 +14,7 @@ import (
 
 func TestLoadSortsNumberedLayerDirectories(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "upstream.json"), `{"tag":"rust-v1.2.3","commit":"abc123"}`)
+
 	writeLayer(t, root, "0000-foundation", true)
 	writeLayer(t, root, "0002-second", false)
 	writeLayer(t, root, "0001-first", true)
@@ -29,17 +31,17 @@ func TestLoadSortsNumberedLayerDirectories(t *testing.T) {
 	if got, want := filepath.Base(repository.Layers[2].Directory), "0002-second"; got != want {
 		t.Fatalf("last directory = %q, want %q", got, want)
 	}
-	if repository.Layers[1].PatchPath == "" {
+	if len(repository.Layers[1].Operations) == 0 {
 		t.Fatal("first product layer has no patch")
 	}
-	if repository.Layers[2].PatchPath != "" {
-		t.Fatalf("second product layer patch = %q, want none", repository.Layers[2].PatchPath)
+	if len(repository.Layers[2].Operations) != 0 {
+		t.Fatalf("second product layer operations = %v, want none", repository.Layers[2].Operations)
 	}
 }
 
 func TestLoadRejectsUnnumberedLayer(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "upstream.json"), `{"tag":"rust-v1.2.3","commit":"abc123"}`)
+
 	writeLayer(t, root, "0000-foundation", true)
 	writeLayer(t, root, "feature", true)
 
@@ -50,7 +52,7 @@ func TestLoadRejectsUnnumberedLayer(t *testing.T) {
 
 func TestLoadRejectsMailPatchLayer(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "upstream.json"), `{"tag":"rust-v1.2.3","commit":"abc123"}`)
+
 	writeFile(t, filepath.Join(root, "layers", "0000-foundation.patch"), "foundation\n")
 
 	if _, err := definition.Load(root); err == nil {
@@ -92,7 +94,7 @@ func TestLoadRejectsMalformedLayerContents(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			root := t.TempDir()
-			writeFile(t, filepath.Join(root, "upstream.json"), `{"tag":"rust-v1.2.3","commit":"abc123"}`)
+
 			test.setup(t, root)
 			if _, err := definition.Load(root); err == nil {
 				t.Fatal("Load() error = nil, want malformed layer error")
@@ -103,7 +105,7 @@ func TestLoadRejectsMalformedLayerContents(t *testing.T) {
 
 func TestLoadAllowsRepositoryWithoutProductLayers(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "upstream.json"), `{"tag":"rust-v1.2.3","commit":"abc123"}`)
+
 	writeLayer(t, root, "0000-foundation", false)
 
 	repository, err := definition.Load(root)
@@ -118,7 +120,11 @@ func TestLoadAllowsRepositoryWithoutProductLayers(t *testing.T) {
 func writeLayer(t *testing.T, root, id string, withPatch bool) {
 	t.Helper()
 	directory := filepath.Join(root, "layers", id)
-	writeFile(t, filepath.Join(directory, "COMMIT_EDITMSG"), id+"\n")
+	manifest := "[vcs]\ncommit-msg = " + strconv.Quote(id+"\n") + "\n"
+	if withPatch {
+		manifest += "[[operation]]\n[operation.patch]\nfile = 'patch'\n"
+	}
+	writeFile(t, filepath.Join(directory, "layer.toml"), manifest)
 	if withPatch {
 		writeFile(t, filepath.Join(directory, "patch"), "patch\n")
 	}
@@ -142,9 +148,6 @@ func TestLoadCompositionWithoutUpstreamUsesNumberedOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if repo.Upstream != (definition.Upstream{}) {
-		t.Fatalf("unexpected upstream: %#v", repo.Upstream)
-	}
 	if len(repo.Layers) != 2 || repo.Layers[0].ID != "0001-first" || repo.Layers[1].ID != "0008-second" {
 		t.Fatalf("layer order = %#v", repo.Layers)
 	}
@@ -156,20 +159,19 @@ func TestLoadCompositionRequiresAtLeastOneLayer(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsInvalidExistingUpstream(t *testing.T) {
+func TestLoadRejectsLegacyLayer(t *testing.T) {
 	root := t.TempDir()
-	writeLayer(t, root, "0001-first", false)
-	writeFile(t, filepath.Join(root, "upstream.json"), "invalid")
-	if _, err := definition.Load(root); err == nil {
-		t.Fatal("invalid upstream must not select composition mode")
+	writeFile(t, filepath.Join(root, "layers", "0001-old", "COMMIT_EDITMSG"), "old\n")
+	if _, err := definition.Load(root); err == nil || !strings.Contains(err.Error(), "layer.toml") {
+		t.Fatalf("expected missing manifest error, got %v", err)
 	}
 }
 
-func TestLoadLegacyStillRequiresFoundation(t *testing.T) {
+func TestLoadRejectsOldUpstreamEvenWithManifests(t *testing.T) {
 	root := t.TempDir()
-	writeLayer(t, root, "0001-first", false)
-	writeFile(t, filepath.Join(root, "upstream.json"), `{"tag":"v1","commit":"abc123"}`)
-	if _, err := definition.Load(root); err == nil {
-		t.Fatal("legacy mode must require foundation")
+	writeLayer(t, root, "0001-base", false)
+	writeFile(t, filepath.Join(root, "upstream.json"), "{}")
+	if _, err := definition.Load(root); err == nil || !strings.Contains(err.Error(), "no longer supported") {
+		t.Fatalf("expected unsupported upstream error, got %v", err)
 	}
 }

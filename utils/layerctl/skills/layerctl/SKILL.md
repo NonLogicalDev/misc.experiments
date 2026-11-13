@@ -72,7 +72,3 @@ To update a layer, create a projection through that layer, commit the desired ch
 `layerctl check` rebuilds the definition and executes its scripts. `layerctl projection list` shows projections and `layerctl projection path NAME` finds a workspace. A reported conflict leaves an owned workspace: resolve the indicated operation there and run `layerctl projection continue NAME`. If execution was interrupted while an operation was running, layerctl refuses to guess whether it completed; inspect the workspace, then delete and recreate the projection if appropriate. Resolving a projection conflict does not save the resolution back to the layer definition; update the affected operation and rebuild to verify it. If a lock is stale, verify no layerctl process is using the projection before `layerctl projection unlock NAME`.
 
 `layerctl projection delete NAME` removes the owned workspace, including uncaptured work. Do not run it until the user has authorized deletion or the workspace is disposable and its needed work is captured. Do not publish or push a projection unless asked.
-
-## Legacy definitions
-
-An existing `upstream.json` selects the original single-repository compatibility mode. `layerctl layer migrate ID` converts a legacy `COMMIT_EDITMSG`/`patch`/`overlay` layer into a manifest. That file has no clone URL, so converting the base to `git-clone` requires the correct source URL and revision; do not guess them. Preserve the original definitions until the converted projection has been checked against the accepted source tree and history.
