@@ -1,4 +1,4 @@
 [workspace]
 members = ["src/solidrecipe-core", "src/solidrecipe-cli"]
-exclude = ["vendor/solidcore", "vendor/solidcraft"]
+exclude = ["vendor/solidcore", "vendor/solidcraft", ".solidcraft-layerctl/workspace"]
 resolver = "2"

@@ -6,7 +6,7 @@ The initial example is a synthetic slotted block, not a verified cooler adapter.
 
 ## Build and run
 
-Install Rust, `uv`, pnpm, Node.js, and Python. Initialize the vendor submodules and install the viewer dependencies, then build the embedded viewer and optimized CLI (the first build can take a few minutes):
+Install Rust, `uv`, pnpm, Node.js, Python, and [layerctl](https://github.com/NonLogicalDev/util.layerctl). Configure a Git author and committer identity. Initialize the vendor submodules and install the viewer dependencies, then build the embedded viewer and optimized CLI (the first build can take a few minutes):
 
 ```sh
 git submodule update --init --recursive
@@ -15,7 +15,7 @@ make build
 ./target/release/solidrecipe serve examples/slotted_block.py
 ```
 
-`make build`, `make lint`, and `make check` prepare the pinned SolidCraft checkout with the project-owned [ordered provenance patch](patches/vendor/solidcore-ordered-provenance.patch). The preparation checks the pinned revision and refuses unexpected changes in that checkout. The patched submodule appears modified; the patch is stored in this repository and can be reapplied after submodule initialization. Before invoking Cargo directly, run `make prepare-solidcore`.
+`make build`, `make lint`, and `make check` use layerctl to compose the pinned SolidCraft submodule and the five patches in `patches/vendor/` into `.solidcraft-layerctl/workspace`. The source submodule is not modified. Before invoking Cargo directly, run `make prepare-solidcore`. Preparation rejects unexpected source-submodule edits and refuses to replace a changed, stale, or incomplete workspace. To rebuild it, first preserve any work in `.solidcraft-layerctl/`, then remove that directory and run `make prepare-solidcore` again.
 
 The CLI opens a loopback viewer and rebuilds when the selected Python file or a file loaded via `sr.load` changes. A model can call `sr.export(shape)` to provide a default output; the legacy variable `model` is also supported. If a rebuild fails, the previous preview remains visible and the error appears in the viewer. Ordinary Python imports are not watched. Model files run as Python code with your permissions.
 

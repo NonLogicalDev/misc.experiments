@@ -1,8 +1,8 @@
 .PHONY: build viewer-build prepare-solidcore format format-check lint check
 
-# The pinned kernel needs a small, versioned API extension for exact provenance.
+# Compose the pinned dependency and SolidRecipe patches without changing the submodule.
 prepare-solidcore:
-	./scripts/prepare-solidcore-provenance.sh
+	./scripts/prepare-solidcraft-layers.sh
 
 # Cargo embeds the production viewer; build its assets before compiling the CLI.
 viewer-build:

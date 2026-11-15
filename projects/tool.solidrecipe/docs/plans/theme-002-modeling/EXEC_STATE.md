@@ -6,6 +6,8 @@ Build file-first, code-driven B-rep modeling and reusable modules, with reliable
 
 ## Current state
 
+- [Layered SolidCraft dependency](completed/plan-04%20Layered%20SolidCraft%20dependency.md): layerctl migration completed and validated; the original vendor checkout is preserved.
+
 - Status: active. Same-body provenance, named graph instances and reference-selected blends have existing tests. A richer operation-local history DAG now passes focused structural tests but is not connected to evaluation. Definitive deletion and generated-entity attribution in the production evaluator remain unproved.
 - Initial planar sketch extrusion now supports line, arc, cubic and interpolated curves, intersection-derived closed regions, and offsets through the SolidCraft sketch engine. Point-based region selection is sampled and can retarget after edits; it is not persistent identity. Difficult offsets can fail. Constraints, face attachment and path sweeps remain future work. Thirteen profile integration tests and 33 core tests passed; a temporary preview served an extruded sketch without error. Task-created incremental build caches and the temporary preview were removed after testing.
 - [Modeling and adapter implementation](completed/plan-01%20Modeling%20modules%20and%20adapter.md) records the accepted API, checks, and limitations.
