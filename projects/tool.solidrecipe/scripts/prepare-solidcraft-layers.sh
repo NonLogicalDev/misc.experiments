@@ -1,7 +1,7 @@
 #!/bin/sh
 # Compose the pinned SolidCraft tree without modifying its source submodule.
 set -eu
-root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 source_dir="$root/vendor/solidcraft"
 state="$root/.solidcraft-layerctl"
 definitions="$state/definitions"
