@@ -10,20 +10,20 @@ The experimental GPU backend runs the user's `layerctl` directly with Go at a pi
 
 ## Setup
 
-Requires CPython 3.14 on macOS arm64 for the pinned wheels, a C compiler and `make` to build FFmpeg, and Blender 5.x to import the animation. Other Python and platform combinations require compatible PyCOLMAP and NumPy builds.
+Requires uv and CPython 3.14 on macOS arm64 for the pinned wheels, a C compiler and `make` to build FFmpeg, and Blender 5.x to import the animation. Other Python and platform combinations require compatible PyCOLMAP and NumPy builds.
 
 ```sh
 git submodule update --init -- vendor/colmap vendor/ffmpeg
 scripts/fetch-runtime.sh cpu
-python3 -m venv .venv
-.venv/bin/pip install --no-index --find-links .artifacts/cpu-wheels --require-hashes -r requirements.txt
+uv venv --python 3.14 .venv
+uv pip sync --python .venv/bin/python --only-binary :all: --require-hashes --find-links .artifacts/cpu-wheels requirements.txt
 scripts/build_ffmpeg.sh
 ```
 
 ## Track a video
 
 ```sh
-.venv/bin/python src/spheredim.py path/to/video.mp4 path/to/new-output
+uv run --python .venv/bin/python python src/spheredim.py path/to/video.mp4 path/to/new-output
 ```
 
 The output directory must be absent or empty. By default, sampling uses the source average frame rate, so constant-frame-rate videos are processed at their original rate. `--fps` can select a different rate. Sampling produces a constant-rate timeline; output timestamps start at zero and correspond to the resampled video, not source packet timestamps for variable-frame-rate footage. Lower `--fps` to reduce processing time, at the cost of temporal coverage. Move the camera through the scene, not just rotate it in place. Camera position is recovered up to an unknown global rotation, translation, and scale; distances are not meters unless aligned to a known measurement.
@@ -47,7 +47,7 @@ The script adds an animated panoramic camera to the current scene. Its keyframes
 ## Checks
 
 ```sh
-.venv/bin/python -m unittest discover -s tests
+uv run --python .venv/bin/python python -m unittest discover -s tests
 ```
 
 `tests/render_scene.py` renders a native equirectangular camera and known trajectory in Blender Cycles for an end-to-end experiment. It uses Cycles because the panoramic camera is supported there. Test captures and reconstructions can be large; keep them outside the source tree.
@@ -61,7 +61,7 @@ To reproduce the synthetic experiment, render with `blender --background --pytho
 The `validation/loop/` experiment rendered 48 frames of a camera moving through a textured scene while rotating through a full turn. The video includes mild lens distortion, noise, and compression. The source renderer ray-casts 512 scene points per frame to record visible 3D points independently of the tracker. Run:
 
 ```sh
-.venv/bin/python tests/check_accuracy.py validation/loop/truth.json validation/loop/poses.json validation/loop/loop-imported.json
+uv run --python .venv/bin/python python tests/check_accuracy.py validation/loop/truth.json validation/loop/poses.json validation/loop/loop-imported.json
 ```
 
 Camera positions are aligned once to the known ground truth with a similarity transform because monocular SfM cannot recover absolute position, orientation, or scale. Trajectory error is position error divided by the full known path length. Image error is the Euclidean distance between the projected and true equirectangular coordinates, after normalizing horizontal and vertical coordinates by their respective dimensions and wrapping horizontally across the seam. The check requires every frame to be registered, trajectory position RMS below 1% of path length, and the 95th percentile of image displacement below 1% in each frame. It also reports the worst image point. It does not measure occluded pixels or prove performance on other scenes.
@@ -74,4 +74,4 @@ A second synthetic experiment in `validation/dynamic/` uses a different randomiz
 
 Additional tests in [validation/complexity](validation/complexity/README.md) cover low texture, repeated patterns, low light, and three real 360° clips. The plain scene failed to initialize; the night bridge and indoor RC-car reference comparisons exceeded 1% trajectory RMS. Complete registration does not guarantee an accurate track.
 
-Binary artifacts are not tracked. `scripts/fetch-runtime.sh` retrieves pinned wheels and model weights with SHA-256 verification into the ignored `.artifacts/` cache. Generated video and Blender files can be recreated as described in `validation/RECREATE.md`; existing local copies are in `.artifacts/originals/validation/`.
+Binary artifacts are not tracked. `scripts/fetch-runtime.sh` verifies dependencies with uv, uses cached wheels when present, and downloads the SHA-256-verified model into the ignored `.artifacts/` cache. Generated video and Blender files can be recreated as described in `validation/RECREATE.md`; existing local copies are in `.artifacts/originals/validation/`.

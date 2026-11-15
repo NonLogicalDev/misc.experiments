@@ -64,4 +64,4 @@ clean:
 
 # Run the CLI tool
 run *args:
-    uv run python -m pkg.degen_crypto {{args}}
+    uv run degen-crypto {{args}}

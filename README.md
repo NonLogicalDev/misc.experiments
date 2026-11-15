@@ -2,6 +2,10 @@
 
 A ragtag collection of projects I am working on but am not yet ready to fully release.
 
+## Python tooling
+
+Use [uv](https://docs.astral.sh/uv/) for Python environments, dependencies, and first-party scripts. For development, projects with a `uv.lock` use their own lockfile; standalone scripts use `uv run --script`. Bazel-managed Python and Blender's embedded Python use their respective toolchains.
+
 ## Projects
 
 - [tool.spheredim](projects/tool.spheredim)

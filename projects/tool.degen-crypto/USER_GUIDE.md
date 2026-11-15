@@ -38,11 +38,8 @@ A comprehensive guide to using degen-crypto for deterministic cryptographic key 
 ## Installation
 
 ```bash
-# Using uv (recommended)
-uv pip install -e .
-
-# Or with pip
-pip install -e .
+# From the tool.degen-crypto project directory
+uv tool install .
 
 # Verify installation
 degen-crypto --help

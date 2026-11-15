@@ -4,23 +4,23 @@ default:
 
 # Create a new Python interview
 new_python name:
-    python3 scripts/scaffold.py python {{name}}
+    uv run --no-project --script scripts/scaffold.py python {{name}}
 
 # Create a new Go interview
 new_go name:
-    python3 scripts/scaffold.py go {{name}}
+    uv run --no-project --script scripts/scaffold.py go {{name}}
 
 # Create a new Java interview
 new_java name:
-    python3 scripts/scaffold.py java {{name}}
+    uv run --no-project --script scripts/scaffold.py java {{name}}
 
 # Create a new Rust interview
 new_rust name:
-    python3 scripts/scaffold.py rust {{name}}
+    uv run --no-project --script scripts/scaffold.py rust {{name}}
 
 # Create a new C++ interview
 new_cpp name:
-    python3 scripts/scaffold.py cpp {{name}}
+    uv run --no-project --script scripts/scaffold.py cpp {{name}}
 
 # List all interviews
 list:

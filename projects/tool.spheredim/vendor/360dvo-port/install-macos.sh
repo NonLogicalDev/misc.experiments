@@ -5,7 +5,7 @@ if [ "$(uname -s)-$(uname -m)" != Darwin-arm64 ]; then
   echo 'This runtime is for macOS Apple Silicon only.' >&2
   exit 1
 fi
-command -v python3.14 >/dev/null || { echo 'Python 3.14 is required.' >&2; exit 1; }
+command -v uv >/dev/null || { echo 'uv is required.' >&2; exit 1; }
 mkdir -p "$root/work"
 if [ -e "$root/work/source" ] || [ -e "$root/work/env" ]; then
   echo 'work/source or work/env already exists; preserve it or choose a clean copy.' >&2
@@ -25,6 +25,9 @@ if [ ! -e "$root/.git" ]; then
 fi
 (cd "$root" && "$root/run-layerctl.sh" check)
 (cd "$root" && "$root/run-layerctl.sh" projection create spheredim-port --worktree "$root/work/source")
-python3.14 -m venv "$root/work/env"
-"$root/work/env/bin/python" -m pip install --no-index --find-links "$cache/gpu-wheels" --require-hashes -r "$root/requirements-macos-arm64-py314.lock"
+uv venv --python 3.14 "$root/work/env"
+mkdir -p "$cache/gpu-wheels"
+if ! uv pip sync --offline --no-index --python "$root/work/env/bin/python" --only-binary :all: --require-hashes --find-links "$cache/gpu-wheels" "$root/requirements-macos-arm64-py314.lock"; then
+  uv pip sync --python "$root/work/env/bin/python" --only-binary :all: --require-hashes --find-links "$cache/gpu-wheels" "$root/requirements-macos-arm64-py314.lock"
+fi
 echo 'Installed. See README.md for running and validation.'

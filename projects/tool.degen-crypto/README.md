@@ -11,23 +11,16 @@ Cryptographic tools for deterministic key and certificate generation, designed f
 
 ## Installation
 
-```bash
-pip install crypto-tools
-```
-
-Or with uv:
+From this project directory, use uv to install the command:
 
 ```bash
-uv pip install crypto-tools
+uv tool install .
+degen-crypto --help
 ```
 
 ## Usage
 
-After installation, the `crypto-tools` command will be available:
-
-```bash
-crypto-tools --help
-```
+Run `degen-crypto --help` to see available commands.
 
 ### Available Commands
 
@@ -43,10 +36,7 @@ crypto-tools --help
 ### Setup
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/crypto-tools.git
-cd crypto-tools
-
+# From projects/tool.degen-crypto
 # Install with development dependencies
 uv sync --extra dev
 ```

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
 """Recreate 360DVO samples or render native equirectangular test footage."""
 import argparse
 import hashlib

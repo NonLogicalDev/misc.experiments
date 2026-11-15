@@ -37,3 +37,5 @@ The Apple MPS inference port and offline installation are in the project. Operat
 - 2026-11-15: Flattened the layer definition paths under `vendor/360dvo-port/layers/`; the definition repository root is `vendor/360dvo-port`.
 
 - 2026-11-15: Replaced the copied COLMAP and FFmpeg source trees with submodules pinned to their corresponding release commits; binary runtime downloads remain hash-verified.
+
+- 2026-11-15: Migrated SphereDim CPU and GPU setup and validation commands to uv. A fresh hash-locked GPU installation passed seven Apple MPS tests; a fresh CPU environment passed seven tests; an incorrect wheel hash was rejected. AMD remains unverified.

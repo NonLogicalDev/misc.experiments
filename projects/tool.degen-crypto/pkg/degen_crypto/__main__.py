@@ -2,7 +2,7 @@
 Main entry point for the crypto-tools CLI.
 
 This module serves as the entry point when running the package with:
-    python -m degen_crypto
+    uv run degen-crypto
     uv run -m degen_crypto
 """
 

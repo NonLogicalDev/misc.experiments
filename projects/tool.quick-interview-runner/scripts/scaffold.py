@@ -1,4 +1,7 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --no-project --script
+# /// script
+# requires-python = ">=3.8"
+# ///
 """
 Interview scaffold script for Uber Interview Environment
 Creates new interview folders with appropriate templates

@@ -8,17 +8,17 @@ This is an experimental 360DVO inference port for full 2:1 equirectangular video
 
 ## Apple Silicon setup
 
-Python 3.14, Go 1.26 or newer, Git and tar must already be installed. The pinned Python wheels target macOS ARM64. Go may need network access for module metadata even if the tool and dependencies are cached. From this directory:
+uv, Go 1.26 or newer, Git and tar must be installed; uv can locate or install Python 3.14. The pinned Python wheels target macOS ARM64. Go may need network access for module metadata even if the tool and dependencies are cached. From this directory:
 
 ```sh
 ../../scripts/fetch-runtime.sh gpu
 ./install-macos.sh
-work/env/bin/python work/source/portable_demo.py /absolute/path/input.mp4 /absolute/path/new-empty-output --weights ../../.artifacts/360dvo.pth --device mps --width 1024 --patches 96
+uv run --python work/env/bin/python python work/source/portable_demo.py /absolute/path/input.mp4 /absolute/path/new-empty-output --weights ../../.artifacts/360dvo.pth --device mps --width 1024 --patches 96
 ```
 
 The output folder must be absent or empty. Import `poses.json` with SphereDim's existing `src/blender_import.py`. The full input frame is resized to the requested width; `--stride` can sample fewer frames. The program requires a 2:1 video and a fixed camera calibration. The current model buffer and algorithm are experimental, and long footage, seam crossings, rolling shutter and changing exposure are not validated.
 
-Run checks using `cd work/source` and `SPHEREDIM_DEVICE=mps ../env/bin/python -m unittest discover -s tests -v`. `../env` is relative to `work/source`.
+Run checks using `cd work/source` and `SPHEREDIM_DEVICE=mps uv run --python ../env/bin/python python -m unittest discover -s tests -v`. `../env` is relative to `work/source`.
 
 ## AMD and other systems
 
