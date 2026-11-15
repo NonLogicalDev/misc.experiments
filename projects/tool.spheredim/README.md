@@ -13,6 +13,7 @@ The experimental GPU backend runs the user's `layerctl` directly with Go at a pi
 Requires CPython 3.14 on macOS arm64 for the pinned wheels, a C compiler and `make` to build FFmpeg, and Blender 5.x to import the animation. Other Python and platform combinations require compatible PyCOLMAP and NumPy builds.
 
 ```sh
+git submodule update --init -- vendor/colmap vendor/ffmpeg
 scripts/fetch-runtime.sh cpu
 python3 -m venv .venv
 .venv/bin/pip install --no-index --find-links .artifacts/cpu-wheels --require-hashes -r requirements.txt
@@ -67,7 +68,7 @@ Camera positions are aligned once to the known ground truth with a similarity tr
 
 `validation/real/` records a 50-frame sample from the 360DVO `tokyo_citywalk` sequence. Its manifest records the original frame paths and hashes; the included reference trajectory is attributed to the 360DVO dataset under CC-BY-NC-SA-4.0. The reference was generated with SfM and is not independent physical ground truth. The real test currently measures trajectory only, not image alignment.
 
-The tracker and video decoder run in compiled C++ and C code. Python orchestrates the pipeline and Blender importer. Vendored COLMAP source and the pinned macOS arm64 wheels and download recipe are described in `vendor/README.md`; the wheel has not been rebuilt from the vendored source, and its own C++ build dependencies are not yet fully vendored as source. SphereDim prefers its compiled vendored FFmpeg when present and otherwise uses FFmpeg on PATH.
+The tracker and video decoder run in compiled C++ and C code. Python orchestrates the pipeline and Blender importer. Pinned COLMAP source and the pinned macOS arm64 wheels and download recipe are described in `vendor/README.md`; the wheel has not been rebuilt from the vendored source, and its own C++ build dependencies are not yet fully vendored as source. SphereDim prefers FFmpeg compiled from its pinned source when present and otherwise uses FFmpeg on PATH.
 
 A second synthetic experiment in `validation/dynamic/` uses a different randomized scene and a moving object. Its 32 frames all registered. With lossless frame extraction and tighter geometric filtering, trajectory RMS is 0.154% of path length and the worst frame image p95 is 0.606%. The largest individual image displacement is 2.28%; near poles, equirectangular longitude exaggerates small angular shifts, and nearby geometry is especially sensitive to translation. The experiment reports this maximum rather than treating every point as a guaranteed 1% bound.
 

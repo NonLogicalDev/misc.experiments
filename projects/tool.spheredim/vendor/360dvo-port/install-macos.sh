@@ -18,13 +18,13 @@ if [ ! -f "$cache/360dvo.pth" ]; then
 fi
 printf '%s  %s\n' 'ae4c7d6c96f1fe9eb784174e757b173a80beff8654c7572cde817df95d602d2c' "$cache/360dvo.pth" | shasum -a 256 -c
 # A fresh project checkout has the layer definitions but not their local Git metadata.
-if [ ! -e "$root/layers/.git" ]; then
-  git -C "$root/layers" init -q
-  git -C "$root/layers" add README.md layers
-  git -C "$root/layers" -c user.name='SphereDim local setup' -c user.email='spheredim-local@localhost' commit -qm 'Initialize local layer definitions'
+if [ ! -e "$root/.git" ]; then
+  git -C "$root" init -q
+  git -C "$root" add layers
+  git -C "$root" -c user.name='SphereDim local setup' -c user.email='spheredim-local@localhost' commit -qm 'Initialize local layer definitions'
 fi
-(cd "$root/layers" && "$root/run-layerctl.sh" check)
-(cd "$root/layers" && "$root/run-layerctl.sh" projection create spheredim-port --worktree "$root/work/source")
+(cd "$root" && "$root/run-layerctl.sh" check)
+(cd "$root" && "$root/run-layerctl.sh" projection create spheredim-port --worktree "$root/work/source")
 python3.14 -m venv "$root/work/env"
 "$root/work/env/bin/python" -m pip install --no-index --find-links "$cache/gpu-wheels" --require-hashes -r "$root/requirements-macos-arm64-py314.lock"
 echo 'Installed. See README.md for running and validation.'

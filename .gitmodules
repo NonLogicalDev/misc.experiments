@@ -4,3 +4,9 @@
 [submodule "solidrecipe-solidcraft"]
 	path = projects/tool.solidrecipe/vendor/solidcraft
 	url = https://github.com/tangency-labs/solidcraft.git
+[submodule "projects/tool.spheredim/vendor/colmap"]
+	path = projects/tool.spheredim/vendor/colmap
+	url = https://github.com/colmap/colmap.git
+[submodule "projects/tool.spheredim/vendor/ffmpeg"]
+	path = projects/tool.spheredim/vendor/ffmpeg
+	url = https://github.com/FFmpeg/FFmpeg.git

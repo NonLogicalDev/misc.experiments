@@ -33,3 +33,7 @@ The Apple MPS inference port and offline installation are in the project. Operat
 - 2026-11-15: Replaced tracked binary wheels, weights, generated media and binary source fixtures with hash-verified download or regeneration instructions. Source is fetched by the pinned 360DVO layer. Repaired imported SphereDim history to remove the binary artifacts while preserving the existing misc.experiments parent and unrelated work.
 
 - 2026-11-15: Renamed the project to `misc.experiments/projects/tool.spheredim`; repaired local environment and layerctl projection paths.
+
+- 2026-11-15: Flattened the layer definition paths under `vendor/360dvo-port/layers/`; the definition repository root is `vendor/360dvo-port`.
+
+- 2026-11-15: Replaced the copied COLMAP and FFmpeg source trees with submodules pinned to their corresponding release commits; binary runtime downloads remain hash-verified.

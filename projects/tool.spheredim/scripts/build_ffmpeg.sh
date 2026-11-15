@@ -3,6 +3,10 @@
 set -eu
 project=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 build="$project/.build/ffmpeg"
+if [ ! -f "$project/vendor/ffmpeg/configure" ]; then
+  echo 'Initialize FFmpeg first: git submodule update --init -- vendor/ffmpeg' >&2
+  exit 1
+fi
 mkdir -p "$build"
 cd "$build"
 "$project/vendor/ffmpeg/configure" \

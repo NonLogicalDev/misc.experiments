@@ -1,6 +1,6 @@
 # Scene complexity validation
 
-All tracking runs use whole equirectangular frames with the same SphereDim settings. These runs used PyCOLMAP 4.2.1, the vendored FFmpeg 8.0.1 decoder, and Blender 5.1.0 for synthetic rendering and pose import. Result directories preserve text references, recovered poses where available, and metrics or failure logs. Binary clips and Blender files are not tracked; regenerate or fetch them using the instructions below. No virtual perspective views were extracted.
+All tracking runs use whole equirectangular frames with the same SphereDim settings. These runs used PyCOLMAP 4.2.1, the FFmpeg 8.0.1 decoder, and Blender 5.1.0 for synthetic rendering and pose import. Result directories preserve text references, recovered poses where available, and metrics or failure logs. Binary clips and Blender files are not tracked; regenerate or fetch them using the instructions below. No virtual perspective views were extracted.
 
 | Scene | Type | Registration | Trajectory RMS / reference path | Worst frame image p95 | Result |
 |---|---|---:|---:|---:|---|
