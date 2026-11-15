@@ -18,8 +18,8 @@ if [ ! -e "$root/layers/.git" ]; then
   git -C "$root/layers" add README.md layerctl-offline.sh layers vendor
   git -C "$root/layers" -c user.name='SphereDim local setup' -c user.email='spheredim-local@localhost' commit -qm 'Initialize local layer definitions'
 fi
-LAYERCTL_BIN="$root/bin/layerctl-macos-arm64" "$root/layers/layerctl-offline.sh" check
-LAYERCTL_BIN="$root/bin/layerctl-macos-arm64" "$root/layers/layerctl-offline.sh" projection create spheredim-port --worktree "$root/work/source"
+LAYERCTL_BIN="$root/run-layerctl.sh" "$root/layers/layerctl-offline.sh" check
+LAYERCTL_BIN="$root/run-layerctl.sh" "$root/layers/layerctl-offline.sh" projection create spheredim-port --worktree "$root/work/source"
 python3.14 -m venv "$root/work/env"
 "$root/work/env/bin/python" -m pip install --no-index --find-links "$root/runtime/wheelhouse" -r "$root/work/source/requirements-macos-arm64-py314.lock"
 echo 'Installed. See README.md for running and validation.'

@@ -4,11 +4,11 @@ This is an experimental 360DVO inference port for full 2:1 equirectangular video
 
 ## Layerctl source
 
-SphereDim pins the user's `misc.experiments` repository as a Git submodule at `vendor/misc.experiments`; its `utils/layerctl` directory contains the source for the included macOS executable. For a fresh Git clone, initialize it with `git submodule update --init vendor/misc.experiments`. The pinned submodule uses its SSH URL. The included executable allows the Apple offline setup without initializing the submodule; rebuilding it requires Go and the dependencies in the tool's `go.mod`.
+SphereDim pins the user's standalone `util.layerctl` repository as a Git submodule at `vendor/util.layerctl`. Initialize it with `git submodule update --init vendor/util.layerctl`. The pinned submodule uses its SSH URL. `run-layerctl.sh` uses `go run` against that source; it requires Go 1.26 or newer on PATH and the Go module dependencies available in the module cache or downloadable. No layerctl executable is bundled.
 
-## Apple Silicon offline setup
+## Apple Silicon setup
 
-Python 3.14, Git and tar must already be installed. The included wheels and executable target macOS ARM64. From this directory:
+Python 3.14, Go 1.26 or newer, Git and tar must already be installed. The included Python wheels target macOS ARM64. The Go dependencies must already be cached for a fully offline install. From this directory:
 
 ```sh
 ./install-macos.sh
@@ -21,7 +21,7 @@ Run checks using `cd work/source` and `SPHEREDIM_DEVICE=mps ../env/bin/python -m
 
 ## AMD and other systems
 
-AMD GPU execution is designed to use a ROCm-enabled PyTorch build via PyTorch's `cuda` device API (`--device cuda`), not the original NVIDIA CUDA extensions. It has not been tested on AMD hardware. The vendored wheels are specifically macOS ARM64/Python 3.14 and cannot install on Linux; a compatible ROCm PyTorch and remaining Python dependencies must be supplied for that machine. A Linux `layerctl` executable is also needed to compose `layers`; its source is the user's `misc.experiments/utils/layerctl`. AMD offline dependency vendoring and hardware validation remain open.
+AMD GPU execution is designed to use a ROCm-enabled PyTorch build via PyTorch's `cuda` device API (`--device cuda`), not the original NVIDIA CUDA extensions. It has not been tested on AMD hardware. The vendored wheels are specifically macOS ARM64/Python 3.14 and cannot install on Linux; a compatible ROCm PyTorch and remaining Python dependencies must be supplied for that machine. The pinned `vendor/util.layerctl` submodule can run through Go on Linux. AMD offline dependency vendoring and hardware validation remain open.
 
 ## Evidence and limitations
 

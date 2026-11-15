@@ -1,3 +1,3 @@
-[submodule "vendor/misc.experiments"]
-	path = vendor/misc.experiments
-	url = git@github.com:NonLogicalDev/misc.experiments.git
+[submodule "vendor/util.layerctl"]
+	path = vendor/util.layerctl
+	url = git@github.com:NonLogicalDev/util.layerctl.git
