@@ -6,6 +6,8 @@ SphereDim estimates a camera trajectory from a full, unwrapped 2:1 equirectangul
 
 The [portable 360DVO backend](vendor/360dvo-port/README.md) runs full equirectangular inference on Apple MPS and is designed for ROCm. Its setup, Blender export, accuracy evidence, and current AMD limitations are documented separately.
 
+SphereDim pins the source of the user's `layerctl` in the `vendor/misc.experiments` Git submodule. A fresh clone can retrieve it with `git submodule update --init vendor/misc.experiments`. The experimental GPU backend also includes a macOS executable for offline setup.
+
 ## Setup
 
 Requires CPython 3.14 on macOS arm64 for the vendored wheels, a C compiler and `make` to build FFmpeg, and Blender 5.x to import the animation. Other Python and platform combinations require compatible PyCOLMAP and NumPy builds.

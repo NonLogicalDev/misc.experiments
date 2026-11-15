@@ -1,0 +1,3 @@
+[submodule "vendor/misc.experiments"]
+	path = vendor/misc.experiments
+	url = git@github.com:NonLogicalDev/misc.experiments.git

@@ -2,6 +2,10 @@
 
 This is an experimental 360DVO inference port for full 2:1 equirectangular video. It computes correlation, spherical geometry, bundle adjustment and network operations with PyTorch tensors on Apple MPS or a PyTorch GPU backend. It does not create perspective views. It exports SphereDim JSON and CSV camera-to-world poses for the existing Blender importer. Monocular scale is arbitrary; some removed frames are reconstructed from relative motion, so the JSON `registered` count is an output count and does not mean every pose was independently observed.
 
+## Layerctl source
+
+SphereDim pins the user's `misc.experiments` repository as a Git submodule at `vendor/misc.experiments`; its `utils/layerctl` directory contains the source for the included macOS executable. For a fresh Git clone, initialize it with `git submodule update --init vendor/misc.experiments`. The pinned submodule uses its SSH URL. The included executable allows the Apple offline setup without initializing the submodule; rebuilding it requires Go and the dependencies in the tool's `go.mod`.
+
 ## Apple Silicon offline setup
 
 Python 3.14, Git and tar must already be installed. The included wheels and executable target macOS ARM64. From this directory:
