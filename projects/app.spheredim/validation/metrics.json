@@ -1,0 +1,9 @@
+{
+  "registered": 20,
+  "sampled": 20,
+  "position_rmse": 0.00329653342393288,
+  "position_max": 0.006813063809025942,
+  "rotation_mean_degrees": 0.16318833532935634,
+  "rotation_max_degrees": 0.2072044834254553,
+  "alignment_scale": 0.2101311088974924
+}

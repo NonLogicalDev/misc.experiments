@@ -1,0 +1,173 @@
+{
+  "dataset": "https://huggingface.co/datasets/chris1004336379/360DVO",
+  "license": "CC-BY-NC-SA-4.0",
+  "sequence": "indoor_RC_car",
+  "source_fps": 10,
+  "sample_every": 2,
+  "frames": [
+    {
+      "source": "Sequences/indoor_RC_car/0001.jpg",
+      "sha256": "c975d70440c2e3c3ebd6a7836f37868716e539beefaa51a21d0005a6d639bf47"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0003.jpg",
+      "sha256": "af4804ab058fe8ab9026bbcd0d6826893c9f429321ed0cd8eb58a430f2c9f557"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0005.jpg",
+      "sha256": "21816d3eb203ff66b86b4ef5325775e44b01afc927212cf1598b7ccbd9d35581"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0007.jpg",
+      "sha256": "9cd682d0159ff14ee20070799fd02f3d5fbc29e9df011b41deb41129551fa4dd"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0009.jpg",
+      "sha256": "bd68c0cb3bdf122302683db19cee3d9ae5a8fe0516e142e529467bc520bac3e9"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0011.jpg",
+      "sha256": "d058d152d44187edfeea5fd8b26c8aeea376bd40cc096ad95d0ac928bc2d0392"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0013.jpg",
+      "sha256": "219e948e0d725d1d79983a07f357c83984e684bcccb69d2368c4e02574daf140"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0015.jpg",
+      "sha256": "d7798a24e34d1d23a03a83e232d7e8c00136e2e58f880ec5aa69dfa4da3eb74e"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0017.jpg",
+      "sha256": "955ad5045f1197a6d5d1c2fcdac3b11168ca2ac8f576db999d06e65d5690147f"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0019.jpg",
+      "sha256": "3088c8ed6222e50b6e6bc3dde9bc4cf8fa44f1ba40302429b7fb6e014461a7e5"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0021.jpg",
+      "sha256": "634121478acac4871e860bb0daddb1947a6495512db2ad97b86f9b96709a823d"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0023.jpg",
+      "sha256": "2ad7a5f763111b406f84e26c3579462561a06cff503082bd0f271e6241719159"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0025.jpg",
+      "sha256": "0311b244e8627e26ad983d1f193e59312b5b6b3fa8fca38724ef1084a564b99f"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0027.jpg",
+      "sha256": "878e6798b7cc3909993f68b69634c01c029a5dabfccd02a280d1d5a5755dd8e1"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0029.jpg",
+      "sha256": "ceb0f286fb0e85e51836f39b59369ceee5d82849d693b5600486c629233c8e6e"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0031.jpg",
+      "sha256": "f51c1250ab9c92b2826797a42e2c3360cd59b20781ee7db42e0b4164fff2f79d"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0033.jpg",
+      "sha256": "5584c4f83b95a33ee6341b8936417745a606b3b5e1f9d9bab7914b98f8dcf36d"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0035.jpg",
+      "sha256": "5a43ad09d73e33fd767941ff60ab5a50f1ae4528ecdcaac9079d1d151c50e430"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0037.jpg",
+      "sha256": "71dd80f3fb16691eef4f957a153d999fdab5431226f1c561d1d87f12c232869d"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0039.jpg",
+      "sha256": "a48388f1d82b74db9181223d29a4a2c5727e85bc6dfcdd0bc44e779656cd1114"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0041.jpg",
+      "sha256": "c7e09b4301bd17dce01c3179a06cbd655ae219856658708c620da999983855fa"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0043.jpg",
+      "sha256": "efc11289c52032ab518f6b390e52335662eee74a40bc441c0264ec6be488d72e"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0045.jpg",
+      "sha256": "3088195d43cb4427b033677a541e124820372615680970f68499a9c9bcd26250"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0047.jpg",
+      "sha256": "5132d09156749c3f226403d39cc8ac5aca635745dea3ec498f6d8d7cf85f9c4b"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0049.jpg",
+      "sha256": "f5c838dc37b232d7988aeef3f8fc185b47eefda908f208585906f509ea3f2945"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0051.jpg",
+      "sha256": "04248c6df26007e696ed9bed4035a10c5f8e4d174faf77c6f9a7f897fe534945"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0053.jpg",
+      "sha256": "372205fe7a5660b2eb59c7edd8def5c0002f497e9b8b76febb953a07217f8bcf"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0055.jpg",
+      "sha256": "0ba03a74392b8426016a5106bcaaddb10e592e0d71e42ad5c52a26347a3e31bb"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0057.jpg",
+      "sha256": "c950b2ff4496b724338ad230d1de15c0770a1bfb4feb68e35553a2b67fcf4eb6"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0059.jpg",
+      "sha256": "57fb62909570d3821551467f4b7413992bcaf4eec9e32a1cf35d09c87fa188b0"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0061.jpg",
+      "sha256": "b1591518fad016920de90f7381abaad8b8077d24ede8c88d27453f66ac22fad8"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0063.jpg",
+      "sha256": "dac4c010f93309097bdd12852252c6e073a4cd9cad06fc81597577d4603f1e2e"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0065.jpg",
+      "sha256": "4ea6774af104f8a7a2253034998e58064ad4c40fe3c77aed63e71eb6822f6a68"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0067.jpg",
+      "sha256": "ff72082e2f37de3b90e38caeb90546369bd68e506bad66dd7a9db691be592bda"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0069.jpg",
+      "sha256": "19e24b866b424fdb8c8e5adca84cf524845ed44fa99b7484886df13422f9c204"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0071.jpg",
+      "sha256": "d79d4138db3c8b73ce622fdddf2b5574f93251b155bf45dc18069e00f48fe609"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0073.jpg",
+      "sha256": "12863c2f4511599ed08fcc670983e8d4c350a57c7b6bb8dfb324f22074aa1f7e"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0075.jpg",
+      "sha256": "580a6f5fe4e8ba9f51fd5c3840ade563b298be946d1b2e396e8534202f8de156"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0077.jpg",
+      "sha256": "88a850fa62de038b1de8d150f52946a62e13297374c4c198c29edebac6283bbc"
+    },
+    {
+      "source": "Sequences/indoor_RC_car/0079.jpg",
+      "sha256": "0cfe06f1d93308dd60c7ca00574dd4f38a1d5a0e3d72329c7dda5d392641ce76"
+    }
+  ],
+  "reference_sha256": "57e76a2c02b87e7423ba061c8ad0a92aba428f5ceb549b735c9f68e0dda671c8",
+  "encoded_video_sha256": "0580df4d2db1d36a47d28513cd0b6a478a419c92b2de1f61c958a7813e306dd5",
+  "encoding": "H.264 libx264 preset veryfast CRF 16 yuv420p, 5 fps",
+  "tracking": "native equirectangular, --width 2048, source average frame rate"
+}

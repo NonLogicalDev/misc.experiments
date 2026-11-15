@@ -1,0 +1,16 @@
+{
+  "registered": 32,
+  "sampled": 32,
+  "path_length": 5.316280136846934,
+  "position_rmse": 0.010280731096819882,
+  "position_rmse_percent_path": 0.19338204218330274,
+  "position_max_percent_path": 0.5576520117855606,
+  "rotation_mean_degrees": 0.33515726004891705,
+  "rotation_max_degrees": 0.4147497806368102,
+  "alignment_scale": 0.2393325964335807,
+  "image_samples": 16384,
+  "image_rms_percent": 0.3604688099946679,
+  "image_p95_percent": 0.5958400749287264,
+  "image_max_percent": 9.386727563190334,
+  "angular_rms_degrees": 0.4135637423879153
+}

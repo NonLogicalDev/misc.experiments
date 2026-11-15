@@ -1,0 +1,20 @@
+{
+  "registered": 48,
+  "sampled": 48,
+  "path_length": 9.685908964822838,
+  "position_rmse": 0.007245847051676726,
+  "position_rmse_percent_path": 0.07480812671265136,
+  "position_max_percent_path": 0.14100806595089296,
+  "rotation_mean_degrees": 0.08011114362717651,
+  "rotation_max_degrees": 0.15769889315525593,
+  "alignment_scale": 0.3987108039117749,
+  "image_samples": 24576,
+  "image_sampled_frames": 48,
+  "image_rms_percent": 0.06960251085701237,
+  "image_p95_percent": 0.1466555259947627,
+  "image_worst_frame_p95_percent": 0.27383466472227425,
+  "image_max_percent": 0.5372350296554397,
+  "angular_rms_degrees": 0.08300346924390253,
+  "angular_worst_frame_p95_degrees": 0.2144030543568833,
+  "angular_worst_frame_p95_percent_180": 0.11911280797604627
+}

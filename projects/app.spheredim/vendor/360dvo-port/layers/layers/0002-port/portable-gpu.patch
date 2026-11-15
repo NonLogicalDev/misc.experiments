@@ -1,0 +1,946 @@
+diff --git a/dpvo/altcorr/correlation.py b/dpvo/altcorr/correlation.py
+index 9b9d8d9d4b01fb603b9978c8788a717d7961b20c..48e4caa054bbebf810d009515a96f6eb1fb6584f 100644
+--- a/dpvo/altcorr/correlation.py
++++ b/dpvo/altcorr/correlation.py
+@@ -1,74 +1,44 @@
++"""Portable inference replacements for 360DVO's CUDA sampling kernels."""
+ import torch
+-import cuda_corr
+-
+-class CorrLayer(torch.autograd.Function):
+-    @staticmethod
+-    def forward(ctx, fmap1, fmap2, coords, ii, jj, radius, dropout):
+-        """ forward correlation """
+-        ctx.save_for_backward(fmap1, fmap2, coords, ii, jj)
+-        ctx.radius = radius
+-        ctx.dropout = dropout
+-        corr, = cuda_corr.forward(fmap1, fmap2, coords, ii, jj, radius)
+-
+-        return corr
+-
+-    @staticmethod
+-    def backward(ctx, grad):
+-        """ backward correlation """
+-        fmap1, fmap2, coords, ii, jj = ctx.saved_tensors
+-
+-        if ctx.dropout < 1:
+-            perm = torch.rand(len(ii), device="cuda") < ctx.dropout
+-            coords = coords[:,perm]
+-            grad = grad[:,perm]
+-            ii = ii[perm]
+-            jj = jj[perm]
+-
+-        fmap1_grad, fmap2_grad = \
+-            cuda_corr.backward(fmap1, fmap2, coords, ii, jj, grad, ctx.radius)
+-
+-        return fmap1_grad, fmap2_grad, None, None, None, None, None
++import torch.nn.functional as F
+ 
+ 
+-class PatchLayer(torch.autograd.Function):
+-    @staticmethod
+-    def forward(ctx, net, coords, radius):
+-        """ forward patchify """
+-        ctx.radius = radius
+-        ctx.save_for_backward(net, coords)
+-        
+-        patches, = cuda_corr.patchify_forward(net, coords, radius)
+-        return patches
++def _normalize(grid, height, width):
++    scale = grid.new_tensor([max(width - 1, 1), max(height - 1, 1)])
++    return 2 * grid / scale - 1
+ 
+-    @staticmethod
+-    def backward(ctx, grad):
+-        """ backward patchify """
+-        net, coords = ctx.saved_tensors
+-        grad, = cuda_corr.patchify_backward(net, coords, grad, ctx.radius)
+-
+-        return grad, None, None
+ 
+ def patchify(net, coords, radius, mode='bilinear'):
+-    """ extract patches """
++    if mode != 'bilinear':
++        raise ValueError('Only bilinear patch sampling is supported')
++    batch, channels, height, width = net.shape
++    diameter = 2 * radius + 1
++    offsets = torch.arange(-radius, radius + 1, device=coords.device, dtype=coords.dtype)
++    dy, dx = torch.meshgrid(offsets, offsets, indexing='ij')
++    grid = coords[:, :, None, None, :] + torch.stack((dx, dy), dim=-1)
++    grid = _normalize(grid, height, width).reshape(batch, -1, diameter, 2)
++    sampled = F.grid_sample(net, grid, mode='bilinear', padding_mode='zeros', align_corners=True)
++    return sampled.reshape(batch, channels, coords.shape[1], diameter, diameter).permute(0, 2, 1, 3, 4)
+ 
+-    patches = PatchLayer.apply(net, coords, radius)
+-
+-    if mode == 'bilinear':
+-        offset = (coords - coords.floor()).to(net.device)
+-        dx, dy = offset[:,:,None,None,None].unbind(dim=-1)
+-
+-        d = 2 * radius + 1
+-        x00 = (1-dy) * (1-dx) * patches[...,:d,:d]
+-        x01 = (1-dy) * (  dx) * patches[...,:d,1:]
+-        x10 = (  dy) * (1-dx) * patches[...,1:,:d]
+-        x11 = (  dy) * (  dx) * patches[...,1:,1:]
+-
+-        return x00 + x01 + x10 + x11
+-
+-    return patches
+-    
+ 
+ def corr(fmap1, fmap2, coords, ii, jj, radius=1, dropout=1):
+-    return CorrLayer.apply(fmap1, fmap2, coords, ii, jj, radius, dropout)
+-
+-
++    if dropout != 1:
++        raise ValueError('Portable correlation supports inference only')
++    batch, edges, _, ph, pw = coords.shape
++    diameter = 2 * radius + 1
++    height, width = fmap2.shape[-2:]
++    offsets = torch.arange(-radius, radius + 1, device=coords.device, dtype=coords.dtype)
++    dy, dx = torch.meshgrid(offsets, offsets, indexing='ij')
++    delta = torch.stack((dx, dy), dim=-1)
++    output = fmap1.new_zeros(batch, edges, diameter, diameter, ph, pw)
++    # Group by target frame so the full panorama feature map is not copied for every edge.
++    for target in torch.unique(jj).cpu().tolist():
++        selection = torch.nonzero(jj == target, as_tuple=True)[0]
++        grid = coords[:, selection].permute(0, 1, 3, 4, 2)[..., None, None, :] + delta
++        grid = _normalize(grid, height, width).reshape(batch, -1, diameter * diameter, 2)
++        sampled = F.grid_sample(fmap2[:, target], grid, mode='bilinear', padding_mode='zeros', align_corners=True)
++        sampled = sampled.reshape(batch, fmap2.shape[2], len(selection), ph, pw, diameter, diameter)
++        source = fmap1[:, ii[selection]].permute(0, 2, 1, 3, 4)[..., None, None]
++        values = (sampled * source).sum(dim=1).permute(0, 1, 5, 4, 2, 3)
++        output[:, selection] = values
++    return output
+diff --git a/dpvo/ba.py b/dpvo/ba.py
+index 106650688e65d213b07ee85eef5d09deb7246778..8a70b1c6d81c855ac8867a96887d04c3cd05b931 100644
+--- a/dpvo/ba.py
++++ b/dpvo/ba.py
+@@ -1,5 +1,5 @@
+ import torch
+-from torch_scatter import scatter_sum
++from .portable_scatter import scatter_sum
+ 
+ from . import projective_ops as pops
+ 
+@@ -10,8 +10,7 @@ class CholeskySolver(torch.autograd.Function):
+         U, info = torch.linalg.cholesky_ex(H)
+ 
+         if torch.any(info):
+-            ctx.failed = True
+-            return torch.zeros_like(b)
++            raise RuntimeError('Bundle adjustment Hessian is not positive definite')
+ 
+         xs = torch.cholesky_solve(b, U)
+         ctx.save_for_backward(U, xs)
+@@ -89,7 +88,7 @@ def BA(poses, patches, intrinsics, targets, weights, lmbda, ii, jj, kk, bounds,
+     p = coords.shape[3]
+     r = targets - coords[...,p//2,p//2,:]
+ 
+-    v *= (r.norm(dim=-1) < 250).float()
++    v *= (r.norm(dim=-1) < 128).float()
+ 
+     in_bounds = \
+         (coords[...,p//2,p//2,0] > bounds[0]) & \
+@@ -147,7 +146,7 @@ def BA(poses, patches, intrinsics, targets, weights, lmbda, ii, jj, kk, bounds,
+     w = safe_scatter_add_vec(torch.matmul(wJzT,  r), kk, m)
+ 
+     if isinstance(lmbda, torch.Tensor):
+-        lmbda = lmbda.reshape(*C.shape)
++        lmbda = lmbda.expand_as(C)
+         
+     Q = 1.0 / (C + lmbda)
+     
+@@ -167,7 +166,11 @@ def BA(poses, patches, intrinsics, targets, weights, lmbda, ii, jj, kk, bounds,
+         dZ = dZ.view(b, -1, 1, 1)
+ 
+     x, y, disps = patches.unbind(dim=2)
+-    disps = disp_retr(disps, dZ, kx).clamp(min=1e-3, max=10.0)
++    # CUDA updates only observed patches and resets inverse depths over 20 to 1.
++    disps = disps.clone()
++    depths = disps[:, kx, 0, 0] + dZ[:, :, 0, 0]
++    depths = torch.where(depths > 20.0, 1.0, depths).clamp(min=1e-4)
++    disps[:, kx] = depths[..., None, None]
+     patches = torch.stack([x, y, disps], dim=2)
+ 
+     if not structure_only and n > 0:
+diff --git a/dpvo/blocks.py b/dpvo/blocks.py
+index 37d42fe2fbfac1a92c6b3553af0410d5347f41e5..92d1865dc893afa000d8f1c082e6aa45815fc7b8 100644
+--- a/dpvo/blocks.py
++++ b/dpvo/blocks.py
+@@ -1,6 +1,6 @@
+ import torch
+ import torch.nn as nn
+-import torch_scatter
++from . import portable_scatter as torch_scatter
+ 
+ class LayerNorm1D(nn.Module):
+     def __init__(self, dim):
+diff --git a/dpvo/dpvo.py b/dpvo/dpvo.py
+index a695e27249eac11fe670ed135c540498dd96a24f..79aa1da2575a693e720e2db1ac3be69f4cf4be14 100644
+--- a/dpvo/dpvo.py
++++ b/dpvo/dpvo.py
+@@ -5,19 +5,18 @@ from . import fastba
+ from . import altcorr
+ from . import lietorch
+ from .lietorch import SE3
+-from .visualize import Viser
+ from .net import VONet
+ from .utils import *
+ from . import projective_ops as pops
+ 
+ autocast = torch.amp.autocast
+-Id = SE3.Identity(1, device="cuda")
+ 
+ import sys
+ sys.setrecursionlimit(5000)
+ 
+ class DPVO:
+-    def __init__(self, cfg, network, ht=1920, wd=3840, viz=False):
++    def __init__(self, cfg, network, ht=1920, wd=3840, viz=False, device="cpu"):
++        self.device = torch.device(device)
+         self.cfg = cfg
+         self.load_weights(network)
+         self.is_initialized = False
+@@ -42,24 +41,24 @@ class DPVO:
+         # dummy image for visualization
+         self.image_ = torch.zeros(self.ht, self.wd, 3, dtype=torch.uint8, device="cpu")
+ 
+-        self.tstamps_ = torch.zeros(self.N, dtype=torch.long, device="cuda")
+-        self.poses_ = torch.zeros(self.N, 7, dtype=torch.float, device="cuda")
+-        self.patches_ = torch.zeros(self.N, self.M, 3, self.P, self.P, dtype=torch.float, device="cuda")
+-        self.intrinsics_ = torch.zeros(self.N, 4, dtype=torch.float, device="cuda") 
++        self.tstamps_ = torch.zeros(self.N, dtype=torch.long, device=self.device)
++        self.poses_ = torch.zeros(self.N, 7, dtype=torch.float, device=self.device)
++        self.patches_ = torch.zeros(self.N, self.M, 3, self.P, self.P, dtype=torch.float, device=self.device)
++        self.intrinsics_ = torch.zeros(self.N, 4, dtype=torch.float, device=self.device) 
+ 
+-        self.points_ = torch.zeros(self.N * self.M, 3, dtype=torch.float, device="cuda")
+-        self.colors_ = torch.zeros(self.N, self.M, 3, dtype=torch.uint8, device="cuda")
++        self.points_ = torch.zeros(self.N * self.M, 3, dtype=torch.float, device=self.device)
++        self.colors_ = torch.zeros(self.N, self.M, 3, dtype=torch.uint8, device=self.device)
+ 
+-        self.index_ = torch.zeros(self.N, self.M, dtype=torch.long, device="cuda")
+-        self.index_map_ = torch.zeros(self.N, dtype=torch.long, device="cuda")
++        self.index_ = torch.zeros(self.N, self.M, dtype=torch.long, device=self.device)
++        self.index_map_ = torch.zeros(self.N, dtype=torch.long, device=self.device)
+ 
+         ### network attributes ###
+         self.mem = 32
+ 
+         if self.cfg.MIXED_PRECISION:
+-            self.kwargs = kwargs = {"device": "cuda", "dtype": torch.half}
++            self.kwargs = kwargs = {"device": self.device, "dtype": torch.half}
+         else:
+-            self.kwargs = kwargs = {"device": "cuda", "dtype": torch.float}
++            self.kwargs = kwargs = {"device": self.device, "dtype": torch.float}
+         
+         self.imap_ = torch.zeros(self.mem, self.M, DIM, **kwargs) # context feature（384*1*1）
+         self.gmap_ = torch.zeros(self.mem, self.M, 128, self.P, self.P, **kwargs) # matching feature（128*p*p）
+@@ -74,9 +73,9 @@ class DPVO:
+         self.pyramid = (self.fmap1_, self.fmap2_)
+ 
+         self.net = torch.zeros(1, 0, DIM, **kwargs)
+-        self.ii = torch.as_tensor([], dtype=torch.long, device="cuda")
+-        self.jj = torch.as_tensor([], dtype=torch.long, device="cuda")
+-        self.kk = torch.as_tensor([], dtype=torch.long, device="cuda")
++        self.ii = torch.as_tensor([], dtype=torch.long, device=self.device)
++        self.jj = torch.as_tensor([], dtype=torch.long, device=self.device)
++        self.kk = torch.as_tensor([], dtype=torch.long, device=self.device)
+         
+         # initialize poses to identity matrix
+         self.poses_[:,6] = 1.0
+@@ -86,12 +85,13 @@ class DPVO:
+ 
+         self.viser = None
+         if viz:
++            from .visualize import Viser
+             self.viser = Viser()
+ 
+     def load_weights(self, network):
+         if isinstance(network, str):
+             from collections import OrderedDict
+-            state_dict = torch.load(network, weights_only=True)
++            state_dict = torch.load(network, weights_only=True, map_location="cpu")
+             new_state_dict = OrderedDict()
+             for k, v in state_dict.items():
+                 if "update.lmbda" not in k:
+@@ -108,7 +108,7 @@ class DPVO:
+         self.RES = self.network.RES
+         self.P = self.network.P
+ 
+-        self.network.cuda()
++        self.network.to(self.device)
+         self.network.eval()
+ 
+         # if self.cfg.MIXED_PRECISION:
+@@ -191,14 +191,14 @@ class DPVO:
+ 
+     def motion_probe(self):
+         """ kinda hacky way to ensure enough motion for initialization """
+-        kk = torch.arange(self.m-self.M, self.m, device="cuda")
++        kk = torch.arange(self.m-self.M, self.m, device=self.device)
+         jj = self.n * torch.ones_like(kk)
+         ii = self.ix[kk]
+ 
+         net = torch.zeros(1, len(ii), self.DIM, **self.kwargs)
+         coords = self.reproject(indicies=(ii, jj, kk))
+ 
+-        with autocast('cuda', enabled=self.cfg.MIXED_PRECISION):
++        with autocast(self.device.type, enabled=False):
+             corr = self.corr(coords, indicies=(kk, jj))
+             ctx = self.imap[:,kk % (self.M * self.mem)]
+             net, (delta, weight, _) = self.network.update(net, ctx, corr, None, ii, jj, kk)
+@@ -256,14 +256,14 @@ class DPVO:
+     def update(self):
+         coords = self.reproject() 
+ 
+-        with autocast('cuda', enabled=True):
++        with autocast(self.device.type, enabled=False):
+             with Timer("Correlation", enabled=self.enable_timing):
+                 corr = self.corr(coords) # correlation volume
+             ctx = self.imap[:,self.kk % (self.M * self.mem)]
+             with Timer("Updator", enabled=self.enable_timing):
+                 self.net, (delta, weight, _) = self.network.update(self.net, ctx, corr, None, self.ii, self.jj, self.kk)
+         
+-        lmbda = torch.as_tensor([1e-4], device="cuda")
++        lmbda = torch.as_tensor([1e-4], device=self.device)
+         weight = weight.float()
+         target = coords[...,self.P//2,self.P//2] + delta.float()
+ 
+@@ -274,8 +274,8 @@ class DPVO:
+             try:
+                 fastba.BA(self.poses, self.patches, self.intrinsics, 
+                     target, weight, lmbda, self.ii, self.jj, self.kk, t0, self.n, 2)
+-            except:
+-                print("Warning BA failed...")
++            except Exception as error:
++                raise RuntimeError("Spherical bundle adjustment failed") from error
+             
+             points = pops.point_cloud(SE3(self.poses), self.patches[:, :self.m], self.intrinsics, self.ix[:self.m])
+             points = (points[...,1,1,:3] / points[...,1,1,3:]).reshape(-1, 3)
+@@ -284,8 +284,8 @@ class DPVO:
+                 
+     def __edges_all(self):
+         return flatmeshgrid(
+-            torch.arange(0, self.m, device="cuda"),
+-            torch.arange(0, self.n, device="cuda"), indexing='ij')
++            torch.arange(0, self.m, device=self.device),
++            torch.arange(0, self.n, device=self.device), indexing='ij')
+ 
+     def __edges_forw(self):
+         r=self.cfg.PATCH_LIFETIME
+@@ -293,15 +293,15 @@ class DPVO:
+         t1 = self.M * max((self.n - 1), 0) 
+         
+         return flatmeshgrid(
+-            torch.arange(t0, t1, device="cuda"), 
+-            torch.arange(self.n-1, self.n, device="cuda"), indexing='ij')
++            torch.arange(t0, t1, device=self.device), 
++            torch.arange(self.n-1, self.n, device=self.device), indexing='ij')
+ 
+     def __edges_back(self):
+         r=self.cfg.PATCH_LIFETIME
+         t0 = self.M * max((self.n - 1), 0)
+         t1 = self.M * max((self.n - 0), 0)
+-        return flatmeshgrid(torch.arange(t0, t1, device="cuda"),
+-            torch.arange(max(self.n-r, 0), self.n, device="cuda"), indexing='ij')
++        return flatmeshgrid(torch.arange(t0, t1, device=self.device),
++            torch.arange(max(self.n-r, 0), self.n, device=self.device), indexing='ij')
+     
+     def __call__(self, tstamp, image, intrinsics):
+         """ track new frame """
+@@ -310,7 +310,7 @@ class DPVO:
+         image = 2 * (image[None,None] / 255.0) - 0.5
+         
+         with Timer("DAS-Feat", enabled=self.enable_timing):
+-            with autocast('cuda', enabled=self.cfg.MIXED_PRECISION):
++            with autocast(self.device.type, enabled=False):
+                 fmap, gmap, imap, patches, _, clr = \
+                     self.network.patchify(image,
+                         patches_per_image=self.cfg.PATCHES_PER_FRAME,
+@@ -343,7 +343,7 @@ class DPVO:
+                 self.poses_[self.n] = tvec_qvec
+ 
+         # depth initialization
+-        patches[:,:,2] = torch.rand_like(patches[:,:,2,0,0,None,None]) 
++        patches[:,:,2] = torch.rand(patches[:,:,2,0,0,None,None].shape).to(self.device) 
+         if self.is_initialized:
+             s = torch.median(self.patches_[self.n-3:self.n,:,2])
+             patches[:,:,2] = s
+@@ -359,7 +359,7 @@ class DPVO:
+         self.counter += 1 
+         if self.n > 0 and not self.is_initialized:
+             if self.motion_probe() < 2.0:
+-                self.delta[self.counter - 1] = (self.counter - 2, Id[0])
++                self.delta[self.counter - 1] = (self.counter - 2, SE3.Identity(1, device=self.device)[0])
+                 return
+         
+         self.n += 1
+diff --git a/dpvo/fastba/ba.py b/dpvo/fastba/ba.py
+index d01d2128319177d0b3d5facf0f53b7693397b245..0897950bc302056c2eec6bd14988e87f77dfdbe6 100644
+--- a/dpvo/fastba/ba.py
++++ b/dpvo/fastba/ba.py
+@@ -1,8 +1,40 @@
++"""Portable inference bundle adjustment and graph-neighbor operations."""
+ import torch
+-import cuda_ba
++from ..lietorch import SE3
+ 
+-neighbors = cuda_ba.neighbors
+-reproject = cuda_ba.reproject
+ 
++def neighbors(ii, jj):
++    # Stable sorting reproduces the upstream ordering of edges with equal targets.
++    order = torch.argsort(jj, stable=True)
++    order = order[torch.argsort(ii[order], stable=True)]
++    groups = ii[order]
++    same = groups[1:] == groups[:-1]
++    before = torch.full_like(ii, -1)
++    after = torch.full_like(ii, -1)
++    before[order[1:]] = torch.where(same, order[:-1], -1)
++    after[order[:-1]] = torch.where(same, order[1:], -1)
++    return before, after
++
++
++def reproject(poses, patches, intrinsics, ii, jj, kk):
++    from ..projective_ops import transform
++    return transform(SE3(poses), patches, intrinsics, ii, jj, kk).permute(0, 1, 4, 2, 3).contiguous()
++
++
++@torch.no_grad()
+ def BA(poses, patches, intrinsics, target, weight, lmbda, ii, jj, kk, t0, t1, iterations=2):
+-    return cuda_ba.forward(poses.data, patches, intrinsics, target, weight, lmbda, ii, jj, kk, t0, t1, iterations)
+\ No newline at end of file
++    from ..ba import BA as tensor_ba
++    if not ii.numel():
++        return
++    # The upstream kernel assumes all frames share the first camera calibration.
++    if not torch.allclose(intrinsics[:, :t1], intrinsics[:, :1].expand_as(intrinsics[:, :t1])):
++        raise ValueError('360DVO requires the same spherical calibration for all frames')
++    # Coordinates and bounds are in feature-map pixels, matching the upstream CUDA kernel.
++    cx, cy = intrinsics[0, 0, 2:4].tolist()
++    bounds = (-64, -64, 2 * cx + 64, 2 * cy + 64)
++    current = SE3(poses[:, :t1])
++    for _ in range(iterations):
++        current, updated = tensor_ba(current, patches, intrinsics, target, weight, lmbda,
++                                     ii, jj, kk, bounds, ep=1.0, fixedp=t0)
++        poses[:, :t1].copy_(current.data)
++        patches.copy_(updated)
+diff --git a/dpvo/lietorch/__init__.py b/dpvo/lietorch/__init__.py
+index 275d68e289eb3ccd5c6980b4e886520ca506863e..2bf8957e50eff3ea8515ecbdc474a1deb2ec1810 100644
+--- a/dpvo/lietorch/__init__.py
++++ b/dpvo/lietorch/__init__.py
+@@ -1,2 +1,67 @@
+-__all__ = ['groups']
+-from .groups import LieGroupParameter, SO3, RxSO3, SE3, Sim3, cat, stack
++"""Inference SE(3) operations implemented using portable PyPose tensors."""
++import torch
++import pypose as pp
++
++
++class SE3:
++    def __init__(self, data):
++        self.data = data
++
++    @classmethod
++    def Identity(cls, *shape, device=None, dtype=None):
++        if len(shape) == 1 and isinstance(shape[0], (tuple, list, torch.Size)):
++            shape = tuple(shape[0])
++        value = torch.zeros(*shape, 7, device=device, dtype=dtype or torch.float32)
++        value[..., 6] = 1
++        return cls(value)
++
++    @classmethod
++    def exp(cls, tangent):
++        return cls(pp.se3(tangent).Exp().tensor())
++
++    @property
++    def device(self):
++        return self.data.device
++
++    @property
++    def shape(self):
++        return self.data.shape[:-1]
++
++    def inv(self):
++        return SE3(pp.SE3(self.data).Inv().tensor())
++
++    def log(self):
++        return pp.SE3(self.data).Log().tensor()
++
++    def retr(self, tangent):
++        return SE3.exp(tangent) * self
++
++    def adjT(self, vector):
++        # Upstream expects a row Jacobian multiplied by the SE(3) adjoint.
++        matrix = self.matrix()
++        rotation = matrix[..., :3, :3]
++        x, y, z = self.data[..., :3].unbind(-1)
++        zero = torch.zeros_like(x)
++        cross = torch.stack((zero, -z, y, z, zero, -x, -y, x, zero), dim=-1).reshape(*x.shape, 3, 3)
++        top = torch.cat((rotation, cross @ rotation), dim=-1)
++        bottom = torch.cat((torch.zeros_like(rotation), rotation), dim=-1)
++        adjoint = torch.cat((top, bottom), dim=-2)
++        return torch.matmul(vector.unsqueeze(-2), adjoint).squeeze(-2)
++
++    def matrix(self):
++        return pp.SE3(self.data).matrix()
++
++    def __mul__(self, other):
++        if isinstance(other, SE3):
++            return SE3((pp.SE3(self.data) @ pp.SE3(other.data)).tensor())
++        return pp.SE3(self.data).Act(other)
++
++    def __getitem__(self, key):
++        return SE3(self.data[key])
++
++    def __setitem__(self, key, value):
++        self.data[key] = value.data if isinstance(value, SE3) else value
++
++
++def stack(groups, dim=0):
++    return SE3(torch.stack([g.data for g in groups], dim=dim))
+diff --git a/dpvo/net.py b/dpvo/net.py
+index 9250b83b33d3b5e220018f4621ba87a28f6a79d6..7e0173c576b888fe59b4b6f8951abd8dae4ffe7f 100644
+--- a/dpvo/net.py
++++ b/dpvo/net.py
+@@ -121,8 +121,8 @@ class Patchifier(nn.Module):
+                 # g = self.__image_gradient(images)
+                 g = self.__feature_gradient(fmap)
+ 
+-                x = torch.randint(1, w-1, size=[n, 3*patches_per_image], device="cuda")
+-                y = torch.randint(1, h-1, size=[n, 3*patches_per_image], device="cuda")
++                x = torch.randint(1, w-1, size=[n, 3*patches_per_image]).to(fmap.device)
++                y = torch.randint(1, h-1, size=[n, 3*patches_per_image]).to(fmap.device)
+ 
+                 coords = torch.stack([x, y], dim=-1).float()
+ 
+@@ -132,8 +132,8 @@ class Patchifier(nn.Module):
+                 x = torch.gather(x, 1, ix[:, -patches_per_image:])
+                 y = torch.gather(y, 1, ix[:, -patches_per_image:])
+             else:
+-                x = torch.randint(1, w-1, size=[n, patches_per_image], device="cuda")
+-                y = torch.randint(1, h-1, size=[n, patches_per_image], device="cuda")
++                x = torch.randint(1, w-1, size=[n, patches_per_image]).to(fmap.device)
++                y = torch.randint(1, h-1, size=[n, patches_per_image]).to(fmap.device)
+             
+             coords = torch.stack([x, y], dim=-1).float() 
+             imap = altcorr.patchify(imap[0], coords, 0).view(b, -1, DIM, 1, 1)
+@@ -143,11 +143,11 @@ class Patchifier(nn.Module):
+                 clr = altcorr.patchify(images[0], 4*(coords + 0.5), 0).view(b, -1, 3)
+ 
+             if disps is None:
+-                disps = torch.ones(b, n, h, w, device="cuda")
++                disps = torch.ones(b, n, h, w, device=fmap.device)
+ 
+             grid, _ = coords_grid_with_index(disps, device=fmap.device)
+             patches = altcorr.patchify(grid[0], coords, 1).view(b, -1, 3, 3, 3)
+-            index = torch.arange(n, device="cuda").view(n, 1)
++            index = torch.arange(n, device=fmap.device).view(n, 1)
+             index = index.repeat(1, patches_per_image).reshape(-1)
+ 
+         if return_color:
+@@ -202,11 +202,11 @@ class VONet(nn.Module):
+         d = patches[..., 2, p//2, p//2]
+         patches = set_depth(patches, torch.rand_like(d))
+ 
+-        kk, jj = flatmeshgrid(torch.where(ix < 8)[0], torch.arange(0,8, device="cuda"))
++        kk, jj = flatmeshgrid(torch.where(ix < 8)[0], torch.arange(0,8, device=fmap.device))
+         ii = ix[kk]
+ 
+         imap = imap.view(b, -1, DIM) 
+-        net = torch.zeros(b, len(kk), DIM, device="cuda", dtype=torch.float)
++        net = torch.zeros(b, len(kk), DIM, device=fmap.device, dtype=torch.float)
+ 
+         Gs = SE3.IdentityLike(poses)
+ 
+@@ -223,14 +223,14 @@ class VONet(nn.Module):
+             n = ii.max() + 1
+             if len(traj) >= 8 and n < images.shape[1]:
+                 if not structure_only: Gs.data[:,n] = Gs.data[:,n-1]
+-                kk1, jj1 = flatmeshgrid(torch.where(ix  < n)[0], torch.arange(n, n+1, device="cuda"))
+-                kk2, jj2 = flatmeshgrid(torch.where(ix == n)[0], torch.arange(0, n+1, device="cuda"))
++                kk1, jj1 = flatmeshgrid(torch.where(ix  < n)[0], torch.arange(n, n+1, device=fmap.device))
++                kk2, jj2 = flatmeshgrid(torch.where(ix == n)[0], torch.arange(0, n+1, device=fmap.device))
+                 
+                 ii = torch.cat([ix[kk1], ix[kk2], ii])
+                 jj = torch.cat([jj1, jj2, jj])
+                 kk = torch.cat([kk1, kk2, kk])
+ 
+-                net1 = torch.zeros(b, len(kk1) + len(kk2), DIM, device="cuda")
++                net1 = torch.zeros(b, len(kk1) + len(kk2), DIM, device=fmap.device)
+                 net = torch.cat([net1, net], dim=1)
+ 
+                 if np.random.rand() < 0.1:
+diff --git a/dpvo/portable_scatter.py b/dpvo/portable_scatter.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..532341a8754797911ff75b2059e8683d9749c0f8
+--- /dev/null
++++ b/dpvo/portable_scatter.py
+@@ -0,0 +1,24 @@
++"""Grouped reductions used by inference, without torch-scatter extensions."""
++import torch
++
++
++def scatter_sum(src, index, dim=1, dim_size=None):
++    if dim != 1 or index.ndim != 1:
++        raise ValueError('Expected one-dimensional indices along dimension 1')
++    size = int(index.max().item()) + 1 if dim_size is None and index.numel() else (dim_size or 0)
++    result = src.new_zeros((src.shape[0], size, *src.shape[2:]))
++    return result.index_add(1, index, src)
++
++
++def scatter_softmax(src, index, dim=1):
++    if dim != 1 or index.ndim != 1:
++        raise ValueError('Expected one-dimensional indices along dimension 1')
++    if not index.numel():
++        return src
++    groups = int(index.max().item()) + 1
++    expanded = index.reshape(1, -1, *([1] * (src.ndim - 2))).expand_as(src)
++    shape = (src.shape[0], groups, *src.shape[2:])
++    maximum = src.new_full(shape, -torch.inf).scatter_reduce_(1, expanded, src, reduce='amax', include_self=True)
++    weights = (src - maximum.gather(1, expanded)).exp()
++    totals = src.new_zeros(shape).scatter_add_(1, expanded, weights)
++    return weights / totals.gather(1, expanded)
+diff --git a/dpvo/projective_ops.py b/dpvo/projective_ops.py
+index 59711299178e6f6b10255ce6cfd1c0e4a527fef8..599b45b2d053c6d9441e1ae8fd487b456f96e666 100644
+--- a/dpvo/projective_ops.py
++++ b/dpvo/projective_ops.py
+@@ -105,7 +105,7 @@ def transform(poses, patches, intrinsics, ii, jj, kk, return_depth=False, valid=
+ 
+         Jd = torch.matmul(Jz, Jq)
+ 
+-        return x1, (d > MIN_DEPTH).float(), (Ji, Jj, Jd)
++        return x1, (d < 1.0 / MIN_DEPTH).float(), (Ji, Jj, Jd)
+ 
+     if valid:
+         return x1, (X1[...,2] > MIN_DEPTH).float()
+diff --git a/portable_demo.py b/portable_demo.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..a5773d62f899b6484d9658fc22a7cd3160f87d47
+--- /dev/null
++++ b/portable_demo.py
+@@ -0,0 +1,100 @@
++"""Run 360DVO on full equirectangular video using CPU, Apple MPS, or ROCm."""
++import argparse
++import csv
++import json
++import math
++from pathlib import Path
++
++import cv2
++import numpy as np
++from scipy.spatial.transform import Rotation
++import torch
++
++from dpvo.config import cfg
++from dpvo.dpvo import DPVO
++
++
++def choose_device(requested):
++    if requested != 'auto':
++        device = torch.device(requested)
++        if device.type == 'mps' and not torch.backends.mps.is_available():
++            raise RuntimeError('Apple MPS is unavailable')
++        if device.type == 'cuda' and not torch.cuda.is_available():
++            raise RuntimeError('PyTorch GPU backend is unavailable')
++        return device
++    if torch.backends.mps.is_available():
++        return torch.device('mps')
++    if torch.cuda.is_available():  # ROCm also exposes its device through this API.
++        return torch.device('cuda')
++    return torch.device('cpu')
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument('video', type=Path)
++    parser.add_argument('output', type=Path)
++    parser.add_argument('--weights', type=Path, required=True)
++    parser.add_argument('--device', choices=('auto', 'cpu', 'mps', 'cuda'), default='auto')
++    parser.add_argument('--width', type=int, default=512)
++    parser.add_argument('--patches', type=int, default=48)
++    parser.add_argument('--stride', type=int, default=1)
++    args = parser.parse_args()
++    if args.width < 128 or args.width % 32:
++        parser.error('width must be a multiple of 32 and at least 128')
++    if args.patches < 1 or args.stride < 1:
++        parser.error('patches and stride must be positive')
++    if not args.video.is_file() or not args.weights.is_file():
++        parser.error('input video and model weights must exist')
++    if args.output.exists() and any(args.output.iterdir()):
++        parser.error('output must be an empty directory')
++    device = choose_device(args.device)
++    capture = cv2.VideoCapture(str(args.video))
++    width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
++    height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
++    fps = capture.get(cv2.CAP_PROP_FPS)
++    if not capture.isOpened() or width != 2 * height or not math.isfinite(fps) or fps <= 0:
++        raise RuntimeError('Expected a readable 2:1 equirectangular video with known frame rate')
++    cfg.merge_from_file(str(Path(__file__).parent / 'config/360.yaml'))
++    cfg.MIXED_PRECISION = False
++    cfg.PATCHES_PER_FRAME = args.patches
++    cfg.BUFFER_SIZE = 512
++    tracker = DPVO(cfg, str(args.weights), ht=args.width // 2, wd=args.width, device=device)
++    intrinsics = torch.tensor([args.width/(2*math.pi), -args.width/(2*math.pi), args.width/2, args.width/4], dtype=torch.float32, device=device)
++    source_index = 0
++    used = 0
++    torch.manual_seed(0)
++    with torch.no_grad():
++        while True:
++            ok, frame = capture.read()
++            if not ok:
++                break
++            if source_index % args.stride == 0:
++                frame = cv2.resize(frame, (args.width, args.width // 2), interpolation=cv2.INTER_AREA)
++                image = torch.from_numpy(frame).permute(2, 0, 1).to(device)
++                tracker(source_index / fps, image, intrinsics)
++                used += 1
++                print(f'Processed frame {used}', flush=True)
++            source_index += 1
++        if not tracker.is_initialized:
++            raise RuntimeError('360DVO did not initialize; more motion or texture may be needed')
++        for _ in range(12):
++            tracker.update()
++        poses, timestamps = tracker.terminate()
++    capture.release()
++    rows = []
++    for i, (pose, time) in enumerate(zip(poses, timestamps)):
++        transform = np.column_stack((Rotation.from_quat(pose[3:7]).as_matrix(), pose[:3]))
++        rows.append({'frame': i, 'time_seconds': float(time), 'image': f'{i:06}', 'world_from_camera': transform.tolist()})
++    args.output.mkdir(parents=True, exist_ok=True)
++    data = {'schema':'spheredim-poses-v1','input_video':str(args.video.resolve()),'sampling_fps':fps/args.stride,'camera_model':'360DVO equirectangular','coordinates':'camera-to-world 3x4 row-major; camera x right, y down, z forward; arbitrary world axes and scale','registered':len(rows),'sampled':len(rows),'frames':rows,'note':'360DVO reconstructs poses for removed frames from relative motion; these are not independent direct observations.'}
++    (args.output/'poses.json').write_text(json.dumps(data,indent=2)+'\n')
++    with (args.output/'poses.csv').open('w',newline='') as f:
++        writer=csv.writer(f)
++        writer.writerow(['frame','time_seconds','image','registered']+[f'm{r}{c}' for r in range(3) for c in range(4)])
++        for row in rows:
++            writer.writerow([row['frame'],row['time_seconds'],row['image'],1]+[v for line in row['world_from_camera'] for v in line])
++    print(f'Wrote {len(rows)} poses to {args.output} using {device}')
++
++
++if __name__ == '__main__':
++    main()
+diff --git a/requirements-macos-arm64-py314.lock b/requirements-macos-arm64-py314.lock
+new file mode 100644
+index 0000000000000000000000000000000000000000..887f81104d2d3fc5025e22b6d339626116b36386
+--- /dev/null
++++ b/requirements-macos-arm64-py314.lock
+@@ -0,0 +1,22 @@
++einops==0.8.2
++filelock==4.2.10
++fsspec==2026.9.0
++iniconfig==2.3.1
++Jinja2==3.1.6
++MarkupSafe==3.0.4
++mpmath==1.3.0
++networkx==3.7
++numpy==2.5.4
++opencv-python-headless==5.0.0.93
++packaging==26.3
++pluggy==1.7.0
++Pygments==2.21.0
++pypose==0.9.5
++pytest==9.2.0
++PyYAML==6.0.3
++scipy==1.18.1
++setuptools==84.2.1
++sympy==1.14.0
++torch==2.15.0
++typing_extensions==4.16.0
++yacs==0.1.8
+diff --git a/setup.py b/setup.py
+index d6b01c4bc78d90fe308c39be0d6971da289474e8..a5da329ed77616d8183fe492c3e306e8a4d98206 100644
+--- a/setup.py
++++ b/setup.py
+@@ -1,38 +1,9 @@
+-import os.path as osp
+-from setuptools import setup, find_packages
+-from torch.utils.cpp_extension import BuildExtension, CUDAExtension
+-
+-ROOT = osp.dirname(osp.abspath(__file__))
+-
+-
++from setuptools import find_packages, setup
+ 
+ setup(
+-    name='360dvo',
++    name='spheredim-360dvo',
++    version='0.1.0',
+     packages=find_packages(),
+-    ext_modules=[
+-        CUDAExtension('cuda_corr',
+-            sources=['dpvo/altcorr/correlation.cpp', 'dpvo/altcorr/correlation_kernel.cu'],
+-            extra_compile_args={
+-                'cxx':  ['-O3'], 
+-                'nvcc': ['-O3'],
+-            }),
+-        CUDAExtension('cuda_ba',
+-            sources=['dpvo/fastba/ba.cpp', 'dpvo/fastba/ba_cuda.cu'],
+-            extra_compile_args={
+-                'cxx':  ['-O3'], 
+-                'nvcc': ['-O3'],
+-            }),
+-        CUDAExtension('lietorch_backends', 
+-            include_dirs=[
+-                osp.join(ROOT, 'dpvo/lietorch/include'), 
+-                osp.join(ROOT, 'thirdparty/eigen-3.4.0')],
+-            sources=[
+-                'dpvo/lietorch/src/lietorch.cpp', 
+-                'dpvo/lietorch/src/lietorch_gpu.cu',
+-                'dpvo/lietorch/src/lietorch_cpu.cpp'],
+-            extra_compile_args={'cxx': ['-O3'], 'nvcc': ['-O3'],}),
+-    ],
+-    cmdclass={
+-        'build_ext': BuildExtension
+-    })
+-
++    description='Portable GPU inference backend for 360DVO',
++    python_requires='>=3.10',
++)
+diff --git a/tests/test_portable.py b/tests/test_portable.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..dca6c48a01f20ec7cec09361d21f29a228da29a3
+--- /dev/null
++++ b/tests/test_portable.py
+@@ -0,0 +1,139 @@
++"""Numerical reference tests for portable GPU tracking operations."""
++import os
++import unittest
++import torch
++
++from dpvo.altcorr import corr, patchify
++from dpvo.fastba import BA, neighbors
++from dpvo.lietorch import SE3
++from dpvo.portable_scatter import scatter_softmax, scatter_sum
++from dpvo import projective_ops
++
++DEVICE = os.environ.get('SPHEREDIM_DEVICE', 'cpu')
++
++
++def bilinear(image, x, y):
++    h, w = image.shape
++    x0, y0 = int(torch.floor(x)), int(torch.floor(y))
++    value = 0.0
++    for dy in (0, 1):
++        for dx in (0, 1):
++            px, py = x0 + dx, y0 + dy
++            if 0 <= px < w and 0 <= py < h:
++                value += image[py, px].item() * (1 - abs(x.item()-px)) * (1 - abs(y.item()-py))
++    return value
++
++
++class PortableOperators(unittest.TestCase):
++    def test_patchify_interpolates_and_zero_pads(self):
++        image = torch.arange(20., device=DEVICE).reshape(1,1,4,5)
++        points = torch.tensor([[[2.25,1.5],[0.2,0.1]]], device=DEVICE)
++        actual = patchify(image, points, 1).cpu()
++        expected = torch.empty_like(actual)
++        for i in range(2):
++            for y in range(3):
++                for x in range(3):
++                    expected[0,i,0,y,x] = bilinear(image.cpu()[0,0],points.cpu()[0,i,0]+x-1,points.cpu()[0,i,1]+y-1)
++        torch.testing.assert_close(actual, expected, atol=1e-5, rtol=1e-5)
++
++    def test_correlation_matches_scalar_reference(self):
++        torch.manual_seed(7)
++        source = torch.randn(1, 2, 4, 2, 2).to(DEVICE)
++        target = torch.randn(1, 2, 4, 4, 5).to(DEVICE)
++        points = (torch.rand(1, 3, 2, 2, 2)*4 - .5).to(DEVICE)
++        ii = torch.tensor([0,1,0],device=DEVICE)
++        jj = torch.tensor([1,0,1],device=DEVICE)
++        actual = corr(source,target,points,ii,jj,1).cpu()
++        s,t,p = source.cpu(),target.cpu(),points.cpu()
++        expected = torch.zeros_like(actual)
++        for e in range(3):
++            for ox in range(3):
++                for oy in range(3):
++                    for y in range(2):
++                        for x in range(2):
++                            for c in range(4):
++                                expected[0,e,ox,oy,y,x] += s[0,ii[e],c,y,x]*bilinear(t[0,jj[e],c],p[0,e,0,y,x]+ox-1,p[0,e,1,y,x]+oy-1)
++        torch.testing.assert_close(actual,expected,atol=1e-5,rtol=1e-5)
++
++    def test_neighbors_and_group_reductions(self):
++        ii = torch.tensor([1,0,1,1,0],device=DEVICE); jj = torch.tensor([4,3,2,4,1],device=DEVICE)
++        before, after = neighbors(ii,jj)
++        self.assertEqual(before.cpu().tolist(), [2,4,-1,0,-1])
++        self.assertEqual(after.cpu().tolist(), [3,-1,0,-1,1])
++        values = torch.tensor([[[1.,2.],[3.,1.],[4.,3.],[2.,4.],[3.,2.]]],device=DEVICE)
++        weights = scatter_softmax(values,ii)
++        for g in (0,1):
++            mask = ii == g
++            torch.testing.assert_close(weights[:,mask].cpu(),torch.softmax(values[:,mask],dim=1).cpu())
++        sums = scatter_sum(values,ii,dim_size=2)
++        torch.testing.assert_close(sums[:,0].cpu(),values[:,ii==0].sum(dim=1).cpu())
++
++    def test_spherical_pose_jacobians(self):
++        dtype = torch.float32 if DEVICE != 'cpu' else torch.float64
++        twists = torch.tensor([[[.1,.2,.3,.01,.02,.03],[.3,-.1,.2,.03,-.02,.04]]],dtype=dtype,device=DEVICE)
++        poses = SE3.exp(twists)
++        patches = torch.zeros(1,1,3,3,3,dtype=dtype,device=DEVICE)
++        patches[:,:,0]=170;patches[:,:,1]=80;patches[:,:,2]=.5
++        intrinsics = torch.tensor([[[100.,-100.,160.,80.],[100.,-100.,160.,80.]]],dtype=dtype,device=DEVICE)
++        ii=torch.tensor([0],device=DEVICE);jj=torch.tensor([1],device=DEVICE);kk=torch.tensor([0],device=DEVICE)
++        _,_,(ji,jjaco,jd)=projective_ops.transform(poses,patches,intrinsics,ii,jj,kk,jacobian=True)
++        eps = 1e-3 if dtype == torch.float32 else 1e-6
++        for which,jac in ((0,ji),(1,jjaco)):
++            columns=[]
++            for k in range(6):
++                delta=torch.zeros(1,2,6,dtype=dtype,device=DEVICE);delta[0,which,k]=eps
++                plus=projective_ops.transform(poses.retr(delta),patches,intrinsics,ii,jj,kk)[0,0,1,1]
++                delta[0,which,k]=-eps
++                minus=projective_ops.transform(poses.retr(delta),patches,intrinsics,ii,jj,kk)[0,0,1,1]
++                columns.append((plus-minus)/(2*eps))
++            torch.testing.assert_close(torch.stack(columns,dim=1).cpu(),jac[0,0].cpu(),atol=.025 if dtype == torch.float32 else 1e-5,rtol=1e-3)
++        before=patches.clone();before[:,:,2]+=eps
++        after=patches.clone();after[:,:,2]-=eps
++        numerical=(projective_ops.transform(poses,before,intrinsics,ii,jj,kk)-projective_ops.transform(poses,after,intrinsics,ii,jj,kk))/(2*eps)
++        torch.testing.assert_close(numerical[0,0,1,1].cpu(),jd[0,0,:,0].cpu(),atol=.025 if dtype == torch.float32 else 1e-5,rtol=1e-3)
++
++    def test_depth_reset_and_unobserved_patch(self):
++        from dpvo.ba import BA as tensor_ba
++        pose = SE3.Identity(1, 2, device=DEVICE)
++        patches = torch.zeros(1, 2, 3, 3, 3, device=DEVICE)
++        patches[:, :, 0] = 160; patches[:, :, 1] = 80
++        patches[:, 0, 2] = 21; patches[:, 1, 2] = 25
++        intr = torch.tensor([[[100., -100., 160., 80.]] * 2], device=DEVICE)
++        ii = torch.tensor([0], device=DEVICE); jj = torch.tensor([1], device=DEVICE)
++        kk = torch.tensor([0], device=DEVICE)
++        target = projective_ops.transform(pose, patches, intr, ii, jj, kk)[:, :, 1, 1]
++        _, updated = tensor_ba(pose, patches, intr, target, torch.zeros_like(target),
++                               torch.tensor([.001], device=DEVICE), ii, jj, kk,
++                               (-64, -64, 384, 224), fixedp=1, structure_only=True)
++        torch.testing.assert_close(updated[:, 0, 2], torch.ones_like(updated[:, 0, 2]))
++        torch.testing.assert_close(updated[:, 1, 2], patches[:, 1, 2])
++
++    def test_bad_hessian_and_mismatched_intrinsics_fail(self):
++        from dpvo.ba import CholeskySolver
++        with self.assertRaisesRegex(RuntimeError, 'positive definite'):
++            CholeskySolver.apply(-torch.eye(2, device=DEVICE)[None], torch.ones(1, 2, 1, device=DEVICE))
++        pose = SE3.Identity(1, 2, device=DEVICE).data
++        patches = torch.zeros(1, 1, 3, 3, 3, device=DEVICE)
++        intr = torch.tensor([[[100., -100., 160., 80.], [101., -100., 160., 80.]]], device=DEVICE)
++        index = torch.tensor([0], device=DEVICE)
++        with self.assertRaisesRegex(ValueError, 'same spherical calibration'):
++            BA(pose, patches, intr, torch.zeros(1, 1, 2, device=DEVICE),
++               torch.ones(1, 1, 2, device=DEVICE), torch.tensor([.001], device=DEVICE),
++               index, index, index, 1, 2)
++
++    def test_bundle_adjustment_reduces_error_and_keeps_anchor(self):
++        n=20; pose=SE3.Identity(1,2,device=DEVICE).data
++        patches=torch.zeros(1,n,3,3,3,device=DEVICE)
++        patches[:,:,0]=torch.linspace(100,200,n,device=DEVICE)[:,None,None];patches[:,:,1]=torch.linspace(50,100,n,device=DEVICE)[:,None,None];patches[:,:,2]=1
++        intr=torch.tensor([[[100.,-100.,160.,80.],[100.,-100.,160.,80.]]],device=DEVICE)
++        ii=torch.zeros(n,dtype=torch.long,device=DEVICE);jj=torch.ones(n,dtype=torch.long,device=DEVICE);kk=torch.arange(n,device=DEVICE)
++        target=projective_ops.transform(SE3(pose),patches,intr,ii,jj,kk)[:,:,1,1,:]+torch.tensor([.5,.2],device=DEVICE)
++        initial=pose[:,0].clone()
++        def loss(): return (projective_ops.transform(SE3(pose),patches,intr,ii,jj,kk)[:,:,1,1,:]-target).square().mean().item()
++        start=loss();BA(pose,patches,intr,target,torch.ones_like(target),torch.tensor([.0001],device=DEVICE),ii,jj,kk,1,2,2)
++        self.assertLess(loss(),start)
++        torch.testing.assert_close(pose[:,0],initial)
++
++
++if __name__ == '__main__':
++    unittest.main()

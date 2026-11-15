@@ -1,0 +1,223 @@
+I20261114 14:46:37.123831 0x16d6e7000 feature_extraction.cc:498] === Feature extraction ===
+I20261114 14:46:37.124618 0x16d9a3000 sift.cc:764] Creating SIFT CPU feature extractor
+I20261114 14:46:37.124626 0x16da2f000 sift.cc:764] Creating SIFT CPU feature extractor
+I20261114 14:46:37.124660 0x16dabb000 sift.cc:764] Creating SIFT CPU feature extractor
+I20261114 14:46:37.124661 0x16db47000 sift.cc:764] Creating SIFT CPU feature extractor
+I20261114 14:46:37.568715 0x16dbd3000 feature_extraction.cc:270] Processed file [1/24]
+I20261114 14:46:37.568968 0x16dbd3000 feature_extraction.cc:273]   Name:            000000.png
+I20261114 14:46:37.569075 0x16dbd3000 feature_extraction.cc:282]   Dimensions:      1024 x 512
+I20261114 14:46:37.569172 0x16dbd3000 feature_extraction.cc:285]   Camera:          #1 - EQUIRECTANGULAR
+I20261114 14:46:37.569265 0x16dbd3000 feature_extraction.cc:294]   Features:        89 (SIFT)
+I20261114 14:46:37.592861 0x16dbd3000 feature_extraction.cc:270] Processed file [2/24]
+I20261114 14:46:37.593089 0x16dbd3000 feature_extraction.cc:273]   Name:            000001.png
+I20261114 14:46:37.593199 0x16dbd3000 feature_extraction.cc:282]   Dimensions:      1024 x 512
+I20261114 14:46:37.593297 0x16dbd3000 feature_extraction.cc:285]   Camera:          #1 - EQUIRECTANGULAR
+I20261114 14:46:37.593389 0x16dbd3000 feature_extraction.cc:294]   Features:        85 (SIFT)
+I20261114 14:46:37.605625 0x16dbd3000 feature_extraction.cc:270] Processed file [3/24]
+I20261114 14:46:37.605834 0x16dbd3000 feature_extraction.cc:273]   Name:            000002.png
+I20261114 14:46:37.605943 0x16dbd3000 feature_extraction.cc:282]   Dimensions:      1024 x 512
+I20261114 14:46:37.606039 0x16dbd3000 feature_extraction.cc:285]   Camera:          #1 - EQUIRECTANGULAR
+I20261114 14:46:37.606134 0x16dbd3000 feature_extraction.cc:294]   Features:        117 (SIFT)
+I20261114 14:46:37.617661 0x16dbd3000 feature_extraction.cc:270] Processed file [4/24]
+I20261114 14:46:37.617830 0x16dbd3000 feature_extraction.cc:273]   Name:            000003.png
+I20261114 14:46:37.617935 0x16dbd3000 feature_extraction.cc:282]   Dimensions:      1024 x 512
+I20261114 14:46:37.618030 0x16dbd3000 feature_extraction.cc:285]   Camera:          #1 - EQUIRECTANGULAR
+I20261114 14:46:37.618121 0x16dbd3000 feature_extraction.cc:294]   Features:        124 (SIFT)
+I20261114 14:46:37.980049 0x16dbd3000 feature_extraction.cc:270] Processed file [5/24]
+I20261114 14:46:37.980319 0x16dbd3000 feature_extraction.cc:273]   Name:            000004.png
+I20261114 14:46:37.980441 0x16dbd3000 feature_extraction.cc:282]   Dimensions:      1024 x 512
+I20261114 14:46:37.980544 0x16dbd3000 feature_extraction.cc:285]   Camera:          #1 - EQUIRECTANGULAR
+I20261114 14:46:37.980643 0x16dbd3000 feature_extraction.cc:294]   Features:        129 (SIFT)
+I20261114 14:46:38.003925 0x16dbd3000 feature_extraction.cc:270] Processed file [6/24]
+I20261114 14:46:38.004095 0x16dbd3000 feature_extraction.cc:273]   Name:            000005.png
+I20261114 14:46:38.004196 0x16dbd3000 feature_extraction.cc:282]   Dimensions:      1024 x 512
+I20261114 14:46:38.004291 0x16dbd3000 feature_extraction.cc:285]   Camera:          #1 - EQUIRECTANGULAR
+I20261114 14:46:38.004383 0x16dbd3000 feature_extraction.cc:294]   Features:        133 (SIFT)
+I20261114 14:46:38.007573 0x16dbd3000 feature_extraction.cc:270] Processed file [7/24]
+I20261114 14:46:38.007733 0x16dbd3000 feature_extraction.cc:273]   Name:            000006.png
+I20261114 14:46:38.007838 0x16dbd3000 feature_extraction.cc:282]   Dimensions:      1024 x 512
+I20261114 14:46:38.007935 0x16dbd3000 feature_extraction.cc:285]   Camera:          #1 - EQUIRECTANGULAR
+I20261114 14:46:38.008028 0x16dbd3000 feature_extraction.cc:294]   Features:        164 (SIFT)
+I20261114 14:46:38.031295 0x16dbd3000 feature_extraction.cc:270] Processed file [8/24]
+I20261114 14:46:38.031498 0x16dbd3000 feature_extraction.cc:273]   Name:            000007.png
+I20261114 14:46:38.031609 0x16dbd3000 feature_extraction.cc:282]   Dimensions:      1024 x 512
+I20261114 14:46:38.031707 0x16dbd3000 feature_extraction.cc:285]   Camera:          #1 - EQUIRECTANGULAR
+I20261114 14:46:38.031820 0x16dbd3000 feature_extraction.cc:294]   Features:        140 (SIFT)
+I20261114 14:46:38.389515 0x16dbd3000 feature_extraction.cc:270] Processed file [9/24]
+I20261114 14:46:38.389759 0x16dbd3000 feature_extraction.cc:273]   Name:            000008.png
+I20261114 14:46:38.389866 0x16dbd3000 feature_extraction.cc:282]   Dimensions:      1024 x 512
+I20261114 14:46:38.389962 0x16dbd3000 feature_extraction.cc:285]   Camera:          #1 - EQUIRECTANGULAR
+I20261114 14:46:38.390054 0x16dbd3000 feature_extraction.cc:294]   Features:        103 (SIFT)
+I20261114 14:46:38.413199 0x16dbd3000 feature_extraction.cc:270] Processed file [10/24]
+I20261114 14:46:38.413367 0x16dbd3000 feature_extraction.cc:273]   Name:            000009.png
+I20261114 14:46:38.413467 0x16dbd3000 feature_extraction.cc:282]   Dimensions:      1024 x 512
+I20261114 14:46:38.413562 0x16dbd3000 feature_extraction.cc:285]   Camera:          #1 - EQUIRECTANGULAR
+I20261114 14:46:38.413652 0x16dbd3000 feature_extraction.cc:294]   Features:        127 (SIFT)
+I20261114 14:46:38.416827 0x16dbd3000 feature_extraction.cc:270] Processed file [11/24]
+I20261114 14:46:38.417024 0x16dbd3000 feature_extraction.cc:273]   Name:            000010.png
+I20261114 14:46:38.417132 0x16dbd3000 feature_extraction.cc:282]   Dimensions:      1024 x 512
+I20261114 14:46:38.417231 0x16dbd3000 feature_extraction.cc:285]   Camera:          #1 - EQUIRECTANGULAR
+I20261114 14:46:38.417324 0x16dbd3000 feature_extraction.cc:294]   Features:        102 (SIFT)
+I20261114 14:46:38.440571 0x16dbd3000 feature_extraction.cc:270] Processed file [12/24]
+I20261114 14:46:38.440743 0x16dbd3000 feature_extraction.cc:273]   Name:            000011.png
+I20261114 14:46:38.440850 0x16dbd3000 feature_extraction.cc:282]   Dimensions:      1024 x 512
+I20261114 14:46:38.440946 0x16dbd3000 feature_extraction.cc:285]   Camera:          #1 - EQUIRECTANGULAR
+I20261114 14:46:38.441038 0x16dbd3000 feature_extraction.cc:294]   Features:        122 (SIFT)
+I20261114 14:46:38.802478 0x16dbd3000 feature_extraction.cc:270] Processed file [13/24]
+I20261114 14:46:38.802730 0x16dbd3000 feature_extraction.cc:273]   Name:            000012.png
+I20261114 14:46:38.802842 0x16dbd3000 feature_extraction.cc:282]   Dimensions:      1024 x 512
+I20261114 14:46:38.802941 0x16dbd3000 feature_extraction.cc:285]   Camera:          #1 - EQUIRECTANGULAR
+I20261114 14:46:38.803034 0x16dbd3000 feature_extraction.cc:294]   Features:        130 (SIFT)
+I20261114 14:46:38.814437 0x16dbd3000 feature_extraction.cc:270] Processed file [14/24]
+I20261114 14:46:38.814614 0x16dbd3000 feature_extraction.cc:273]   Name:            000013.png
+I20261114 14:46:38.814715 0x16dbd3000 feature_extraction.cc:282]   Dimensions:      1024 x 512
+I20261114 14:46:38.814807 0x16dbd3000 feature_extraction.cc:285]   Camera:          #1 - EQUIRECTANGULAR
+I20261114 14:46:38.814898 0x16dbd3000 feature_extraction.cc:294]   Features:        114 (SIFT)
+I20261114 14:46:38.831052 0x16dbd3000 feature_extraction.cc:270] Processed file [15/24]
+I20261114 14:46:38.831235 0x16dbd3000 feature_extraction.cc:273]   Name:            000014.png
+I20261114 14:46:38.831353 0x16dbd3000 feature_extraction.cc:282]   Dimensions:      1024 x 512
+I20261114 14:46:38.831448 0x16dbd3000 feature_extraction.cc:285]   Camera:          #1 - EQUIRECTANGULAR
+I20261114 14:46:38.831540 0x16dbd3000 feature_extraction.cc:294]   Features:        115 (SIFT)
+I20261114 14:46:38.834971 0x16dbd3000 feature_extraction.cc:270] Processed file [16/24]
+I20261114 14:46:38.835138 0x16dbd3000 feature_extraction.cc:273]   Name:            000015.png
+I20261114 14:46:38.835244 0x16dbd3000 feature_extraction.cc:282]   Dimensions:      1024 x 512
+I20261114 14:46:38.835342 0x16dbd3000 feature_extraction.cc:285]   Camera:          #1 - EQUIRECTANGULAR
+I20261114 14:46:38.835434 0x16dbd3000 feature_extraction.cc:294]   Features:        113 (SIFT)
+I20261114 14:46:39.211990 0x16dbd3000 feature_extraction.cc:270] Processed file [17/24]
+I20261114 14:46:39.212232 0x16dbd3000 feature_extraction.cc:273]   Name:            000016.png
+I20261114 14:46:39.212354 0x16dbd3000 feature_extraction.cc:282]   Dimensions:      1024 x 512
+I20261114 14:46:39.212463 0x16dbd3000 feature_extraction.cc:285]   Camera:          #1 - EQUIRECTANGULAR
+I20261114 14:46:39.212556 0x16dbd3000 feature_extraction.cc:294]   Features:        98 (SIFT)
+I20261114 14:46:39.218446 0x16dbd3000 feature_extraction.cc:270] Processed file [18/24]
+I20261114 14:46:39.218639 0x16dbd3000 feature_extraction.cc:273]   Name:            000017.png
+I20261114 14:46:39.218743 0x16dbd3000 feature_extraction.cc:282]   Dimensions:      1024 x 512
+I20261114 14:46:39.218838 0x16dbd3000 feature_extraction.cc:285]   Camera:          #1 - EQUIRECTANGULAR
+I20261114 14:46:39.218929 0x16dbd3000 feature_extraction.cc:294]   Features:        122 (SIFT)
+I20261114 14:46:39.242771 0x16dbd3000 feature_extraction.cc:270] Processed file [19/24]
+I20261114 14:46:39.243003 0x16dbd3000 feature_extraction.cc:273]   Name:            000018.png
+I20261114 14:46:39.243111 0x16dbd3000 feature_extraction.cc:282]   Dimensions:      1024 x 512
+I20261114 14:46:39.243206 0x16dbd3000 feature_extraction.cc:285]   Camera:          #1 - EQUIRECTANGULAR
+I20261114 14:46:39.243300 0x16dbd3000 feature_extraction.cc:294]   Features:        114 (SIFT)
+I20261114 14:46:39.246384 0x16dbd3000 feature_extraction.cc:270] Processed file [20/24]
+I20261114 14:46:39.246516 0x16dbd3000 feature_extraction.cc:273]   Name:            000019.png
+I20261114 14:46:39.246614 0x16dbd3000 feature_extraction.cc:282]   Dimensions:      1024 x 512
+I20261114 14:46:39.246707 0x16dbd3000 feature_extraction.cc:285]   Camera:          #1 - EQUIRECTANGULAR
+I20261114 14:46:39.246799 0x16dbd3000 feature_extraction.cc:294]   Features:        119 (SIFT)
+I20261114 14:46:39.621296 0x16dbd3000 feature_extraction.cc:270] Processed file [21/24]
+I20261114 14:46:39.621468 0x16dbd3000 feature_extraction.cc:273]   Name:            000020.png
+I20261114 14:46:39.621568 0x16dbd3000 feature_extraction.cc:282]   Dimensions:      1024 x 512
+I20261114 14:46:39.621664 0x16dbd3000 feature_extraction.cc:285]   Camera:          #1 - EQUIRECTANGULAR
+I20261114 14:46:39.621757 0x16dbd3000 feature_extraction.cc:294]   Features:        126 (SIFT)
+I20261114 14:46:39.628238 0x16dbd3000 feature_extraction.cc:270] Processed file [22/24]
+I20261114 14:46:39.628437 0x16dbd3000 feature_extraction.cc:273]   Name:            000021.png
+I20261114 14:46:39.628543 0x16dbd3000 feature_extraction.cc:282]   Dimensions:      1024 x 512
+I20261114 14:46:39.628643 0x16dbd3000 feature_extraction.cc:285]   Camera:          #1 - EQUIRECTANGULAR
+I20261114 14:46:39.628737 0x16dbd3000 feature_extraction.cc:294]   Features:        153 (SIFT)
+I20261114 14:46:39.652959 0x16dbd3000 feature_extraction.cc:270] Processed file [23/24]
+I20261114 14:46:39.653162 0x16dbd3000 feature_extraction.cc:273]   Name:            000022.png
+I20261114 14:46:39.653270 0x16dbd3000 feature_extraction.cc:282]   Dimensions:      1024 x 512
+I20261114 14:46:39.653365 0x16dbd3000 feature_extraction.cc:285]   Camera:          #1 - EQUIRECTANGULAR
+I20261114 14:46:39.653465 0x16dbd3000 feature_extraction.cc:294]   Features:        143 (SIFT)
+I20261114 14:46:39.657734 0x16dbd3000 feature_extraction.cc:270] Processed file [24/24]
+I20261114 14:46:39.657841 0x16dbd3000 feature_extraction.cc:273]   Name:            000023.png
+I20261114 14:46:39.657932 0x16dbd3000 feature_extraction.cc:282]   Dimensions:      1024 x 512
+I20261114 14:46:39.658023 0x16dbd3000 feature_extraction.cc:285]   Camera:          #1 - EQUIRECTANGULAR
+I20261114 14:46:39.658118 0x16dbd3000 feature_extraction.cc:294]   Features:        170 (SIFT)
+I20261114 14:46:39.658325 0x16d6e7000 timer.cc:90] Elapsed time: 0.042 [minutes]
+I20261114 14:46:39.685618 0x16d6e7000 feature_matching.cc:196] === Feature matching & geometric verification ===
+I20261114 14:46:39.685844 0x16d773000 sift.cc:1685] Creating SIFT CPU feature matcher
+I20261114 14:46:39.685852 0x16d917000 sift.cc:1685] Creating SIFT CPU feature matcher
+I20261114 14:46:39.685846 0x16d7ff000 sift.cc:1685] Creating SIFT CPU feature matcher
+I20261114 14:46:39.685848 0x16d88b000 sift.cc:1685] Creating SIFT CPU feature matcher
+I20261114 14:46:39.686307 0x16d6e7000 pairing.cc:438] Generating sequential image pairs...
+I20261114 14:46:39.686473 0x16d6e7000 pairing.cc:562] Processing image [1/24]
+I20261114 14:46:39.688641 0x16d6e7000 feature_matching.cc:218] in 0.002s
+I20261114 14:46:39.688746 0x16d6e7000 pairing.cc:562] Processing image [2/24]
+I20261114 14:46:39.690933 0x16d6e7000 feature_matching.cc:218] in 0.002s
+I20261114 14:46:39.691042 0x16d6e7000 pairing.cc:562] Processing image [3/24]
+I20261114 14:46:39.693051 0x16d6e7000 feature_matching.cc:218] in 0.002s
+I20261114 14:46:39.693155 0x16d6e7000 pairing.cc:562] Processing image [4/24]
+I20261114 14:46:39.695392 0x16d6e7000 feature_matching.cc:218] in 0.002s
+I20261114 14:46:39.695510 0x16d6e7000 pairing.cc:562] Processing image [5/24]
+I20261114 14:46:39.697599 0x16d6e7000 feature_matching.cc:218] in 0.002s
+I20261114 14:46:39.697738 0x16d6e7000 pairing.cc:562] Processing image [6/24]
+I20261114 14:46:39.700519 0x16d6e7000 feature_matching.cc:218] in 0.003s
+I20261114 14:46:39.700626 0x16d6e7000 pairing.cc:562] Processing image [7/24]
+I20261114 14:46:39.701103 0x16d6e7000 feature_matching.cc:218] in 0.001s
+I20261114 14:46:39.701208 0x16d6e7000 pairing.cc:562] Processing image [8/24]
+I20261114 14:46:39.703172 0x16d6e7000 feature_matching.cc:218] in 0.002s
+I20261114 14:46:39.703279 0x16d6e7000 pairing.cc:562] Processing image [9/24]
+I20261114 14:46:39.705357 0x16d6e7000 feature_matching.cc:218] in 0.002s
+I20261114 14:46:39.705504 0x16d6e7000 pairing.cc:562] Processing image [10/24]
+I20261114 14:46:39.707601 0x16d6e7000 feature_matching.cc:218] in 0.002s
+I20261114 14:46:39.707750 0x16d6e7000 pairing.cc:562] Processing image [11/24]
+I20261114 14:46:39.709705 0x16d6e7000 feature_matching.cc:218] in 0.002s
+I20261114 14:46:39.709810 0x16d6e7000 pairing.cc:562] Processing image [12/24]
+I20261114 14:46:39.711853 0x16d6e7000 feature_matching.cc:218] in 0.002s
+I20261114 14:46:39.711948 0x16d6e7000 pairing.cc:562] Processing image [13/24]
+I20261114 14:46:39.713937 0x16d6e7000 feature_matching.cc:218] in 0.002s
+I20261114 14:46:39.714102 0x16d6e7000 pairing.cc:562] Processing image [14/24]
+I20261114 14:46:39.716038 0x16d6e7000 feature_matching.cc:218] in 0.002s
+I20261114 14:46:39.716208 0x16d6e7000 pairing.cc:562] Processing image [15/24]
+I20261114 14:46:39.718174 0x16d6e7000 feature_matching.cc:218] in 0.002s
+I20261114 14:46:39.718300 0x16d6e7000 pairing.cc:562] Processing image [16/24]
+I20261114 14:46:39.720057 0x16d6e7000 feature_matching.cc:218] in 0.002s
+I20261114 14:46:39.720185 0x16d6e7000 pairing.cc:562] Processing image [17/24]
+I20261114 14:46:39.722071 0x16d6e7000 feature_matching.cc:218] in 0.002s
+I20261114 14:46:39.722182 0x16d6e7000 pairing.cc:562] Processing image [18/24]
+I20261114 14:46:39.724253 0x16d6e7000 feature_matching.cc:218] in 0.002s
+I20261114 14:46:39.724385 0x16d6e7000 pairing.cc:562] Processing image [19/24]
+I20261114 14:46:39.726238 0x16d6e7000 feature_matching.cc:218] in 0.002s
+I20261114 14:46:39.726357 0x16d6e7000 pairing.cc:562] Processing image [20/24]
+I20261114 14:46:39.728192 0x16d6e7000 feature_matching.cc:218] in 0.002s
+I20261114 14:46:39.728309 0x16d6e7000 pairing.cc:562] Processing image [21/24]
+I20261114 14:46:39.730053 0x16d6e7000 feature_matching.cc:218] in 0.002s
+I20261114 14:46:39.730152 0x16d6e7000 pairing.cc:562] Processing image [22/24]
+I20261114 14:46:39.730469 0x16d6e7000 feature_matching.cc:218] in 0.000s
+I20261114 14:46:39.730564 0x16d6e7000 pairing.cc:562] Processing image [23/24]
+I20261114 14:46:39.732271 0x16d6e7000 feature_matching.cc:218] in 0.002s
+I20261114 14:46:39.732368 0x16d6e7000 pairing.cc:562] Processing image [24/24]
+I20261114 14:46:39.732477 0x16d6e7000 feature_matching.cc:218] in 0.000s
+I20261114 14:46:39.732597 0x16d6e7000 timer.cc:90] Elapsed time: 0.001 [minutes]
+I20261114 14:46:39.743141 0x1ed0e9e80 incremental_pipeline.cc:353] Loading database
+I20261114 14:46:39.743306 0x1ed0e9e80 database_cache.cc:82] Loading rigs...
+I20261114 14:46:39.743430 0x1ed0e9e80 database_cache.cc:92]  1 in 0.000s
+I20261114 14:46:39.743545 0x1ed0e9e80 database_cache.cc:100] Loading cameras...
+I20261114 14:46:39.743642 0x1ed0e9e80 database_cache.cc:118]  1 in 0.000s
+I20261114 14:46:39.743738 0x1ed0e9e80 database_cache.cc:126] Loading frames...
+I20261114 14:46:39.743855 0x1ed0e9e80 database_cache.cc:136]  24 in 0.000s
+I20261114 14:46:39.743945 0x1ed0e9e80 database_cache.cc:144] Loading matches...
+I20261114 14:46:39.744086 0x1ed0e9e80 database_cache.cc:163]  43 in 0.000s
+I20261114 14:46:39.744181 0x1ed0e9e80 database_cache.cc:171] Loading images...
+I20261114 14:46:39.744422 0x1ed0e9e80 database_cache.cc:268]  24 in 0.000s (connected 21, loaded 21)
+I20261114 14:46:39.744513 0x1ed0e9e80 database_cache.cc:282] Loading pose priors...
+I20261114 14:46:39.744604 0x1ed0e9e80 database_cache.cc:290]  0 in 0.000s
+I20261114 14:46:39.744691 0x1ed0e9e80 database_cache.cc:298] Building correspondence graph...
+I20261114 14:46:39.744889 0x1ed0e9e80 database_cache.cc:327]  in 0.000s (ignored 0)
+I20261114 14:46:39.744979 0x1ed0e9e80 timer.cc:90] Elapsed time: 0.000 [minutes]
+I20261114 14:46:39.745160 0x1ed0e9e80 incremental_pipeline.cc:465] Finding good initial image pair
+I20261114 14:46:39.745424 0x1ed0e9e80 incremental_pipeline.cc:472] => No good initial image pair found.
+I20261114 14:46:39.745551 0x1ed0e9e80 incremental_pipeline.cc:800] Discarding reconstruction due to no initial pair
+I20261114 14:46:39.745663 0x1ed0e9e80 incremental_pipeline.cc:429] => Relaxing the initialization constraints.
+I20261114 14:46:39.745793 0x1ed0e9e80 incremental_pipeline.cc:465] Finding good initial image pair
+I20261114 14:46:39.746061 0x1ed0e9e80 incremental_pipeline.cc:472] => No good initial image pair found.
+I20261114 14:46:39.746192 0x1ed0e9e80 incremental_pipeline.cc:800] Discarding reconstruction due to no initial pair
+I20261114 14:46:39.746303 0x1ed0e9e80 incremental_pipeline.cc:442] => Relaxing the initialization constraints.
+I20261114 14:46:39.746445 0x1ed0e9e80 incremental_pipeline.cc:465] Finding good initial image pair
+I20261114 14:46:39.746667 0x1ed0e9e80 incremental_pipeline.cc:472] => No good initial image pair found.
+I20261114 14:46:39.746775 0x1ed0e9e80 incremental_pipeline.cc:800] Discarding reconstruction due to no initial pair
+I20261114 14:46:39.746879 0x1ed0e9e80 incremental_pipeline.cc:429] => Relaxing the initialization constraints.
+I20261114 14:46:39.747005 0x1ed0e9e80 incremental_pipeline.cc:465] Finding good initial image pair
+I20261114 14:46:39.748030 0x1ed0e9e80 incremental_pipeline.cc:472] => No good initial image pair found.
+I20261114 14:46:39.748132 0x1ed0e9e80 incremental_pipeline.cc:800] Discarding reconstruction due to no initial pair
+I20261114 14:46:39.748248 0x1ed0e9e80 incremental_pipeline.cc:442] => Relaxing the initialization constraints.
+I20261114 14:46:39.748376 0x1ed0e9e80 incremental_pipeline.cc:465] Finding good initial image pair
+I20261114 14:46:39.749413 0x1ed0e9e80 incremental_pipeline.cc:492] Registering initial image pair #3 and #4
+I20261114 14:46:39.749646 0x1ed0e9e80 incremental_pipeline.cc:510] Global bundle adjustment
+I20261114 14:46:39.749943 0x1ed0e9e80 incremental_pipeline.cc:791] Discarding reconstruction due to bad initial pair
+I20261114 14:46:39.750088 0x1ed0e9e80 incremental_pipeline.cc:465] Finding good initial image pair
+I20261114 14:46:39.750339 0x1ed0e9e80 incremental_pipeline.cc:472] => No good initial image pair found.
+I20261114 14:46:39.750466 0x1ed0e9e80 incremental_pipeline.cc:800] Discarding reconstruction due to no initial pair
+I20261114 14:46:39.750571 0x1ed0e9e80 timer.cc:90] Elapsed time: 0.000 [minutes]
+E20261114 14:46:39.750666 0x1ed0e9e80 sfm.cc:310] Failed to create any sparse model
+SphereDim: No reconstruction found; try more texture, translation, or a different sampling rate
