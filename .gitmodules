@@ -1,3 +1,0 @@
-[submodule "vendor/util.layerctl"]
-	path = vendor/util.layerctl
-	url = git@github.com:NonLogicalDev/util.layerctl.git
