@@ -31,3 +31,5 @@ The Apple MPS inference port and offline installation are in the project. Operat
 - 2026-11-15: Moved SphereDim into `misc.experiments/projects/app.spheredim`, retaining its Git history as a merge parent. The existing local environments and layerctl projection were moved and had their paths repaired.
 
 - 2026-11-15: Replaced tracked binary wheels, weights, generated media and binary source fixtures with hash-verified download or regeneration instructions. Source is fetched by the pinned 360DVO layer. Repaired imported SphereDim history to remove the binary artifacts while preserving the existing misc.experiments parent and unrelated work.
+
+- 2026-11-15: Renamed the project to `misc.experiments/projects/tool.spheredim`; repaired local environment and layerctl projection paths.

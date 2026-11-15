@@ -4,7 +4,7 @@ A ragtag collection of projects I am working on but am not yet ready to fully re
 
 ## Projects
 
-- [app.spheredim](projects/app.spheredim)
+- [tool.spheredim](projects/tool.spheredim)
   - Native 360-degree camera tracking and pose export.
 
 - [tool.solidrecipe](projects/tool.solidrecipe)
