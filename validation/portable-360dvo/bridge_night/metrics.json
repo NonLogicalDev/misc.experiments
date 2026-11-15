@@ -1,0 +1,9 @@
+{
+  "registered": 40,
+  "sampled": 40,
+  "path_length_reference_units": 14.39830249230588,
+  "position_rmse_reference_units": 0.05315739137814934,
+  "position_rmse_percent_path": 0.36919207251379405,
+  "position_max_percent_path": 0.826878596253221,
+  "alignment_scale": 2.6177480526964803
+}

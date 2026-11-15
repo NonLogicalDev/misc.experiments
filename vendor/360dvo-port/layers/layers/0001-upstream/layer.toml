@@ -1,0 +1,11 @@
+[layer]
+enabled = true
+
+[vcs]
+commit-msg = "Import 360DVO upstream at 46f5ed0"
+
+[[operation]]
+[operation.git-clone]
+url = "https://github.com/chris1004336379/360DVO.git"
+depth = 1
+commit = "46f5ed0735d39aff29a75f28c360600340879b35"

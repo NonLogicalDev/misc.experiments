@@ -1,0 +1,3 @@
+# Scope and guidance
+
+Follow [owner authorization](OWNERS.md), the user's global instructions, and current project instructions. Port 360DVO to execute on Apple and AMD GPUs without its CUDA-specific extensions, preserving full equirectangular input. Use layerctl to keep upstream provenance and the port layer reproducible. CPU is a validation reference; GPU execution is the goal. Validate native GPU behavior, kernel correctness, Blender-compatible output, and trajectory/image accuracy on existing diverse test scenes. Do not infer AMD support from Apple tests. Preserve existing SphereDim and do not publish. Record decisions and checks in the [active plan](theme-001-portable-tracking/active/plan-01%20Portable%20360DVO.md).

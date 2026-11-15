@@ -1,0 +1,173 @@
+{
+  "dataset": "https://huggingface.co/datasets/chris1004336379/360DVO",
+  "license": "CC-BY-NC-SA-4.0",
+  "sequence": "bridge_night",
+  "source_fps": 10,
+  "sample_every": 2,
+  "frames": [
+    {
+      "source": "Sequences/bridge_night/0001.jpg",
+      "sha256": "820f3abaa4a70cc0c4dbc64d9d7f954725f9c4723219749f333f8ea8580c3d7f"
+    },
+    {
+      "source": "Sequences/bridge_night/0003.jpg",
+      "sha256": "342d6c984259b814ec4e5f2de73e0afa3d56b6a1425ad3bf67fbfaddf61b27f6"
+    },
+    {
+      "source": "Sequences/bridge_night/0005.jpg",
+      "sha256": "f917b180778fa2559127a638ba45faa432a4d7c01c925979e3da3546e6742701"
+    },
+    {
+      "source": "Sequences/bridge_night/0007.jpg",
+      "sha256": "bb40d9a7d87cca28d1562eb15898125991f0ef44a83b5e838452e9216b050007"
+    },
+    {
+      "source": "Sequences/bridge_night/0009.jpg",
+      "sha256": "e8b02fc2d2c417eec2413a461ba384bb4131206d2401be1adc26332efd4ca2e4"
+    },
+    {
+      "source": "Sequences/bridge_night/0011.jpg",
+      "sha256": "a0de4ceaca843099294c9d398896081812f1f0b3f202b33a444b9c93d3c0088e"
+    },
+    {
+      "source": "Sequences/bridge_night/0013.jpg",
+      "sha256": "5896c83067f6920cbc36ee8a9d0e2eb77de9e2a427f53780cdee8f959aa7d14f"
+    },
+    {
+      "source": "Sequences/bridge_night/0015.jpg",
+      "sha256": "602321a7a8c7732d890f24dac9b541965f751579f6b67dcd6848f755dd809ac5"
+    },
+    {
+      "source": "Sequences/bridge_night/0017.jpg",
+      "sha256": "7fd21802f14c07c5c89a54c77c5f5ad6147868f0d6117b7739eec6717571880a"
+    },
+    {
+      "source": "Sequences/bridge_night/0019.jpg",
+      "sha256": "1cc96a8c3e5189297b4cd5ab2788a2ecb8fd05a846fa50c2cebf966b883fae11"
+    },
+    {
+      "source": "Sequences/bridge_night/0021.jpg",
+      "sha256": "96b4c2fd8378147ef5fe6137e539e60b28ec1cb36f62eb2a4c72fe4f31758e68"
+    },
+    {
+      "source": "Sequences/bridge_night/0023.jpg",
+      "sha256": "59f03050ac2e469ea174cf30f15609f5651b231337931b2755378f03d86632d8"
+    },
+    {
+      "source": "Sequences/bridge_night/0025.jpg",
+      "sha256": "5cbdb8c3b44137213d82df7f15fe4704b864e01cea0a47efbc47e7e8f14e587a"
+    },
+    {
+      "source": "Sequences/bridge_night/0027.jpg",
+      "sha256": "871d90c6bfedeb23b85b9065f80dcaae992ace7bb3ac5177916c9dea062b276d"
+    },
+    {
+      "source": "Sequences/bridge_night/0029.jpg",
+      "sha256": "5a82788b9c98d30b23e0899ce7f7339f1dfbfeeb0ca89debf89087bd47e40c13"
+    },
+    {
+      "source": "Sequences/bridge_night/0031.jpg",
+      "sha256": "e40d4c252f98cf5125c6bcb96375b911c9f23de71f75741a13f07dbb200a61b5"
+    },
+    {
+      "source": "Sequences/bridge_night/0033.jpg",
+      "sha256": "2ea02b436853b1ff713f3f4c96229d2da2ffc1982fe1d2d38918f8498048a66f"
+    },
+    {
+      "source": "Sequences/bridge_night/0035.jpg",
+      "sha256": "ec0bfd12bb69d0b39f38d59019214994f42b0db7e9f99b414c756de779c1c434"
+    },
+    {
+      "source": "Sequences/bridge_night/0037.jpg",
+      "sha256": "43c6f28ce1182f0c41fbd7821fb26e8248049f9dfc0d943af296198bbb695b1e"
+    },
+    {
+      "source": "Sequences/bridge_night/0039.jpg",
+      "sha256": "dfd1c1a23baabd818e40fec38bdb22ebb356473f70c8df5e1853f98d39d654d0"
+    },
+    {
+      "source": "Sequences/bridge_night/0041.jpg",
+      "sha256": "bfb028c66970529c95753eeb3d16f366d63361c031d6336d02332fc935355022"
+    },
+    {
+      "source": "Sequences/bridge_night/0043.jpg",
+      "sha256": "78d8938e130d1b1ddfca5e936e0c14570d8466d252384f15ef5c593ee017bd99"
+    },
+    {
+      "source": "Sequences/bridge_night/0045.jpg",
+      "sha256": "e454af125444098677499487b26821c8b8b52cbf07fc8578c2930b76b556f817"
+    },
+    {
+      "source": "Sequences/bridge_night/0047.jpg",
+      "sha256": "e03b0368a3ec143b425ee9e8b8e1524b3038367e8244eef9b709def6ab688cf7"
+    },
+    {
+      "source": "Sequences/bridge_night/0049.jpg",
+      "sha256": "df55d4f2a8f0fb033fe28cdba799bbf1f84f8a0125dae03304ce6765f3374d54"
+    },
+    {
+      "source": "Sequences/bridge_night/0051.jpg",
+      "sha256": "b2b174bc8ae3189bd2564ea98501b89785f12b49a4ee78f1c42812d9f31ba3fd"
+    },
+    {
+      "source": "Sequences/bridge_night/0053.jpg",
+      "sha256": "322866edba1bb0f92bbd79d7e8b172abc5863d13f7008967f7e63ba4fbff91b6"
+    },
+    {
+      "source": "Sequences/bridge_night/0055.jpg",
+      "sha256": "5810f7524a2bcc66a6c51a338aa1f575f8c247109c4e06d9f00dd328484d0e21"
+    },
+    {
+      "source": "Sequences/bridge_night/0057.jpg",
+      "sha256": "156e7a8982ea439db9fe3c7d37a7a950516824012679db36e816fd6c439c5c9a"
+    },
+    {
+      "source": "Sequences/bridge_night/0059.jpg",
+      "sha256": "9ce09e583084a3fb09d0dacc643867bb59b3ac9e8516cfd730725fe65499496a"
+    },
+    {
+      "source": "Sequences/bridge_night/0061.jpg",
+      "sha256": "53ab312049bd531ed4407772643f94e1b14c5e026d15603dae1d0b094ab7bb78"
+    },
+    {
+      "source": "Sequences/bridge_night/0063.jpg",
+      "sha256": "fc6dc29f5fa010300fb80132411ba6eebf61aefaaded4a3fe20a364489886098"
+    },
+    {
+      "source": "Sequences/bridge_night/0065.jpg",
+      "sha256": "fc8869618e5d7d8a7ba4253e168e868862229a22309e3a7a25f1c571022042e3"
+    },
+    {
+      "source": "Sequences/bridge_night/0067.jpg",
+      "sha256": "17e4e3ee80642d4d110e6b3af908a442b04429d6329456f9455c1400ee5ff772"
+    },
+    {
+      "source": "Sequences/bridge_night/0069.jpg",
+      "sha256": "35048c30f3682a6aaa1514879ad37b4007469273c96d465a36a82e6a927db79f"
+    },
+    {
+      "source": "Sequences/bridge_night/0071.jpg",
+      "sha256": "6abf0f4ef7e625ca86875c83581d38c9ecb82f57db302a31d7a2bc2a6a9b228e"
+    },
+    {
+      "source": "Sequences/bridge_night/0073.jpg",
+      "sha256": "393e27a47e5bd370aa5386658bacefedf2ded80d3d5959b652f4e41c62ad58e4"
+    },
+    {
+      "source": "Sequences/bridge_night/0075.jpg",
+      "sha256": "d0a612726528c143d5b1036700f276ea848c5d35d4359126eba3e806267f8b33"
+    },
+    {
+      "source": "Sequences/bridge_night/0077.jpg",
+      "sha256": "60168514cab9aaa6efb150936e644855357df7966cb8a93647c8b9aa5f4f2030"
+    },
+    {
+      "source": "Sequences/bridge_night/0079.jpg",
+      "sha256": "4a7a59773d6ebc2e41d6d3714f72039470f4b1f83ce8e352b726a3d354fec689"
+    }
+  ],
+  "reference_sha256": "aac115dcaab6f3e75cc001709c3d9984aa2b18ddeb3fa5bdfedc12d087bd266a",
+  "encoded_video_sha256": "e7db1a30ac21ad0a81b91bee33e94ca45e20f3a5b8621390b5cee366b9038ab4",
+  "encoding": "H.264 libx264 preset veryfast CRF 16 yuv420p, 5 fps",
+  "tracking": "native equirectangular, --width 2048, source average frame rate"
+}

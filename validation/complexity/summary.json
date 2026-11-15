@@ -1,0 +1,76 @@
+{
+  "repetitive": {
+    "registered": 24,
+    "sampled": 24,
+    "path_length": 3.4951791784814112,
+    "position_rmse": 0.004047687013466749,
+    "position_rmse_percent_path": 0.11580771132956312,
+    "position_max_percent_path": 0.26902223701254935,
+    "rotation_mean_degrees": 0.18588070768950185,
+    "rotation_max_degrees": 0.2537845777453677,
+    "alignment_scale": 0.1922662892746851,
+    "image_samples": 12288,
+    "image_sampled_frames": 24,
+    "image_rms_percent": 0.1265604471386085,
+    "image_p95_percent": 0.282745896503921,
+    "image_worst_frame_p95_percent": 0.4474212946129239,
+    "image_max_percent": 0.5986986174995682,
+    "angular_rms_degrees": 0.1531790944502223,
+    "angular_worst_frame_p95_degrees": 0.2568583614145018,
+    "angular_worst_frame_p95_percent_180": 0.14269908967472322
+  },
+  "low_light": {
+    "registered": 24,
+    "sampled": 24,
+    "path_length": 3.4951791784814112,
+    "position_rmse": 0.005332492706069548,
+    "position_rmse_percent_path": 0.1525670769298418,
+    "position_max_percent_path": 0.32059945093112013,
+    "rotation_mean_degrees": 0.2072161143049082,
+    "rotation_max_degrees": 0.2395586446263624,
+    "alignment_scale": 0.19026928846401667,
+    "image_samples": 12288,
+    "image_sampled_frames": 24,
+    "image_rms_percent": 0.1702431953557806,
+    "image_p95_percent": 0.4215370124853694,
+    "image_worst_frame_p95_percent": 0.57002551710538,
+    "image_max_percent": 0.8930392895735887,
+    "angular_rms_degrees": 0.17993968207884756,
+    "angular_worst_frame_p95_degrees": 0.31038869431370814,
+    "angular_worst_frame_p95_percent_180": 0.17243816350761562
+  },
+  "bridge_night": {
+    "registered": 40,
+    "sampled": 40,
+    "path_length_reference_units": 14.39830249230588,
+    "position_rmse_reference_units": 0.45334055151014385,
+    "position_rmse_percent_path": 3.1485694355456033,
+    "position_max_percent_path": 6.394220222933197,
+    "alignment_scale": 1.0703648040704452
+  },
+  "grove": {
+    "registered": 40,
+    "sampled": 40,
+    "path_length_reference_units": 48.33367289854595,
+    "position_rmse_reference_units": 0.03274403197753937,
+    "position_rmse_percent_path": 0.06774579710975043,
+    "position_max_percent_path": 0.17087938798459537,
+    "alignment_scale": 4.086489397100945
+  },
+  "indoor_RC_car": {
+    "registered": 40,
+    "sampled": 40,
+    "path_length_reference_units": 36.689219969013294,
+    "position_rmse_reference_units": 0.4039720416691207,
+    "position_rmse_percent_path": 1.1010646778816895,
+    "position_max_percent_path": 6.7790871644683195,
+    "alignment_scale": 1.5169750356845288
+  },
+  "plain": {
+    "status": "tracking_failed",
+    "reason": "no initial pair / reconstruction",
+    "sampled_frames": 24,
+    "video": "plain/input.mp4",
+    "log": "plain/tracking.log"
+  }
+}

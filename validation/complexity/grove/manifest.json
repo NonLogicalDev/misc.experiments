@@ -1,0 +1,173 @@
+{
+  "dataset": "https://huggingface.co/datasets/chris1004336379/360DVO",
+  "license": "CC-BY-NC-SA-4.0",
+  "sequence": "grove",
+  "source_fps": 10,
+  "sample_every": 2,
+  "frames": [
+    {
+      "source": "Sequences/grove/0001.jpg",
+      "sha256": "c9e312f44c8ad9096b556092db3ae76d6369df5dc8704760e482275311d2dc08"
+    },
+    {
+      "source": "Sequences/grove/0003.jpg",
+      "sha256": "186d3d2075a623b3b67c75859bb6757cc9643a0906eb6151b8413ad76b8af076"
+    },
+    {
+      "source": "Sequences/grove/0005.jpg",
+      "sha256": "5cb0ef3f0bc37f16cb3edc26c516e1253de91a7629efa6f9c8f6a3d457563078"
+    },
+    {
+      "source": "Sequences/grove/0007.jpg",
+      "sha256": "0226bce794f544e38b97d8a1699aa6c0feebfcf3b9a9fe1e90537a8b2b87b2d9"
+    },
+    {
+      "source": "Sequences/grove/0009.jpg",
+      "sha256": "99eb820fce9e10cd3f280b8ef16ba97b379d3b4b49d3b9c62915b47bcde956ba"
+    },
+    {
+      "source": "Sequences/grove/0011.jpg",
+      "sha256": "0afda6995383b81cab39f3e19dfd3a6b24ce2be5e44bab8cd516664c12da85d0"
+    },
+    {
+      "source": "Sequences/grove/0013.jpg",
+      "sha256": "7326df1b45322e81ada0a59a7684f8129dfa33390be448be9f79dc2d5827cc10"
+    },
+    {
+      "source": "Sequences/grove/0015.jpg",
+      "sha256": "0bddd7a2ba6b938aa30e3b55952fcd2fd64461929dbbd30eb9d95b94364b88f7"
+    },
+    {
+      "source": "Sequences/grove/0017.jpg",
+      "sha256": "1a1133cf24e4c586d793fa7196d5b72b1a1d918dc09cd041912d8d4e52be58c0"
+    },
+    {
+      "source": "Sequences/grove/0019.jpg",
+      "sha256": "9cf9eb8935771fd6ee689453d6653a73ce0548aa933cd80d983f97835ba70110"
+    },
+    {
+      "source": "Sequences/grove/0021.jpg",
+      "sha256": "26d758a47a59205e9d639ab044063b2f59bb08fab8673a431483d791fa743a64"
+    },
+    {
+      "source": "Sequences/grove/0023.jpg",
+      "sha256": "65c500ecad27bf43f16dd6a77a3bfbea2bae88a7df5bfe1eb6cecc517ed7e177"
+    },
+    {
+      "source": "Sequences/grove/0025.jpg",
+      "sha256": "a38adc558e08e83ab54c4def45d2193d6f2be27989b191dde83166604dcd5d33"
+    },
+    {
+      "source": "Sequences/grove/0027.jpg",
+      "sha256": "9034514e83a1b88257a6c1272cbe92dbd0a103163df6a3c22705a8b74de726aa"
+    },
+    {
+      "source": "Sequences/grove/0029.jpg",
+      "sha256": "9ed77b5a7af061f20f149ed85849968330b485c46335af1aaa7cf978694e18ba"
+    },
+    {
+      "source": "Sequences/grove/0031.jpg",
+      "sha256": "aa155799d67d6f531dd833b23d9e7a8bdc9378e364657bc5344d50f3bc0054c8"
+    },
+    {
+      "source": "Sequences/grove/0033.jpg",
+      "sha256": "ce0576736dd0bcff695f4150ba7f863e4a6220b299480a9f431d57827d5c77b2"
+    },
+    {
+      "source": "Sequences/grove/0035.jpg",
+      "sha256": "76b51ee6e140164ec419ce232cd03bb80c21dac57d85048605b60ef662ae2cb1"
+    },
+    {
+      "source": "Sequences/grove/0037.jpg",
+      "sha256": "609725b5b3837390efcae9767ef154ef501bfac32dfe57b68de0fb34ce4db6a0"
+    },
+    {
+      "source": "Sequences/grove/0039.jpg",
+      "sha256": "68f3d658a0e8d9f6957c9e921db21aad3b214c894395641c86e88c5fb569ea06"
+    },
+    {
+      "source": "Sequences/grove/0041.jpg",
+      "sha256": "bd79650579516246779bd904da7a0eb3baa8224b49295b96e8fa8e1c046d4da4"
+    },
+    {
+      "source": "Sequences/grove/0043.jpg",
+      "sha256": "13262d9f6d002a8f4d665e23ed68c7dbd4cbb5437c9c236b19602e5e2a8c1ff8"
+    },
+    {
+      "source": "Sequences/grove/0045.jpg",
+      "sha256": "6cba98c8fe3b81dba624cd274abbf725d60b29ad7fe2d62a83a952a7e9fce60e"
+    },
+    {
+      "source": "Sequences/grove/0047.jpg",
+      "sha256": "a3cbc1d605e4d7fa4d1e8839a36c0bafdfa0229c94a0f9d34133a26df4e69506"
+    },
+    {
+      "source": "Sequences/grove/0049.jpg",
+      "sha256": "da52113233c8132be98a31d1f576a3a3a34d1cfed5d0f91cae2924de957ba5f1"
+    },
+    {
+      "source": "Sequences/grove/0051.jpg",
+      "sha256": "2785696b37ec11a1fefbd23b2457cd832f0b1725edd3acfa15df9f6b885ebf8a"
+    },
+    {
+      "source": "Sequences/grove/0053.jpg",
+      "sha256": "3a349fbd4ffc7fe1f7479b80f77bec3e0ef39511cbe607d494aaf7e705847e78"
+    },
+    {
+      "source": "Sequences/grove/0055.jpg",
+      "sha256": "2e760eb2213b7f9584b7f54f335ac09643f18bafc0feb17bab483c06cdec71dd"
+    },
+    {
+      "source": "Sequences/grove/0057.jpg",
+      "sha256": "ed364630668b1061eefc20836914f109b6c6b07910423d064dccb014c8cccb84"
+    },
+    {
+      "source": "Sequences/grove/0059.jpg",
+      "sha256": "3f1c2622cf4995d12122dbc4a93e842b233a9dd3f43448444138cf8c76b422df"
+    },
+    {
+      "source": "Sequences/grove/0061.jpg",
+      "sha256": "af7568e600787516e81a4ed4b2c35a16f38daf1c4d6dd0e707ddf42cee0d3f5a"
+    },
+    {
+      "source": "Sequences/grove/0063.jpg",
+      "sha256": "49ddf57afde56baf253f6cabee56896333da61d510662ff7019ec257a7a61062"
+    },
+    {
+      "source": "Sequences/grove/0065.jpg",
+      "sha256": "22ca4eefba103e6329876b5c308429199d9963b277df02c48afb62edd3a6c8dc"
+    },
+    {
+      "source": "Sequences/grove/0067.jpg",
+      "sha256": "b5db172074710f800a86ba3355af3b77d81f9ff6c7e9eb5799ddd237b3fafac5"
+    },
+    {
+      "source": "Sequences/grove/0069.jpg",
+      "sha256": "7692539102937bd4e01d8aee4241d035c861afb5b64953e9d6eb4c52e478a4e1"
+    },
+    {
+      "source": "Sequences/grove/0071.jpg",
+      "sha256": "198b84172afc0e9f72e2dcc3e13f4edb864f1309385b02763d2ef92e93ee7f31"
+    },
+    {
+      "source": "Sequences/grove/0073.jpg",
+      "sha256": "92197fb6a86b73c021ae978a3328c431c1fd8e9af8c8bb4100d1d9ba2bc607f4"
+    },
+    {
+      "source": "Sequences/grove/0075.jpg",
+      "sha256": "739d1093a39167a44fe6f158abb526c9fc731cc355b6972e82326e47cb1c3bb6"
+    },
+    {
+      "source": "Sequences/grove/0077.jpg",
+      "sha256": "904da69355c86891f1230c7f788a9d0dad84cb87243df2d0cded7abcbe364195"
+    },
+    {
+      "source": "Sequences/grove/0079.jpg",
+      "sha256": "bc23d1275fd7ed9fcee5bc7af7da7483d5c891506c74a8daa8981ab49e110000"
+    }
+  ],
+  "reference_sha256": "f11d85215af9dec9a941cd541571b050d6fb4b16b8b336f9ae1b109162e84c6b",
+  "encoded_video_sha256": "c312835bd2ff22e8805ebe75d1107fcf5f2f88388adb436acd22a931aa2ec4e1",
+  "encoding": "H.264 libx264 preset veryfast CRF 16 yuv420p, 5 fps",
+  "tracking": "native equirectangular, --width 2048, source average frame rate"
+}

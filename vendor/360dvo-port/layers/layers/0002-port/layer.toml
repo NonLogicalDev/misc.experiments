@@ -1,0 +1,9 @@
+[layer]
+enabled = true
+
+[vcs]
+commit-msg = "Port 360DVO inference to portable GPU operations"
+
+[[operation]]
+[operation.patch]
+file = "portable-gpu.patch"

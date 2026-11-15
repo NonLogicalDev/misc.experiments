@@ -1,0 +1,265 @@
+{
+  "dataset": "chris1004336379/360DVO",
+  "dataset_url": "https://huggingface.co/datasets/chris1004336379/360DVO",
+  "license": "CC-BY-NC-SA-4.0",
+  "sequence": "tokyo_citywalk",
+  "original_fps": 10,
+  "sample_every_source_frames": 2,
+  "ground_truth": "GroundTruth/tokyo_citywalk.txt",
+  "ground_truth_sha256": "22a9652df97c643315f7b57d06d60c81ae4ecb616c78982376a3dd0033ec603e",
+  "frames": [
+    {
+      "local_frame": 0,
+      "source_path": "Sequences/tokyo_citywalk/0001.jpg",
+      "sha256": "db105c53b77883d04e121dc9efeac075562c5c771d40c2034f0cedc5eb17116d"
+    },
+    {
+      "local_frame": 1,
+      "source_path": "Sequences/tokyo_citywalk/0003.jpg",
+      "sha256": "d6d29ebb4423b8a6174801f8c8df7602873cc43df63ec0cc9750e351ec965b30"
+    },
+    {
+      "local_frame": 2,
+      "source_path": "Sequences/tokyo_citywalk/0005.jpg",
+      "sha256": "afc2b4c8b7155f7ed1cb552a64654ffd2d531d0f722d3ccf1daa2aa72b271f86"
+    },
+    {
+      "local_frame": 3,
+      "source_path": "Sequences/tokyo_citywalk/0007.jpg",
+      "sha256": "a59e9469df505d53add9e347284efadfe97dc65e5b70f0400272319a5f39527d"
+    },
+    {
+      "local_frame": 4,
+      "source_path": "Sequences/tokyo_citywalk/0009.jpg",
+      "sha256": "d42b8839f706161076a08a9661fa4f3dd99296b30e6eb35bb7982d3c04df62ac"
+    },
+    {
+      "local_frame": 5,
+      "source_path": "Sequences/tokyo_citywalk/0011.jpg",
+      "sha256": "7adc3888c8d2fc34ed169d6d1069a94bef836f6d56171544dff4535f3ba7b7f2"
+    },
+    {
+      "local_frame": 6,
+      "source_path": "Sequences/tokyo_citywalk/0013.jpg",
+      "sha256": "b0e5ad3924a91eae0c39d404c8eb8af7d8fe5e3c11ab5610216e390d13441080"
+    },
+    {
+      "local_frame": 7,
+      "source_path": "Sequences/tokyo_citywalk/0015.jpg",
+      "sha256": "c39e9063a41391cb037ea8259a2ca7ec081e811b8d69801060fab8c6455fe3ff"
+    },
+    {
+      "local_frame": 8,
+      "source_path": "Sequences/tokyo_citywalk/0017.jpg",
+      "sha256": "b73bf0ca0500a7d92d2af901a69898141ad810231db9436e709b3396fc598f86"
+    },
+    {
+      "local_frame": 9,
+      "source_path": "Sequences/tokyo_citywalk/0019.jpg",
+      "sha256": "baeff1d7a11e4e2e4837db3a78ba8a004d166b258b7fa83d1d4406638a518a5d"
+    },
+    {
+      "local_frame": 10,
+      "source_path": "Sequences/tokyo_citywalk/0021.jpg",
+      "sha256": "59fd050657793c65ab4bdde5e642cad1bbb5a8270331db580854ab52b777900c"
+    },
+    {
+      "local_frame": 11,
+      "source_path": "Sequences/tokyo_citywalk/0023.jpg",
+      "sha256": "3d2bf7c88ed636c1acaa2c300686d5937b260081a43feb4c2335a0a39bdd022e"
+    },
+    {
+      "local_frame": 12,
+      "source_path": "Sequences/tokyo_citywalk/0025.jpg",
+      "sha256": "8cee1a644275076d1cc042d14104bc8c7012cb1bdccb38c882ba2119b6137b91"
+    },
+    {
+      "local_frame": 13,
+      "source_path": "Sequences/tokyo_citywalk/0027.jpg",
+      "sha256": "dd6ece0407204d1e670d13a6195f740bc991b329fbb128f22b9b89f0a3716f3a"
+    },
+    {
+      "local_frame": 14,
+      "source_path": "Sequences/tokyo_citywalk/0029.jpg",
+      "sha256": "7f9d628c1ddd5d8cdccb80259557d8489839975b29e78579a56fad18349e829b"
+    },
+    {
+      "local_frame": 15,
+      "source_path": "Sequences/tokyo_citywalk/0031.jpg",
+      "sha256": "2b399c154f187798995057f892baf345b876d59f49311b83477a27c4d2a0420c"
+    },
+    {
+      "local_frame": 16,
+      "source_path": "Sequences/tokyo_citywalk/0033.jpg",
+      "sha256": "b0d9be55ff15bbd37593e0edbc4b8dcef12d08a809e9e613dd7ffdeec87679f7"
+    },
+    {
+      "local_frame": 17,
+      "source_path": "Sequences/tokyo_citywalk/0035.jpg",
+      "sha256": "61e3c87141b36a094c11fc240470269f893c074e9ffe7b6f5a2201ea17ba13e5"
+    },
+    {
+      "local_frame": 18,
+      "source_path": "Sequences/tokyo_citywalk/0037.jpg",
+      "sha256": "26733ee31a7e98b95e95017ff0e7b7e7a4e43ca22164dcffd3939eecba628143"
+    },
+    {
+      "local_frame": 19,
+      "source_path": "Sequences/tokyo_citywalk/0039.jpg",
+      "sha256": "e068e3fcf753ce7209c1beba7b42a8ec79d0df1dd3f674cf8f160ff58b48fc6f"
+    },
+    {
+      "local_frame": 20,
+      "source_path": "Sequences/tokyo_citywalk/0041.jpg",
+      "sha256": "0198a239e163cc550619def642ec8d8759f81fca8d39c33df8475c0be58d5fea"
+    },
+    {
+      "local_frame": 21,
+      "source_path": "Sequences/tokyo_citywalk/0043.jpg",
+      "sha256": "7aa1fbb900cf2dd2477c000250267f4e0de873636a00892761005f761885c07a"
+    },
+    {
+      "local_frame": 22,
+      "source_path": "Sequences/tokyo_citywalk/0045.jpg",
+      "sha256": "7cd5a83469e53836e1af25b6259841cf0ce70bb71aed83dd2876b687668b4042"
+    },
+    {
+      "local_frame": 23,
+      "source_path": "Sequences/tokyo_citywalk/0047.jpg",
+      "sha256": "103aa8d72e51a6e939a3a1bc7a0b0f6432c3a98fb3a4b5f5a9a388d8e13776e4"
+    },
+    {
+      "local_frame": 24,
+      "source_path": "Sequences/tokyo_citywalk/0049.jpg",
+      "sha256": "69d5a9463b240f5d4f0cc026f838de5573b1670b41bfa63cca3abf280aa2bf18"
+    },
+    {
+      "local_frame": 25,
+      "source_path": "Sequences/tokyo_citywalk/0051.jpg",
+      "sha256": "cc1a2bae870f41c51a3cf231a402b1ef4b05a76ed009f8a3f312a29df48c4c39"
+    },
+    {
+      "local_frame": 26,
+      "source_path": "Sequences/tokyo_citywalk/0053.jpg",
+      "sha256": "a8d4dadf24ed51440748c185f7230c402e9891f682049226bb530f2fe659e548"
+    },
+    {
+      "local_frame": 27,
+      "source_path": "Sequences/tokyo_citywalk/0055.jpg",
+      "sha256": "c88eceabf1cb76c7fb4a5b35b230048154d18e0e15e5ba6cbddd30a6cb007b5d"
+    },
+    {
+      "local_frame": 28,
+      "source_path": "Sequences/tokyo_citywalk/0057.jpg",
+      "sha256": "2ad5cee3af05b8cf16f60ce2a7d7ec0576e26ef99c024dc91897b4e68ca6a515"
+    },
+    {
+      "local_frame": 29,
+      "source_path": "Sequences/tokyo_citywalk/0059.jpg",
+      "sha256": "185d8a42549658035bc09d459799d2781525444fc434a02baac2df06e2b0627e"
+    },
+    {
+      "local_frame": 30,
+      "source_path": "Sequences/tokyo_citywalk/0061.jpg",
+      "sha256": "9e489d5d3ca1469181304db60c6944743fa939ca2d18d3ac60f2fbea10878505"
+    },
+    {
+      "local_frame": 31,
+      "source_path": "Sequences/tokyo_citywalk/0063.jpg",
+      "sha256": "6589a1259886f812ec251de366aa246565907c9ca124921d22392cf5e79ffcdf"
+    },
+    {
+      "local_frame": 32,
+      "source_path": "Sequences/tokyo_citywalk/0065.jpg",
+      "sha256": "a34690cdc172b3cfae826af78f708bf285f5c4a51f8033c7825fb64084fc9c46"
+    },
+    {
+      "local_frame": 33,
+      "source_path": "Sequences/tokyo_citywalk/0067.jpg",
+      "sha256": "9036071856a6e2ad94f844865d9c48f47ebd64579fce941136c75c0b3f1cfd98"
+    },
+    {
+      "local_frame": 34,
+      "source_path": "Sequences/tokyo_citywalk/0069.jpg",
+      "sha256": "5e1c6b13bbd5e381b909ae8adb167c571729f7fe1d062ffc0aa092b01259abd0"
+    },
+    {
+      "local_frame": 35,
+      "source_path": "Sequences/tokyo_citywalk/0071.jpg",
+      "sha256": "50302737f73ef4d176ddfdf65b87dbb4c410f8cbee2dfcba204288dd359f7566"
+    },
+    {
+      "local_frame": 36,
+      "source_path": "Sequences/tokyo_citywalk/0073.jpg",
+      "sha256": "ecd42737db5a8d8960f750f887ce0556b453e4d345086c3c355b8dce4e7abcb0"
+    },
+    {
+      "local_frame": 37,
+      "source_path": "Sequences/tokyo_citywalk/0075.jpg",
+      "sha256": "082411d8b61b8c7dc2838b2c49bd72047b1aa44f3bbdd7c294d5f7bffdf3c008"
+    },
+    {
+      "local_frame": 38,
+      "source_path": "Sequences/tokyo_citywalk/0077.jpg",
+      "sha256": "5cc6add1009d6abc97bf64d64bb31c7a170357f4f0a67101770fdf5f6da60cfe"
+    },
+    {
+      "local_frame": 39,
+      "source_path": "Sequences/tokyo_citywalk/0079.jpg",
+      "sha256": "615e28f432f0b9596c461399e5e938124bfb33d2851f26f979efdfc285d61b06"
+    },
+    {
+      "local_frame": 40,
+      "source_path": "Sequences/tokyo_citywalk/0081.jpg",
+      "sha256": "d2d93017ebd3e2d82d2e9c1f5f19f5ff4a7042e89f0a7d32434e2cac23d843a1"
+    },
+    {
+      "local_frame": 41,
+      "source_path": "Sequences/tokyo_citywalk/0083.jpg",
+      "sha256": "d6b103fd4e76e281a6f2f658770a528f0b7fcc98c25d2f05dcd93a73b7d7b64b"
+    },
+    {
+      "local_frame": 42,
+      "source_path": "Sequences/tokyo_citywalk/0085.jpg",
+      "sha256": "ad3323fa40d76b3599206850fdc5467163aadfe07e904e077eadba6f58778433"
+    },
+    {
+      "local_frame": 43,
+      "source_path": "Sequences/tokyo_citywalk/0087.jpg",
+      "sha256": "278e68432d85ff64d430d3dbab817f306cc71b81760da0e4c8205af6a3454828"
+    },
+    {
+      "local_frame": 44,
+      "source_path": "Sequences/tokyo_citywalk/0089.jpg",
+      "sha256": "8c1aa8f0a7543c6c4635a590d6197e63faa9e0998bd593abf4ee83ff9f610f1a"
+    },
+    {
+      "local_frame": 45,
+      "source_path": "Sequences/tokyo_citywalk/0091.jpg",
+      "sha256": "13be9dfa6f6387c6b894bdc4463ec1926c9544cf2a2c819a31bc42125a2bcb29"
+    },
+    {
+      "local_frame": 46,
+      "source_path": "Sequences/tokyo_citywalk/0093.jpg",
+      "sha256": "a38f0763548e4815a487237b23cc08cd4f5f814ad93db8a67feb204fa66edbf1"
+    },
+    {
+      "local_frame": 47,
+      "source_path": "Sequences/tokyo_citywalk/0095.jpg",
+      "sha256": "f8c750489ab9773a65d663c252333ee7cfcee2396fc4f3f9efb6cb1a0a3cdcb7"
+    },
+    {
+      "local_frame": 48,
+      "source_path": "Sequences/tokyo_citywalk/0097.jpg",
+      "sha256": "db7c115cc939586e7922e97541ca50a710a1927c9a761f7680e122041489635b"
+    },
+    {
+      "local_frame": 49,
+      "source_path": "Sequences/tokyo_citywalk/0099.jpg",
+      "sha256": "53833f7e93cb6552b04d0cee39f553e9c48140a124d2629cd1fba953180c28c9"
+    }
+  ],
+  "video_encoding": "ffmpeg -framerate 5 -i %06d.jpg -c:v libx264 -crf 16 -pix_fmt yuv420p tokyo.mp4",
+  "tracking": "--fps 5 --width 2048; native equirectangular COLMAP",
+  "encoded_video_sha256": "29b1da6776186e69861f6f0a1a7292d49a5e50fb6d7a502bad6689b3825c9d75"
+}
