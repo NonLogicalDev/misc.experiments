@@ -82,7 +82,8 @@ def prepare(source, original_run, output, frames):
     if seen != names:
         raise ValueError('Source pose names do not match manifest')
     (data / 'sparse/0/images.txt').write_text(''.join(lines))
-    cmd = [str(binary), 'train', '360-camera', '--resume', str(ckpt), '--data', str(data),
+    # An unnamed resume loads the checkpoint config without reapplying a preset.
+    cmd = [str(binary), 'train', '--resume', str(ckpt), '--data', str(data),
            '--output-dir-prefix', str(output), '--output-dir-name', 'render',
            '--num-iterations', str(step), '--steps-per-save', '0', '--disable-viewer', '1',
            '--save-eval-images', '1', '--eval-lpips', '0', '--eval-align', '0',
@@ -125,16 +126,26 @@ def run(output, plan):
     return time.monotonic() - started
 
 
+def config_differences(old_config, new_config):
+    diff = {k: [old_config.get(k), new_config.get(k)] for k in set(old_config) | set(new_config) if old_config.get(k) != new_config.get(k)}
+    # The CLI records its default session label even when an unnamed resume
+    # inherits all checkpoint settings (main.cpp: session.preset = preset).
+    allowed = {'data', 'output_dir_prefix', 'output_dir_name', 'resume', 'steps_per_save'}
+    if diff.get('preset') == ['360-camera', '3dgs']:
+        allowed.add('preset')
+    if set(diff) - allowed:
+        raise ValueError(f'Unexpected resolved config differences: {diff}')
+    return diff
+
+
 def evaluate(output, plan, elapsed):
     source = Path(plan['source']); original = Path(plan['original_run']); run = output / 'render'
     log = (output / 'run.log').read_text(errors='replace')
     if f"at step {plan['checkpoint_step']}" not in log or 'Eval: views to score:' not in log or list(run.glob('step-*.ckpt')):
         raise ValueError('Resume/evaluation evidence missing or checkpoint written')
-    # CLI applies its named preset again on resume: verify every resolved setting.
+    # Verify the trainer actually inherited all settings except the audit overrides.
     old_config = json.loads((original / 'config.json').read_text()); new_config = json.loads((run / 'config.json').read_text())
-    diff = {k: [old_config.get(k), new_config.get(k)] for k in set(old_config) | set(new_config) if old_config.get(k) != new_config.get(k)}
-    if set(diff) - {'data', 'output_dir_prefix', 'output_dir_name', 'resume', 'steps_per_save'}:
-        raise ValueError(f'Unexpected resolved config differences: {diff}')
+    diff = config_differences(old_config, new_config)
     ckpt = Path(plan['checkpoint'])
     if sha(ckpt / 'state.tar') != plan['checkpoint_state_sha256'] or sha(ckpt / 'splat.ply') != plan['checkpoint_ply_sha256']:
         raise ValueError('Original checkpoint changed')

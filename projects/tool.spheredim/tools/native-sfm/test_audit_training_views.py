@@ -20,7 +20,7 @@ class AuditPreparationTests(unittest.TestCase):
         (source / 'seed.ply').write_text('fixture\n')
         (source / 'sparse/0/images.txt').write_text(''.join(f'{i} 1 0 0 0 0 0 0 1 {name}\n\n' for i, name in enumerate(names)))
         (source / 'manifest.json').write_text(json.dumps({'frames': [{'name': n} for n in names], 'heldout_evaluation_order': names[:4], 'command': [str(binary)], 'binary_sha256': audit.sha(binary)}))
-        (run / 'config.json').write_text(json.dumps({'num_iterations': final_step, 'mask_boundary_offset': 0, 'warp_to_pinhole': False, 'warp_spherical_to_pinhole': False, 'use_calib_warp': False}))
+        (run / 'config.json').write_text(json.dumps({'num_iterations': final_step, 'mask_boundary_offset': 0, 'warp_to_pinhole': False, 'warp_spherical_to_pinhole': False, 'use_calib_warp': False, 'ssim_lambda': 0.2, 'cap_max': 300000}))
         content = json.dumps({'step': step, 'full_resume': 1}).encode()
         with tarfile.open(ckpt / 'state.tar', 'w') as t:
             info = tarfile.TarInfo('state.json'); info.size = len(content); t.addfile(info, io.BytesIO(content))
@@ -39,6 +39,26 @@ class AuditPreparationTests(unittest.TestCase):
             self.assertEqual(len(plan['rename']), 4)
             for name in names:
                 self.assertTrue((root / 'out/data/images' / plan['rename'].get(name, name)).samefile(source / 'images' / name))
+
+    def test_resume_inherits_loss_and_capacity_without_preset(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d); source, run, _ = self.fixture(root)
+            path = run / 'config.json'
+            config = json.loads(path.read_text()); config.update(ssim_lambda=0, cap_max=450000)
+            path.write_text(json.dumps(config))
+            before = path.read_bytes()
+            cmd = audit.prepare(source, run, root / 'out', [15])['command']
+            self.assertEqual(cmd[1:3], ['train', '--resume'])
+            self.assertNotIn('--ssim-lambda', cmd)
+            self.assertNotIn('--cap-max', cmd)
+            self.assertEqual(path.read_bytes(), before)
+            inherited = dict(config, data='audit', resume='checkpoint', steps_per_save=0)
+            self.assertEqual(set(audit.config_differences(config, inherited)), {'data', 'resume', 'steps_per_save'})
+            self.assertEqual(audit.config_differences(dict(config, preset='360-camera'), dict(config, preset='3dgs')), {'preset': ['360-camera', '3dgs']})
+            for key, value in [('ssim_lambda', 0.2), ('cap_max', 300000)]:
+                changed = dict(inherited, **{key: value})
+                with self.assertRaisesRegex(ValueError, 'Unexpected resolved config differences'):
+                    audit.config_differences(config, changed)
 
     def test_uses_original_final_step(self):
         with tempfile.TemporaryDirectory() as d:

@@ -35,7 +35,7 @@ def compare(a, b, report_path, image_path):
         panels.append(np.concatenate([im[y:y+h, x:x+w] for im in (ref, old, new)], axis=1))
     mosaic = np.concatenate(panels, axis=0)
     if not cv2.imwrite(str(image_path), mosaic, [cv2.IMWRITE_JPEG_QUALITY, 92]): raise RuntimeError('Failed to write crops')
-    report = {'method': 'Same 10 selected source captures and poses, common mask, no alignment or appearance correction. Crops use fixed 1024-coordinate regions scaled by two; columns source, 7000, 8000; rows doorway, fabric, blinds. JPEG is visual evidence, not the metric input.', 'audit_sha256': [pixels.sha(x / 'audit.json') for x in (a, b)], 'summary': pixels.pool(rows), 'frames': rows, 'crop_path': str(image_path), 'crop_sha256': pixels.sha(image_path)}
+    report = {'method': 'Same 10 selected source captures and poses, common mask, no alignment or appearance correction. Crops use fixed 1024-coordinate regions scaled by two; columns source, baseline, candidate; rows doorway, fabric, blinds. JPEG is visual evidence, not the metric input.', 'audit_sha256': [pixels.sha(x / 'audit.json') for x in (a, b)], 'summary': pixels.pool(rows), 'frames': rows, 'crop_path': str(image_path), 'crop_sha256': pixels.sha(image_path)}
     with report_path.open('x') as f: json.dump(report, f, indent=2, allow_nan=False); f.write('\n')
     print(json.dumps(report['summary'], indent=2))
 
