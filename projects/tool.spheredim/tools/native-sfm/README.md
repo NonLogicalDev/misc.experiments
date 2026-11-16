@@ -106,3 +106,7 @@ uv run --offline --python 3.14 --with numpy --with scipy --with opencv-python-he
 ```
 
 This CPU diagnostic currently uses camera 0 at 1024×512. It requires distinct training-frame neighbors and reports provisional matches and rejections; it does not create seed points. Depth search bounds and poses come from the supplied SfM model, which may have used evaluation frames. Patches assume locally constant radial depth, two-neighbor matches cannot receive the leave-one-out check, and repetitive or untextured regions may remain unknown. The results are not independent depth ground truth.
+
+### Local capture-group diagnostic
+
+`prepare_capture_group.py` stages original capture images, masks and camera rows as hardlinks for a local fitting diagnostic. Pass a prepared manifest and a new output directory, followed by `--train` and `--eval` names. The helper requires distinct names, requires training selections to be original training rows, checks pose and camera IDs against the manifest, verifies the seed hash, and records the staged source and mask hashes. An original training capture named as evaluation is relabeled for the diagnostic while keeping its pose and pixels; it is not thereby an independent heldout. Keep the original evaluation split unchanged in the full reconstruction. Run the focused check with `python3 -m unittest -v test_prepare_capture_group` from this directory. See `docs/research/one-view-detail-diagnostic.md` for the completed diagnostic and its limits.
