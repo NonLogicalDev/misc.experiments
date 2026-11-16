@@ -97,12 +97,14 @@ uv run --offline --isolated --no-project --python 3.14 \
 
 `compare_splat_resolutions.py LOW_MANIFEST LOW_RUN HIGH_MANIFEST HIGH_RUN NEW_REPORT` scores a 2048 render after exact 2× area reduction against fixed 1024 source captures. It requires matching equirectangular camera IDs with exactly scaled parameters, identical pose rows and scene transforms, identical capture identities, exact reduced support and valid reference RGB. Saved reference files may differ from prepared RGB by at most one level; scoring uses the prepared source, matching `compare_splat_pixels.py`. The report preserves input, camera, configuration, render and mask hashes. It does not save resampled images or align the renders. Run `test_compare_splat_resolutions` for projection, reference and support rejection checks.
 
+For end-to-end reconstructions whose camera poses were estimated separately, add `--allow-estimated-pose-change` to the comparison command. This opt-in permits different pose rows but still validates each compared image's camera ID and finite normalized pose, exact capture identity and source/mask checks, scaled ERP cameras, equal scene transforms, and disabled evaluation alignment. The report records both pose hashes and labels the result as a comparison at corresponding observed captures; it combines pose and reconstruction changes and is not an isolated resolution comparison.
+
 ### Temporal depth support diagnostic
 
 `temporal_depth_roi.py` tests whether masked training images support local depth hypotheses in a fixed ROI. For example, with the prepared dataset and original SfM model paths used in the quality plan:
 
 ```sh
-uv run --offline --python 3.14 --with numpy --with scipy --with opencv-python-headless python tools/native-sfm/temporal_depth_roi.py PREPARED MODEL NEW_OUTPUT_DIR --reference 1435 --neighbors 1420 1425 1430 1445 1450 1455 --roi 400 330 140 35 --timeout 240
+uv run --offline --isolated --no-project --python 3.14 --with-requirements vendor/360DVO/requirements-macos-arm64-py314.lock python -B tools/native-sfm/temporal_depth_roi.py PREPARED MODEL NEW_OUTPUT_DIR --reference 1435 --neighbors 1420 1425 1430 1445 1450 1455 --roi 400 330 140 35 --timeout 240
 ```
 
 This CPU diagnostic currently uses camera 0 at 1024×512. It requires distinct training-frame neighbors and reports provisional matches and rejections; it does not create seed points. Depth search bounds and poses come from the supplied SfM model, which may have used evaluation frames. Patches assume locally constant radial depth, two-neighbor matches cannot receive the leave-one-out check, and repetitive or untextured regions may remain unknown. The results are not independent depth ground truth.
@@ -110,3 +112,6 @@ This CPU diagnostic currently uses camera 0 at 1024×512. It requires distinct t
 ### Local capture-group diagnostic
 
 `prepare_capture_group.py` stages original capture images, masks and camera rows as hardlinks for a local fitting diagnostic. Pass a prepared manifest and a new output directory, followed by `--train` and `--eval` names. The helper requires distinct names, requires training selections to be original training rows, checks pose and camera IDs against the manifest, verifies the seed hash, and records the staged source and mask hashes. An original training capture named as evaluation is relabeled for the diagnostic while keeping its pose and pixels; it is not thereby an independent heldout. Keep the original evaluation split unchanged in the full reconstruction. Run the focused check with `python3 -m unittest -v test_prepare_capture_group` from this directory. See `docs/research/one-view-detail-diagnostic.md` for the completed diagnostic and its limits.
+
+
+`audit_seed_gauge.py ORIGINAL_MODEL NATIVE_MODEL PREPARED NEW_OUTPUT` checks native-2048 points against their own cameras and after a similarity transform into the original 1024 camera model. It verifies binary ERP camera/pose files and reports training-track support, residuals, triangulation angles and regional failures without exporting seed points. The current regions and 824-camera expectation belong to this recording diagnostic. Run `test_audit_seed_gauge` for camera, similarity, projection and conditioning checks.
