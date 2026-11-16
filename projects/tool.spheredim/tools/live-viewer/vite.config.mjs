@@ -1,10 +1,12 @@
 import {defineConfig} from 'vite';
 import {createReadStream, readFileSync} from 'node:fs';
 import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {stat} from 'node:fs/promises';
 import {stateReader} from './state.mjs';
 const stateFile=process.env.SPHEREDIM_STATE;
 const port=Number(process.env.SPHEREDIM_PORT||5178);
+const host=process.env.SPHEREDIM_HOST||'127.0.0.1';
 if(!Number.isSafeInteger(port)||port<1||port>65535)throw new Error('Invalid SPHEREDIM_PORT');
 const reader=stateReader(stateFile);
 function sendFile(res,file) {
@@ -24,7 +26,7 @@ async function sendReferenceVideo(req,res) {
   }
   res.setHeader('Content-Length',Math.max(0,end-start+1));if(req.method==='HEAD'||size===0)return res.end();const stream=createReadStream(referenceFile,{start,end});stream.on('error',()=>res.destroy());stream.pipe(res);
 }
-export default defineConfig({server:{host:'127.0.0.1',port,strictPort:true},plugins:[{name:'local-reconstruction',configureServer(server){
+export default defineConfig({server:{host,port,strictPort:true,fs:{strict:true,allow:[path.dirname(fileURLToPath(import.meta.url))]}},plugins:[{name:'local-reconstruction',configureServer(server){
   server.middlewares.use('/api/reference-video',(req,res)=>{sendReferenceVideo(req,res).catch(()=>{if(!res.headersSent){res.statusCode=500;res.end()}else res.destroy()})});
   server.middlewares.use('/api/state',async (req,res)=>{try{const data=await reader.snapshot(new URL(req.url,'http://localhost').searchParams.get('scene'));res.setHeader('Content-Type','application/json');res.setHeader('Cache-Control','no-store');res.end(JSON.stringify(data))}catch(e){res.statusCode=500;res.end(JSON.stringify({error:String(e)}))}});
   server.middlewares.use('/api/splat.ply',async (req,res)=>{const id=new URL(req.url,'http://localhost').searchParams.get('scene');const loaded=await reader.loadScene(id).catch(()=>null);sendFile(res,loaded?.resolveScene(loaded.scene.artifacts?.splat?.file))});

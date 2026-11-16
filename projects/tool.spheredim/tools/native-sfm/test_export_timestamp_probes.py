@@ -16,7 +16,8 @@ class TimestampExportTest(unittest.TestCase):
             def fake(cmd,env,text,capture_output):
                 out=Path(cmd[cmd.index('--output')+1]);out.mkdir();mode=env['SPHEREDIM_OBSERVATION_MODE']
                 value=255 if mode.startswith('mask') else 0
-                image=Image.new('L' if mode.startswith('mask') else 'RGB',(4,2),value)
+                width=int(cmd[cmd.index('--width')+1])
+                image=Image.new('L' if mode.startswith('mask') else 'RGB',(width,width//2),value)
                 image.save(out/'frame_0000000001000000.png')
                 return types.SimpleNamespace(returncode=0,stdout=json.dumps({'backend':'GPU','outputs':[]}),stderr='SPHEREDIM_FRAME 1000000 1000000\n')
             args=['program','--source',str(source),'--output',str(root/'output'),'--indices','30','--timestamps','1.0']
@@ -25,6 +26,18 @@ class TimestampExportTest(unittest.TestCase):
             self.assertEqual((frame['frame'],frame['timestamp_microseconds']),(30,1000000))
             self.assertTrue(Path(frame['lens0']).is_file())
             self.assertEqual(manifest['selection'],'timestamps with seek')
+
+            self.assertEqual((manifest['width'],manifest['height']),(2048,1024))
+
+            def small(cmd,env,text,capture_output):
+                result=fake(cmd,env,text,capture_output)
+                out=Path(cmd[cmd.index('--output')+1])
+                path=out/'frame_0000000001000000.png'
+                with Image.open(path) as image: image.resize((4,2)).save(path)
+                return result
+            args[args.index('--output')+1]=str(root/'wrong-size')
+            with patch('sys.argv',args),patch.object(exporter.subprocess,'run',side_effect=small):
+                with self.assertRaisesRegex(ValueError,'support'):exporter.main()
 
             def wrong(cmd,env,text,capture_output):
                 result=fake(cmd,env,text,capture_output);result.stderr='SPHEREDIM_FRAME 1000000 1033333\n';return result

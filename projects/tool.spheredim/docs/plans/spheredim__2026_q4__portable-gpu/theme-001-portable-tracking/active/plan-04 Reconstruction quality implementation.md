@@ -275,3 +275,21 @@ The operator now requires at least 2× better quality. Use at least a 50% reduct
 ## Best-result acceptance baseline
 
 The operator clarified that the goal is finer quality than our best run so far. Anchor subsequent quality comparisons to `rig-dense-splat-6000-20261115`, preserving its source/pose/mask provenance and checkpoint. The earlier 33.5% held-out and 36.8% training-camera error reductions describe improvement over an older weaker result, not acceptance of the present goal. Retain the requested 2× quality ambition as halved pooled spherical and raw error against this dense 6k anchor, alongside direct visible fine-detail improvement and retained support. Report each subsequent candidate against both the fixed anchor and the best accepted incumbent; do not continually move the numerical target.
+
+## Source-resolution increase
+
+The operator requests 2× or 4× linear training resolution to recover readable poster text. Prioritize native source re-export at 2048×1024 and a bounded 4096×2048 pilot, not upsampling 1024 inputs. Reuse the current fixed-rig poses for the resolution comparison. Validate physical lens support and operator exclusion at the new resolution, exact source timestamps, color and visible source strokes, and estimate full dataset bytes from real samples before committing to all 412 timestamps. Keep generated data outside Git and retain the 35 GiB reserve including build and training peaks. The 450k-cap-only plan remains prepared but pending; do not let it delay the requested resolution trial.
+
+## 2026-11-16: Typst report and storage-constrained high-resolution continuation
+
+Active `/root/astra_paper` owns the requested scientific report in `docs/research/360-reconstruction-study`; Typst is the user's chosen format. Root verifies the final PDF and keeps private derivatives out of upstream commits. Active `/root/trainer_profile` audits obsolete support for removal and prepares the zero-step2048/100-step protocol. Source preparation is complete and independently verified; training has not started. Root completed cache/build cleanup with per-file hash manifests under `/private/tmp/spheredim-storage-prune-20261116`, measuring16.86GB afterward. Continue safe cleanup to meet15GB total and2GB support before allocating new trials. Preserve original footage, reviewed masks, good checkpoints, source/layers and comparison evidence. Current best7k stays in the live viewer;6k remains the fixed quality target anchor.
+
+## 2026-11-16: native 2048 training experiment
+
+The Typst report is complete and visually verified. Scoped storage fell to 13.77 GB total and 1.886 GB support before new GPU outputs, with the release DMG counted once. The ledger under `/private/tmp/spheredim-storage-prune-20261116` records hashes, restoration recipes and classification. Original footage, good models and comparison evidence remain.
+
+Root independently verified all 824 high-resolution image/mask hashes, ordered pose records and 788/36 split through the existing runner. The unchanged 7k checkpoint rendered 36 views at 2048×1024 in 22.20 s with no checkpoint output or input mutation. Only expected data/output/resume/save settings differ. The high-resolution baseline has spherical MSE 0.00393970; its area-reduced renders broadly agree with prior 1024 output, but individual pixel differences remain.
+
+The 100-step continuation completed in 15.946 s training / 36.72 s including evaluation. Spherical MSE increased 2.4897% and raw pixel MSE increased 2.7703%, with identical masks. It is not promoted. Active `/root` extends the same trial from 7100 to 8000 for 1,000 total high-resolution updates; this is still a bounded resolution trial, without densification or capacity changes. Active `/root/trainer_profile` prepares matched original-training-view audits at 2048. The viewer continues displaying the better 7k scene and reports actual trial activity separately. Evidence lives under `rig-dense-native-2048-20261116/` beside the recording.
+
+Verified checks: 74 native SfM tests, including corrected native-size timestamp fixture and rejection of wrong-size export; six build-journal tests; LAN proxy tests with loopback binding. Active `/root/frame_plan` completed a source-bound, hash-verified completion journal for resumable shader builds; no build or GPU rerun was required for that change.
