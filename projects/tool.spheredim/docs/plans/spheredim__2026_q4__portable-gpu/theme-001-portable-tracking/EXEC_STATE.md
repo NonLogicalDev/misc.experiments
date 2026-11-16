@@ -7,8 +7,10 @@
 
 ## Current execution: quality and runtime optimization
 
-- Active `/root/detail_diagnostic`: audit measured plane support in the static poster/clock wall region before any new geometry seed. No training is running.
-- Active `/root/trainer_profile`: remove run-specific conclusions from the source-patch audit helper and validate native camera dimensions. The completed source audit did not justify sharpness weights.
+- Completed `/root/detail_diagnostic`: native-resolution SfM has lower source-region residuals in all five checked views, but uses different landmarks and sparse far-view support. The report preserves both populations and camera gauges. Twelve focused diagnostic tests passed in root verification.
+- Active `/root/trainer_profile`: zero plus 1,000-update local native-camera fit, using the native 7k model and its own cameras. No model save; compare matching source pixels against the retained original-camera local control.
+- Completed `/root/trainer_profile`: stock depth-distortion A/B took 248.77 seconds and increased pooled local spherical error 3.03%; all three poster footprints worsened. No saved model or promotion. Inputs and settings verified; GPU is free.
+- Completed matched local fits: the seed improves poster-footprint error in one evaluation view but worsens the other. Root independently recomputed raw metrics and inspected crops; no 2× fidelity or full-scene gain. Candidate is published separately in the LAN viewer, original selection preserved.
 - Completed `/root/detail_diagnostic`: one-view detail improved at the fitted capture but became stretched streaks at neighboring captures; three of four neighboring slat regions worsened. Root inspected the images. No quality promotion.
 - Completed `/root/trainer_profile`: corrected conditional readout analysis found only 0.14–0.40% diagnostic residual-error reduction; full-amplitude corrections worsen every time block. Five tests pass; readout build is deprioritized.
 - Completed `/root/detail_diagnostic`: common-rig pose sweep improved joint error at most 0.447%; native DIS at a clearly detailed source region accepted 0/240. Three pose and eight DIS tests pass. No pose or seed changes.

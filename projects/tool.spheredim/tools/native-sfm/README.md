@@ -120,3 +120,12 @@ This CPU diagnostic currently uses camera 0 at 1024×512. It requires distinct t
 
 
 `dis_depth_pilot.py PREPARED MODEL NEW_OUTPUT` is a recording-specific diagnostic for native 2048-pixel ERP temporal correspondence in the blinds region. It uses fixed training frames 1435, 1430, 1445 and 1450, rotation-initialized DIS flow, forward/backward checks, spherical triangulation and patch ambiguity tests. It writes a small report and overlay, never a seed model. Its fixed frame IDs and region are deliberate experiment inputs, not a general frame-selection policy. Run `test_dis_depth_pilot` in the external pinned UV runtime for known-depth, periodic-boundary, masking and repeated-pattern tests.
+
+
+### Local surface and detail diagnostics
+
+`poster_plane_sweep.py PREPARED ORIGINAL_MODEL NEW_OUTPUT_DIR` tests a measured poster-plane hypothesis against neighboring native spherical observations. Its default mode requires a distinguishable depth peak. `--fixed-plane-prior` instead prepares source-colored initialization points at the measured plane and reports their ambiguity. The fixed capture selection is an experiment specification, not a general scene mesher. `prepare_poster_seed_fit.py --help` stages matched seed/no-seed controls while preserving original cameras and source hashes; it does not start training.
+
+`compare_planar_transfer.py DATA ZERO_RENDER_DIR PRIOR_JSON FOOTPRINT_JSON NEW_OUTPUT_DIR --original-model ORIGINAL_MODEL` compares source texture projected through that plane with retained Gaussian renders on the same predeclared footprint. Optional `--neighbor-data` and `--neighbor-zero` add the two existing adjacent-camera controls. It uses native ERP pixel centers, requires valid source interpolation neighborhoods, checks the original camera gauge, and records the unresolved difference from the earlier SfM pixel convention. Continuous display crops remain inside the measured source hull; scoring support is unchanged and shown separately. These are diagnostic resamplings, not extra camera observations or training images.
+
+Run the focused checks with the external UV environment shown above and `python -B -m unittest test_poster_plane_sweep test_prepare_poster_seed_fit test_compare_planar_transfer`. The tests cover nonidentity plane projection, pixel centers, ambiguous repeating texture, mask support, longitude wrapping and point-cloud initialization.

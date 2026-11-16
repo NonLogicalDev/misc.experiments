@@ -5,3 +5,12 @@
 - The hash-locked runtime downloads are macOS arm64 only. AMD ROCm runtime packaging and hardware validation remain open. [Plan](../../theme-001-portable-tracking/active/plan-01%20Portable%20360DVO.md).
 
 - Local checkpoint `56899582d6a0dabe3d1ffd07e68d1845fbd20be3` on main, 2026-11-16T04:43:19Z, stores physical-lens rig preparation/evaluation, pinned exporter and SfM patch layers, the state catalog consumer and workflow publisher. Objects are in the local misc.experiments Git common directory; no remote backup or push was made. Generated source, acquired binaries and private recordings remain outside the commit. Unrelated SolidRecipe staged and working changes were preserved through an isolated commit index. The next native-rig splat converter is still in progress.
+
+
+## Current durable checkpoint
+
+Verified on 2026-11-16: main checkout remains `/Users/nonlogical/Projects/remote/github.com/NonLogicalDev/misc.experiments`, project `projects/tool.spheredim`, branch `main`. Git common directory is the checkout's `.git`; this is persistent local disk, not a disposable worktree. Checkpoint `447120fb43d44a1284da4929a51317de8c4a81ab` (2026-11-16T16:00:33Z) contains conditional readout, paired-pose, common-source-patch and cross-view detail diagnostics plus their tests and decisions. The same commit was verified at GitHub `refs/heads/main` after push. Origin is `https://github.com/NonLogicalDev/misc.experiments.git`; SSH push used the same repository. This supersedes earlier statements that no remote backup exists.
+
+The nested `vendor/360DVO` definition repository resolves to its own root and HEAD `069b1a51885cb5da2cf19fdf12764e3395dc09ec`; the parent checkpoint does not imply that nested repository's remote was updated. Recreate upstream projections from the pinned layer definitions, not build artifacts. Restore source checkout from GitHub if local objects are lost; private recordings, source frames, models and report figures require their existing local recording directory and are intentionally absent from GitHub. No new worktree was created.
+
+Subsequent poster-plane, source-transfer and local distortion comparisons are recorded in the quality plan; inspect current execution and Git status before resuming. Unrelated SolidRecipe staged and working changes are preserved.
