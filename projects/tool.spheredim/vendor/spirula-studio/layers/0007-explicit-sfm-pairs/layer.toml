@@ -1,0 +1,7 @@
+[layer]
+enabled = false
+[vcs]
+commit-msg = "Allow explicit spherical SfM image pairs"
+[[operation]]
+[operation.patch]
+file = "explicit-sfm-pairs.patch"

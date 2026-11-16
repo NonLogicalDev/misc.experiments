@@ -1,0 +1,105 @@
+diff --git a/cmake/SsBackendVulkan.cmake b/cmake/SsBackendVulkan.cmake
+index cc7ddb1..5f9fd20 100644
+--- a/cmake/SsBackendVulkan.cmake
++++ b/cmake/SsBackendVulkan.cmake
+@@ -51,6 +51,10 @@ endif()
+ include(SsSlang)
+ ss_find_slangc(SS_SLANGC_EXE)
+ 
++option(SS_MACOS_COMPACT_SPIRV "Embed SPIR-V with Mach-O incbin instead of C++ literals" OFF)
++if(SS_MACOS_COMPACT_SPIRV AND NOT APPLE)
++    message(FATAL_ERROR "SS_MACOS_COMPACT_SPIRV requires macOS")
++endif()
+ set(SS_SPIRV_DIR ${CMAKE_CURRENT_BINARY_DIR}/spirv)
+ set(SS_SPIRV_EMBED ${CMAKE_CURRENT_BINARY_DIR}/vk_shaders_embedded.cpp)
+ include(${SS_VK_SHADERS}/SpirvShaders.cmake)
+diff --git a/src/backend/vulkan/shaders/SpirvShaders.cmake b/src/backend/vulkan/shaders/SpirvShaders.cmake
+index 75f5861..39bb302 100644
+--- a/src/backend/vulkan/shaders/SpirvShaders.cmake
++++ b/src/backend/vulkan/shaders/SpirvShaders.cmake
+@@ -115,6 +115,10 @@ function(ss_setup_spirv shared_dir vk_dir slangc spirv_dir embed_cpp debug)
+     list(LENGTH blob_outputs blob_count)
+     message(STATUS "SPIR-V: ${blob_count} blobs to compile (per-blob, -j aware)")
+ 
++    set(_embed_flags "")
++    if(SS_MACOS_COMPACT_SPIRV)
++        list(APPEND _embed_flags --incbin)
++    endif()
+     ss_embed_spirv(${embed_cpp} ${spirv_dir}/blobs.txt
+-        "Embedding SPIR-V (${blob_count} blobs)" BLOBS ${blob_outputs})
++        "Embedding SPIR-V (${blob_count} blobs)" BLOBS ${blob_outputs} FLAGS ${_embed_flags})
+ endfunction()
+diff --git a/src/backend/vulkan/shaders/spirv_tool.cpp b/src/backend/vulkan/shaders/spirv_tool.cpp
+index 1e47b11..360971e 100644
+--- a/src/backend/vulkan/shaders/spirv_tool.cpp
++++ b/src/backend/vulkan/shaders/spirv_tool.cpp
+@@ -523,10 +523,11 @@ std::string strip_feature_suffixes(std::string name) {
+ 
+ int run_embed(const std::vector<std::string>& args) {
+     std::string out_cpp, listfile, nn_tag;
+-    bool sfm = false, nn = false;
++    bool sfm = false, nn = false, incbin = false;
+     for (size_t i = 0; i < args.size(); i++) {
+         if (args[i] == "--list" && i + 1 < args.size()) listfile = args[++i];
+         else if (args[i] == "--sfm") sfm = true;
++        else if (args[i] == "--incbin") incbin = true;
+         else if (args[i] == "--nn" && i + 1 < args.size()) {
+             nn = true;
+             nn_tag = args[++i];
+@@ -536,6 +537,10 @@ int run_embed(const std::vector<std::string>& args) {
+         std::fprintf(stderr, "embed: usage: embed <out.cpp> --list <file>\n");
+         return 2;
+     }
++    if (incbin && (sfm || nn)) {
++        std::fprintf(stderr, "embed: --incbin supports only the engine registry\n");
++        return 2;
++    }
+     // The two module-registry flavours skip the engine's variant gate and
+     // capability audit -- both are statements about the engine's kernels.
+     const bool plain = sfm || nn;
+@@ -552,6 +557,7 @@ int run_embed(const std::vector<std::string>& args) {
+ 
+     // name -> bytes, name -> capabilities
+     std::map<std::string, std::string> blob_bytes;
++    std::map<std::string, std::string> blob_paths;
+     std::map<std::string, std::set<uint32_t>> blob_caps;
+     for (auto& p : paths) {
+         std::string name = basename_of(p);
+@@ -563,7 +569,12 @@ int run_embed(const std::vector<std::string>& args) {
+             std::fprintf(stderr, "embed: missing blob %s\n", p.c_str());
+             return 1;
+         }
++        if (incbin && (data.size() % 4 != 0 || p.find_first_of("\"\\\n\r") != std::string::npos)) {
++            std::fprintf(stderr, "embed: invalid blob size or path %s\n", p.c_str());
++            return 1;
++        }
+         blob_bytes[name] = data;
++        blob_paths[name] = p;
+         blob_caps[name] = spirv_capabilities(data);
+     }
+ 
+@@ -639,6 +650,15 @@ int run_embed(const std::vector<std::string>& args) {
+              " size_t size_bytes; };\n\n";
+     for (size_t i = 0; i < kept.size(); i++) {
+         const std::string& data = blob_bytes[kept[i]];
++        if (incbin) {
++            // Mach-O symbol names carry a leading underscore. The assembler
++            // copies the exact aligned bytes without a giant C++ literal.
++            o << "extern \"C\" const uint32_t ss_blob" << i << "[];\n";
++            o << "asm(\".section __TEXT,__const\\n.p2align 2\\n.globl _ss_blob" << i
++              << "\\n_ss_blob" << i << ":\\n.incbin \\\"" << blob_paths[kept[i]]
++              << "\\\"\\n\");\n";
++            continue;
++        }
+         o << "static const uint32_t _blob" << i << "[] = {\n";
+         size_t words = data.size() / 4;
+         char buf[16];
+@@ -699,7 +719,7 @@ int run_embed(const std::vector<std::string>& args) {
+              "extern const size_t g_spirv_blob_count;\n"
+              "const SpirvBlob g_spirv_blobs[] = {\n";
+         for (size_t i = 0; i < kept.size(); i++)
+-            o << "    {\"" << kept[i] << "\", _blob" << i << ", "
++            o << "    {\"" << kept[i] << "\", " << (incbin ? "ss_blob" : "_blob") << i << ", "
+               << blob_bytes[kept[i]].size() << "},\n";
+         if (kept.empty())
+             o << "    {nullptr, nullptr, 0},  // keep the array non-empty\n";

@@ -17,6 +17,21 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(default[default.index(flag)+1], 'float')
             self.assertEqual(cpu[cpu.index(flag)+1], 'cpu')
 
+    def test_experimental_sequential_pairing_is_explicit(self):
+        args = [Path('/bin/example'), Path('/data'), Path('/out'), Path('/data/rig.json')]
+        default = command(*args)
+        sequential = command(*args, pair_mode='sequential')
+        self.assertEqual(default[default.index('--pairs') + 1], 'exhaustive')
+        self.assertNotIn('--loop-closure', default)
+        for flag, value in (('--pairs', 'sequential'), ('--overlap', '10'),
+                            ('--prefilter-features', '128'), ('--prefilter-train', '128'),
+                            ('--prefilter-neighbors', '8')):
+            self.assertEqual(sequential[sequential.index(flag) + 1], value)
+        self.assertIn('--quadratic-overlap', sequential)
+        self.assertIn('--loop-closure', sequential)
+        with self.assertRaises(ValueError):
+            command(*args, pair_mode='unknown')
+
     def test_only_translation_may_change(self):
         base = {'rigs': [{'members': [{}, {'prefix': 'cam1', 'rotation': [1, 0, 0, 0], 'translation': [0, 0, 0], 'fixed': True, 'refine': 'none'}]}]}
         with tempfile.TemporaryDirectory() as td:

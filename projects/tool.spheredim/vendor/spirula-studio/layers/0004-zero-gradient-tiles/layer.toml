@@ -1,0 +1,7 @@
+[layer]
+enabled = false
+[vcs]
+commit-msg = "Skip zero-gradient bilateral tiles"
+[[operation]]
+[operation.patch]
+file = "zero-gradient-tiles.patch"

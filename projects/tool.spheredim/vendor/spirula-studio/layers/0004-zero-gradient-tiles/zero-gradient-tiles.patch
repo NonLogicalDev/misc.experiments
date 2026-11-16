@@ -1,0 +1,47 @@
+diff --git a/src/backend/vulkan/shaders/bilagrid_ppisp.slang b/src/backend/vulkan/shaders/bilagrid_ppisp.slang
+index 58103b8..b1b18d0 100644
+--- a/src/backend/vulkan/shaders/bilagrid_ppisp.slang
++++ b/src/backend/vulkan/shaders/bilagrid_ppisp.slang
+@@ -651,6 +651,7 @@ void bilagrid_ppisp_bwd_v1_rgb(uint3 wg: SV_GroupID, uint tid: SV_GroupThreadID,
+ static const int kBptTile = 16;
+ static const int kBptRows = 32;     // rows a pass; 256 / 32 chunks of 32 pixels
+ 
++groupshared uint _bpt_any_gradient;
+ groupshared uint _bpt_xy[256];      // kx0 | kx1 << 8 | ky0 << 16 | ky1 << 24, tile-relative
+ groupshared uint _bpt_z[256];       // z0 | z1 << 16
+ groupshared float _bpt_f[256 * 12]; // fx, fy, fz, then the 9 parameter gradients
+@@ -695,6 +696,12 @@ void bilagrid_ppisp_bwd_tile(uint3 wg: SV_GroupID, uint tid: SV_GroupThreadID,
+     const int g_off3 = inside ? ((ni * p.h + hi) * p.w + wi) * 3 : 0;
+     BgReader r = {p.fp32, p.q16, p.vbounds};
+ 
++    // A fully zero upstream gradient produces zero for both outputs. Vote
++    // across the whole tile before the shared row reductions below.
++    if (tid == 0) _bpt_any_gradient = 0;
++    GroupMemoryBarrierWithGroupSync();
++    bool has_gradient = false;
++
+     float gw[kBpChans];
+     [ForceUnroll]
+     for (int ci = 0; ci < kBpChans; ci++) gw[ci] = 0.0f;
+@@ -707,7 +714,8 @@ void bilagrid_ppisp_bwd_tile(uint3 wg: SV_GroupID, uint tid: SV_GroupThreadID,
+         float3 v_out = float3(p.v_output[g_off3 + 0], p.v_output[g_off3 + 1],
+                               p.v_output[g_off3 + 2]);
+         float vr = 0.0f, vg = 0.0f, vb = 0.0f;
+-        if (any(v_out != float3(0.0f))) {
++        has_gradient = any(v_out != float3(0.0f));
++        if (has_gradient) {
+             float x = float(wi) / float(p.w - 1) * float(p.W - 1);
+             float y = float(hi) / float(p.h - 1) * float(p.H - 1);
+             float gz_raw = kC2G_r * sr + kC2G_g * sg + kC2G_b * sb;
+@@ -782,6 +790,11 @@ void bilagrid_ppisp_bwd_tile(uint3 wg: SV_GroupID, uint tid: SV_GroupThreadID,
+     [ForceUnroll]
+     for (int ci = 0; ci < kBpChans; ci++) _bpt_f[tid * 12 + 3 + uint(ci)] = gw[ci];
+ 
++    if (WaveActiveAnyTrue(has_gradient) && WaveIsFirstLane())
++        InterlockedOr(_bpt_any_gradient, 1u);
++    GroupMemoryBarrierWithGroupSync();
++    if (_bpt_any_gradient == 0) return;
++
+     // Row = (cell column, cell row, level); a pixel with no gradient adds 0.
+     const int rows = npx * npy * p.L;
+     const int lane = int(tid) % kBptRows, chunk = int(tid) / kBptRows;

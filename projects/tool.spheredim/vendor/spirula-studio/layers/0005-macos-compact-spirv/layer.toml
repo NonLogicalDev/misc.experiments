@@ -1,0 +1,7 @@
+[layer]
+enabled = false
+[vcs]
+commit-msg = "Add compact macOS SPIR-V embedding"
+[[operation]]
+[operation.patch]
+file = "compact-embedding.patch"

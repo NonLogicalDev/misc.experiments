@@ -1,0 +1,1380 @@
+diff --git a/src/backend/tests/accum_weight_map.cpp b/src/backend/tests/accum_weight_map.cpp
+index f30c41e..cafbb5d 100644
+--- a/src/backend/tests/accum_weight_map.cpp
++++ b/src/backend/tests/accum_weight_map.cpp
+@@ -161,7 +161,7 @@ void run_mode(bool packed, DensifyAccumMode accum_mode) {
+                                              W, H, tile_offsets, flatten_ids,
+                                              macro_log2,
+                                              DistortionType::None, false, true,
+-                                             SplatScoreRender{}, 0.0f);
++                                             SplatScoreRender{}, 0.0f, false);
+     backend::device_synchronize();
+     auto& renders = std::get<0>(rout);
+     auto& render_Ts = std::get<1>(rout);
+@@ -199,7 +199,7 @@ void run_mode(bool packed, DensifyAccumMode accum_mode) {
+             macro_log2,
+             render_Ts, last_ids, renders, std::nullopt, DistortionType::None,
+             t3f1(d_awmap), accum_mode, max_weight, mw_scale, 0.0f, v_renders, t3f1(d_v_T),
+-            DeviceTensor3D<float>{}, std::nullopt, 0.0f, std::nullopt, std::nullopt);
++            DeviceTensor3D<float>{}, std::nullopt, 0.0f, std::nullopt, std::nullopt, false);
+         backend::device_synchronize();
+         // Avg lands as [numerator, denominator] planar; the engine divides it
+         // down with densify_accum_finalize_tensor once every camera is in.
+diff --git a/src/backend/tests/raster_bench.cpp b/src/backend/tests/raster_bench.cpp
+index 53482e1..faaf6ae 100644
+--- a/src/backend/tests/raster_bench.cpp
++++ b/src/backend/tests/raster_bench.cpp
+@@ -214,7 +214,7 @@ int main(int argc, char** argv) {
+         return rasterize_to_pixels_3dgs_fwd(N, splats, splats_s, gauss_ids, W,
+                                             H, tile_offsets, flatten_ids,
+                                             macro_log2, dt, false, true,
+-                                            SplatScoreRender{}, cut);
++                                            SplatScoreRender{}, cut, false);
+     };
+     auto rout = fwd();
+     backend::device_synchronize();
+@@ -262,7 +262,7 @@ int main(int argc, char** argv) {
+             std::get<0>(rout), dist_fwd, dt, t3f1(d_awmap), aw,
+             max_weight, 1.0f, cut, v_renders,
+             t3f1(d_v_T), DeviceTensor3D<float>{}, v_dist, 0.0f,
+-            std::nullopt, std::nullopt);
++            std::nullopt, std::nullopt, false);
+         v_world = std::get<0>(result);
+         v_screen = std::get<1>(result);
+         v_weight = std::get<2>(result);
+diff --git a/src/backend/tests/raster_bwd_parity.cpp b/src/backend/tests/raster_bwd_parity.cpp
+index 0e202d6..e60cffc 100644
+--- a/src/backend/tests/raster_bwd_parity.cpp
++++ b/src/backend/tests/raster_bwd_parity.cpp
+@@ -286,7 +286,7 @@ int main(int argc, char** argv) {
+                                                 flatten_ids,
+                                                 macro_log2, cfg.dt,
+                                                 cfg.median, true,
+-                                                SplatScoreRender{}, cfg.cut);
++                                                SplatScoreRender{}, cfg.cut, false);
+         }
+         backend::device_synchronize();
+         if (check_error()) return 1;
+@@ -344,7 +344,7 @@ int main(int argc, char** argv) {
+                 renders, dist_fwd_opt,
+                 cfg.dt, awmap_t, cfg.aw, mw_t, kMwScale, cfg.cut, v_render_cfg,
+                 t3f1(d_v_T), v_med_t, v_dist_opt, 0.0f,
+-                std::nullopt, std::nullopt);
++                std::nullopt, std::nullopt, false);
+             backend::device_synchronize();
+             if (check_error()) return 1;
+             readback_screen(acc, v_s[0], SCR2_STRIDE,
+@@ -364,7 +364,7 @@ int main(int argc, char** argv) {
+                         DeviceVector<float>{}, 1.0f, cfg.cut,
+                         v_render_cfg, t3f1(d_v_T), v_med_t,
+                         k == 0 ? v_dists_tied : v_dists_derived,
+-                        k == 0 ? 0.0f : kDistRatio, std::nullopt, std::nullopt);
++                        k == 0 ? 0.0f : kDistRatio, std::nullopt, std::nullopt, false);
+                     backend::device_synchronize();
+                     readback_screen(got[k], s2[0], SCR2_STRIDE,
+                                     {{SCR2_XY, 2}, {SCR2_CONIC, 3},
+diff --git a/src/backend/vulkan/kernels/RasterizeBwd.cpp b/src/backend/vulkan/kernels/RasterizeBwd.cpp
+index cb989c1..887e4e2 100644
+--- a/src/backend/vulkan/kernels/RasterizeBwd.cpp
++++ b/src/backend/vulkan/kernels/RasterizeBwd.cpp
+@@ -114,7 +114,8 @@ std::tuple<
+     std::optional<RenderOutput::TensorTuple> v_distortion_outputs,
+     float v_dist_rgb_per_depth,
+     std::optional<std::vector<DeviceTensorFloatND>> v_splats_w,
+-    std::optional<std::vector<DeviceTensorFloatND>> v_splats_s
++    std::optional<std::vector<DeviceTensorFloatND>> v_splats_s,
++    bool periodic
+ ) {
+     const uint32_t spec_dist = dist_spec_bwd(dist_type);
+     if (accum_weight_map.data_ptr() == nullptr)
+@@ -208,7 +209,7 @@ std::tuple<
+ 
+         // Spec IDs: cam(0, unused), dist(1), median(2), accum(3),
+         // viewmat(4, unused), packed(5), max weight(6).
+-        backend::vk::SpecList spec{0u,           spec_dist,
++        backend::vk::SpecList spec{periodic ? 3u : 0u, spec_dist,
+                                    md ? 1u : 0u, (uint32_t)accum_mode,
+                                    0u,           packed ? 1u : 0u,
+                                    mw ? 1u : 0u};
+diff --git a/src/backend/vulkan/kernels/RasterizeFwd.cpp b/src/backend/vulkan/kernels/RasterizeFwd.cpp
+index 8a65046..6dcf679 100644
+--- a/src/backend/vulkan/kernels/RasterizeFwd.cpp
++++ b/src/backend/vulkan/kernels/RasterizeFwd.cpp
+@@ -154,7 +154,7 @@ launch_raster_2d_fwd(
+     const DeviceVector<int32_t>& flatten_ids,
+     int macro_log2,
+     DistortionType dist_type, bool output_median, bool output_depth,
+-    const SplatScoreRender& score, float kernel_cut) {
++    const SplatScoreRender& score, float kernel_cut, bool periodic) {
+     const int64_t batch = tile_offsets.size<0>();
+     const uint32_t tile_height = (uint32_t)tile_offsets.size<1>();
+     const uint32_t tile_width = (uint32_t)tile_offsets.size<2>();
+@@ -189,7 +189,7 @@ launch_raster_2d_fwd(
+ 
+     // Spec IDs as in the 3dgut entry; only the score map reads gaussian_ids.
+     const bool packed = score.enabled() && gaussian_ids.data_ptr();
+-    backend::vk::SpecList spec{0u, dist_spec(dist_type),
++    backend::vk::SpecList spec{periodic ? 3u : 0u, dist_spec(dist_type),
+                                output_median ? 1u : 0u, packed ? 1u : 0u,
+                                score.enabled() ? 1u : 0u};
+     static_assert(sizeof(RasterFwd2dParams) <= 128,
+@@ -228,7 +228,7 @@ std::tuple<
+     bool output_median,
+     bool output_depth,
+     SplatScoreRender score,
+-    float kernel_cut
++    float kernel_cut, bool periodic
+ ) {
+     // The 2D fragment reads only the screen buffer (as in the CUDA path);
+     // num_splats / gaussian_ids reach the kernel for the score map alone.
+@@ -236,7 +236,7 @@ std::tuple<
+     return launch_raster_2d_fwd(num_splats, gaussian_ids, splats_s, image_width,
+                                 image_height, tile_offsets, flatten_ids,
+                                 macro_log2, dist_type, output_median,
+-                                output_depth, score, kernel_cut);
++                                output_depth, score, kernel_cut, periodic);
+ }
+ 
+ std::tuple<
+@@ -259,13 +259,13 @@ std::tuple<
+     bool output_median,
+     bool output_depth,
+     SplatScoreRender score,
+-    float kernel_cut
++    float kernel_cut, bool periodic
+ ) {
+     (void)splats_w;
+     return launch_raster_2d_fwd(num_splats, gaussian_ids, splats_s, image_width,
+                                 image_height, tile_offsets, flatten_ids,
+                                 macro_log2, dist_type, output_median,
+-                                output_depth, score, kernel_cut);
++                                output_depth, score, kernel_cut, periodic);
+ }
+ 
+ /* API definition matching kernels/raster/RasterizationEval3DFwd.cuh */
+diff --git a/src/backend/vulkan/shaders/raster_common.slang b/src/backend/vulkan/shaders/raster_common.slang
+index 0a81784..558a192 100644
+--- a/src/backend/vulkan/shaders/raster_common.slang
++++ b/src/backend/vulkan/shaders/raster_common.slang
+@@ -69,3 +69,11 @@ bool ellipse_box_overlap_test(float3 inv_cov, float x0, float x1, float y0,
+     return min(mc, min(mx, my) - 1.0f) < 0.f;
+ }
+ 
++
++// Pick the single periodic copy that minimizes the positive-definite conic.
++[ForceInline]
++float erp_conic_dx(float dx, float dy, float3 conic, float width) {
++    if (conic.x <= 0.0f) return dx;
++    float shift = conic.y * dy / conic.x;
++    return dx - width * floor((dx + shift) / width + 0.5f);
++}
+diff --git a/src/backend/vulkan/shaders/rasterize_bwd.slang b/src/backend/vulkan/shaders/rasterize_bwd.slang
+index c39886b..65a652e 100644
+--- a/src/backend/vulkan/shaders/rasterize_bwd.slang
++++ b/src/backend/vulkan/shaders/rasterize_bwd.slang
+@@ -317,7 +317,7 @@ void _rb2_alpha_vjp(Frag2d_ s, float2 delta, float sigma, float vis, float dvis,
+ // caller's barrier is never skipped.
+ [ForceInline]
+ void _rb2_step(int pix_id, int splat_idx, bool active,
+-               uint wg_y, uint wg_z, Frag2d_ splat, float kernel_cut,
++               uint wg_y, uint wg_z, Frag2d_ splat, float kernel_cut, uint width,
+                inout Frag2d_ v_splat,
+                inout float accum_weight, inout float accum_weight_den,
+                inout float max_weight, inout bool touched) {
+@@ -327,6 +327,8 @@ void _rb2_step(int pix_id, int splat_idx, bool active,
+     int gy = int(wg_y * TILE_SIZE_DY) + pix_id / (int)TILE_SIZE_DX;
+     float2 delta = float2(splat.xy.x - (float(gx) + 0.5f),
+                           splat.xy.y - (float(gy) + 0.5f));
++    if (kCameraModel == int(CameraModelType::EQUIRECTANGULAR))
++        delta.x = erp_conic_dx(delta.x, delta.y, splat.conic, float(width));
+ 
+     float sigma, vis, dvis;
+     float alpha = _rb2_alpha(splat, delta, kernel_cut, sigma, vis, dvis);
+@@ -424,7 +426,7 @@ void rasterize_bwd_2d(uint3 wg: SV_GroupID, uint tid: SV_GroupThreadID,
+                 c_xy = scr2_xy(c_row);
+                 if (c_opac > ALPHA_THRESHOLD) {
+                     float kk = 0.5f / kernel_reach(c_opac, p.kernel_cut);
+-                    ok = ellipse_box_overlap_test(
++                    ok = (kCameraModel == int(CameraModelType::EQUIRECTANGULAR)) || ellipse_box_overlap_test(
+                         c_conic * kk, cull_bx0 - c_xy.x,
+                         cull_bx0 + TILE_SIZE_DX - c_xy.x, cull_by0 - c_xy.y,
+                         cull_by0 + TILE_SIZE_DY - c_xy.y);
+@@ -489,7 +491,7 @@ void rasterize_bwd_2d(uint3 wg: SV_GroupID, uint tid: SV_GroupThreadID,
+ 
+             for (int t = 0; t < batch_size + (int)RB_BLOCK - 1; t++) {
+                 _rb2_step(t - int(tid), splat_idx, active, wg.y, wg.z, splat,
+-                          p.kernel_cut, v_splat, accum_weight, accum_weight_den,
++                          p.kernel_cut, p.width, v_splat, accum_weight, accum_weight_den,
+                           max_weight, touched);
+                 GroupMemoryBarrierWithGroupSync();
+             }
+@@ -788,7 +790,7 @@ void rasterize_bwd_3dgut(uint3 wg: SV_GroupID, uint tid: SV_GroupThreadID,
+                 if (c_opac > ALPHA_THRESHOLD) {
+                     float kk = 0.5f / log(c_opac / ALPHA_THRESHOLD);
+                     float3 inv_cov = c_conic * kk;
+-                    ok = ellipse_box_overlap_test(
++                    ok = (kCameraModel == int(CameraModelType::EQUIRECTANGULAR)) || ellipse_box_overlap_test(
+                         inv_cov, cull_bx0 - c_ex,
+                         cull_bx0 + TILE_SIZE_DX - c_ex, cull_by0 - c_ey,
+                         cull_by0 + TILE_SIZE_DY - c_ey);
+diff --git a/src/backend/vulkan/shaders/rasterize_fwd.slang b/src/backend/vulkan/shaders/rasterize_fwd.slang
+index 771bfa5..d5ef861 100644
+--- a/src/backend/vulkan/shaders/rasterize_fwd.slang
++++ b/src/backend/vulkan/shaders/rasterize_fwd.slang
+@@ -186,7 +186,7 @@ void rasterize_fwd_2d(uint3 wg: SV_GroupID, uint tid: SV_GroupThreadID,
+             if (f.opac > ALPHA_THRESHOLD) {
+                 float kk = 0.5f / kernel_reach(f.opac, p.kernel_cut);
+                 float3 inv_cov = f.conic * kk;
+-                hit = ellipse_box_overlap_test(
++                hit = (kCameraModel == int(CameraModelType::EQUIRECTANGULAR)) || ellipse_box_overlap_test(
+                     inv_cov, mt_bx0 - f.xy.x,
+                     mt_bx0 + float(TILE_SIZE_X) - f.xy.x, mt_by0 - f.xy.y,
+                     mt_by0 + float(TILE_SIZE_Y) - f.xy.y);
+@@ -214,6 +214,8 @@ void rasterize_fwd_2d(uint3 wg: SV_GroupID, uint tid: SV_GroupThreadID,
+ 
+             // FragmentFwd::evaluate_alpha(px, py)
+             float2 delta = float2(f.xy.x - px, f.xy.y - py);
++            if (kCameraModel == int(CameraModelType::EQUIRECTANGULAR))
++                delta.x = erp_conic_dx(delta.x, delta.y, f.conic, float(p.width));
+             float sigma = 0.5f * (f.conic.x * delta.x * delta.x +
+                                   f.conic.z * delta.y * delta.y) +
+                           f.conic.y * delta.x * delta.y;
+@@ -454,7 +456,7 @@ void rasterize_fwd_3dgut(uint3 wg: SV_GroupID, uint tid: SV_GroupThreadID,
+                 float ecx = ec.x, ecy = ec.y;
+                 float kk = 0.5f / log(opac / ALPHA_THRESHOLD);
+                 float3 inv_cov = conic * kk;
+-                hit = ellipse_box_overlap_test(
++                hit = (kCameraModel == int(CameraModelType::EQUIRECTANGULAR)) || ellipse_box_overlap_test(
+                     inv_cov, mt_bx0 - ecx,
+                     mt_bx0 + float(TILE_SIZE_X) - ecx, mt_by0 - ecy,
+                     mt_by0 + float(TILE_SIZE_Y) - ecy);
+diff --git a/src/engine/EngineForward.cpp b/src/engine/EngineForward.cpp
+index e539087..3d1803a 100644
+--- a/src/engine/EngineForward.cpp
++++ b/src/engine/EngineForward.cpp
+@@ -381,6 +381,9 @@ void forward_3dgs(
+     // ellipse-vs-tile test instead of the conservative AABB one.
+     ProjEllipseView ellipse = proj_ellipse_view(
+         engine().fwd.splats_s[0].data_ptr(), primitive == "3dgut");
++    // ERP seam boxes may cover the full row; the clamped box cannot supply a
++    // correct ellipse center. The AABB intersector visits each tile once.
++    if (engine().camera.model_str == "EQUIRECTANGULAR") ellipse = {};
+     if (primitive != "3dgut")  // the 3DGUT rasterizer draws the full gaussian
+         ellipse.max_sigma = engine().fwd.kernel_cut;
+ 
+@@ -446,7 +449,8 @@ void forward_3dgs(
+             in_splats, engine().fwd.splats_s, engine().fwd.gaussian_ids,
+             (uint32_t)engine().camera.width, (uint32_t)engine().camera.height,
+             tile_offsets, flatten_ids, engine().fwd.macro_log2,
+-            dist_type, output_median, output_depth, score, engine().fwd.kernel_cut);
++            dist_type, output_median, output_depth, score, engine().fwd.kernel_cut,
++            engine().camera.model_str == "EQUIRECTANGULAR");
+         renders = r; render_Ts = rTs; last_ids = lids; render_median = med; distortions = dist;
+     } else if (primitive == "mip") {
+         auto [r, rTs, lids, dist, med] = rasterize_to_pixels_mip_fwd(
+@@ -454,7 +458,8 @@ void forward_3dgs(
+             in_splats, engine().fwd.splats_s, engine().fwd.gaussian_ids,
+             (uint32_t)engine().camera.width, (uint32_t)engine().camera.height,
+             tile_offsets, flatten_ids, engine().fwd.macro_log2,
+-            dist_type, output_median, output_depth, score, engine().fwd.kernel_cut);
++            dist_type, output_median, output_depth, score, engine().fwd.kernel_cut,
++            engine().camera.model_str == "EQUIRECTANGULAR");
+         renders = r; render_Ts = rTs; last_ids = lids; render_median = med; distortions = dist;
+     } else if (primitive == "3dgut") {
+         auto [r, rTs, lids, dist, med] = rasterize_to_pixels_3dgut_fwd(
+diff --git a/src/engine/EngineLoss.cpp b/src/engine/EngineLoss.cpp
+index 5694222..76525c9 100644
+--- a/src/engine/EngineLoss.cpp
++++ b/src/engine/EngineLoss.cpp
+@@ -240,7 +240,8 @@ static void _engine_raster_proj_backward(
+             v_distortion_opt,  // gradient w.r.t. distortion image
+             v_dist_rgb_per_depth,
+             std::make_optional(v_splats_w),
+-            std::nullopt
++            std::nullopt,
++            engine().camera.model_str == "EQUIRECTANGULAR"
+         );
+         v_splats_w_out = vw;
+         v_splats_s_out = vs;
+diff --git a/src/generated/primitive_3dgs.cuh b/src/generated/primitive_3dgs.cuh
+index 628c300..41f85e6 100644
+--- a/src/generated/primitive_3dgs.cuh
++++ b/src/generated/primitive_3dgs.cuh
+@@ -5336,13 +5336,33 @@ inline __device__ void projection_3dgs_equirect_none(bool antialiased_9, float3
+         float _S1283 = (*mean2d_19).y - radius_y_9;
+         float _S1284 = (*mean2d_19).y + radius_y_9;
+         bool _S1285;
+-        if(_S1282 <= 0.0f)
++        if(_S1281 < 0.0f)
+         {
+             _S1285 = true;
+         }
+         else
+         {
+-            _S1285 = _S1281 >= float(image_width_9);
++            _S1285 = _S1282 > float(image_width_9);
++        }
++        float xmax_0;
++        float xmin_0;
++        if(_S1285)
++        {
++            xmax_0 = float(image_width_9);
++            xmin_0 = 0.0f;
++        }
++        else
++        {
++            xmax_0 = _S1282;
++            xmin_0 = _S1281;
++        }
++        if(xmax_0 <= 0.0f)
++        {
++            _S1285 = true;
++        }
++        else
++        {
++            _S1285 = xmin_0 >= float(image_width_9);
+         }
+         if(_S1285)
+         {
+@@ -5365,7 +5385,7 @@ inline __device__ void projection_3dgs_equirect_none(bool antialiased_9, float3
+             *aabb_xyxy_9 = _S1238;
+             break;
+         }
+-        *aabb_xyxy_9 = make_float4 (_S1281, _S1283, _S1282, _S1284);
++        *aabb_xyxy_9 = make_float4 (xmin_0, _S1283, xmax_0, _S1284);
+         *sorting_depth_9 = dot_1(mean_c_9, mean_c_9);
+         *conic_9 = make_float3 (_S1279.rows[int(0)].x, _S1279.rows[int(0)].y, _S1279.rows[int(1)].y);
+         *radius_10 = view_radius_3dgs_0(mean_10, scale_9, in_opacity_9, - mul_6(_S1242, t_9));
+@@ -10942,13 +10962,33 @@ inline __device__ void projection_3dgut_equirect_none(bool antialiased_19, float
+         float _S2709 = (*mean2d_29).y - radius_y_19;
+         float _S2710 = (*mean2d_29).y + radius_y_19;
+         bool _S2711;
+-        if(_S2708 <= 0.0f)
++        if(_S2707 < 0.0f)
+         {
+             _S2711 = true;
+         }
+         else
+         {
+-            _S2711 = _S2707 >= float(image_width_19);
++            _S2711 = _S2708 > float(image_width_19);
++        }
++        float xmax_1;
++        float xmin_1;
++        if(_S2711)
++        {
++            xmax_1 = float(image_width_19);
++            xmin_1 = 0.0f;
++        }
++        else
++        {
++            xmax_1 = _S2708;
++            xmin_1 = _S2707;
++        }
++        if(xmax_1 <= 0.0f)
++        {
++            _S2711 = true;
++        }
++        else
++        {
++            _S2711 = xmin_1 >= float(image_width_19);
+         }
+         if(_S2711)
+         {
+@@ -10971,7 +11011,7 @@ inline __device__ void projection_3dgut_equirect_none(bool antialiased_19, float
+             *aabb_xyxy_19 = _S2660;
+             break;
+         }
+-        *aabb_xyxy_19 = make_float4 (_S2707, _S2709, _S2708, _S2710);
++        *aabb_xyxy_19 = make_float4 (xmin_1, _S2709, xmax_1, _S2710);
+         *sorting_depth_19 = dot_1(mean_c_19, mean_c_19);
+         *conic_19 = make_float3 (_S2705.rows[int(0)].x, _S2705.rows[int(0)].y, _S2705.rows[int(1)].y);
+         *radius_20 = view_radius_3dgs_0(mean_20, scale_19, in_opacity_19, - mul_6(transpose_3(R_19), t_19));
+@@ -12990,12 +13030,12 @@ inline __device__ void s_bwd_prop_s_fwd_length_impl_0(DiffPair_0 * dpdpx_5, Diff
+     float _S3710 = (*dpdpx_5).primal_0.differential_0.x * _S3704 + _S3709 + _S3709;
+     float2  _S3711 = make_float2 (0.0f);
+     float2  _S3712 = _S3711;
+-    *&((&_S3712)->y) = _S3707;
+-    *&((&_S3712)->x) = _S3710;
++    *&((&_S3712)->y) = _S3705;
++    *&((&_S3712)->x) = _S3708;
+     float2  _S3713 = _S3711;
+-    *&((&_S3713)->y) = _S3705;
+-    *&((&_S3713)->x) = _S3708;
+-    DiffPair_vectorx3Cfloatx2C2x3E_0 _S3714 = { _S3712, _S3713 };
++    *&((&_S3713)->y) = _S3707;
++    *&((&_S3713)->x) = _S3710;
++    DiffPair_vectorx3Cfloatx2C2x3E_0 _S3714 = { _S3713, _S3712 };
+     dpdpx_5->primal_0 = (*dpdpx_5).primal_0;
+     dpdpx_5->differential_0 = _S3714;
+     return;
+@@ -18858,56 +18898,56 @@ inline __device__ void projection_3dgs_equirect_none_vjp(bool antialiased_29, fl
+     (&_S6540)->primal_0 = mean_c_29;
+     (&_S6540)->differential_0 = _S6528;
+     s_bwd_prop_dot_0(&_S6539, &_S6540, 0.0f);
+-    DiffPair_float_0 _S6541;
+-    (&_S6541)->primal_0 = _S6527;
+-    (&_S6541)->differential_0 = 0.0f;
+-    s_bwd_prop_sqrt_0(&_S6541, 0.0f);
+-    DiffPair_float_0 _S6542;
+-    (&_S6542)->primal_0 = _S6526;
+-    (&_S6542)->differential_0 = 0.0f;
+-    s_bwd_prop_sqrt_0(&_S6542, 0.0f);
+-    DiffPair_float_0 _S6543;
+-    (&_S6543)->primal_0 = 3.32999992370605469f;
+-    (&_S6543)->differential_0 = 0.0f;
+-    DiffPair_float_0 _S6544;
+-    (&_S6544)->primal_0 = _S6525;
+-    (&_S6544)->differential_0 = 0.0f;
+-    _d_min_0(&_S6543, &_S6544, 0.0f);
++    Matrix<float, 2, 2>  _S6541 = makeMatrix<float, 2, 2> (0.0f);
++    Matrix<float, 2, 2>  _S6542 = _S6541;
++    _S6542[int(1)] = _S6537;
++    _S6542[int(0)] = _S6538;
++    Matrix<float, 2, 2>  _S6543 = _S6542;
++    float3  _S6544 = _S6540.differential_0 + _S6539.differential_0;
+     DiffPair_float_0 _S6545;
+-    (&_S6545)->primal_0 = _S6524;
++    (&_S6545)->primal_0 = _S6527;
+     (&_S6545)->differential_0 = 0.0f;
+-    s_bwd_prop_sqrt_0(&_S6545, _S6544.differential_0);
+-    float _S6546 = 2.0f * _S6545.differential_0;
++    s_bwd_prop_sqrt_0(&_S6545, 0.0f);
++    DiffPair_float_0 _S6546;
++    (&_S6546)->primal_0 = _S6526;
++    (&_S6546)->differential_0 = 0.0f;
++    s_bwd_prop_sqrt_0(&_S6546, 0.0f);
+     DiffPair_float_0 _S6547;
+-    (&_S6547)->primal_0 = _S6523;
++    (&_S6547)->primal_0 = 3.32999992370605469f;
+     (&_S6547)->differential_0 = 0.0f;
+-    s_bwd_prop_log_0(&_S6547, _S6546);
+-    float _S6548 = v_opacity_9 + 254.9999847412109375f * _S6547.differential_0;
+-    Matrix<float, 2, 2>  _S6549 = makeMatrix<float, 2, 2> (0.0f);
+-    Matrix<float, 2, 2>  _S6550 = _S6549;
+-    _S6550[int(1)] = _S6537;
+-    _S6550[int(0)] = _S6538;
+-    Matrix<float, 2, 2>  _S6551 = _S6550;
+-    float3  _S6552 = _S6540.differential_0 + _S6539.differential_0;
+-    float2  _S6553 = make_float2 (0.0f, _S6541.differential_0);
+-    float2  _S6554 = make_float2 (_S6542.differential_0, 0.0f);
++    DiffPair_float_0 _S6548;
++    (&_S6548)->primal_0 = _S6525;
++    (&_S6548)->differential_0 = 0.0f;
++    _d_min_0(&_S6547, &_S6548, 0.0f);
++    DiffPair_float_0 _S6549;
++    (&_S6549)->primal_0 = _S6524;
++    (&_S6549)->differential_0 = 0.0f;
++    s_bwd_prop_sqrt_0(&_S6549, _S6548.differential_0);
++    float _S6550 = 2.0f * _S6549.differential_0;
++    DiffPair_float_0 _S6551;
++    (&_S6551)->primal_0 = _S6523;
++    (&_S6551)->differential_0 = 0.0f;
++    s_bwd_prop_log_0(&_S6551, _S6550);
++    float2  _S6552 = make_float2 (0.0f, _S6545.differential_0);
++    float2  _S6553 = make_float2 (_S6546.differential_0, 0.0f);
++    float _S6554 = 254.9999847412109375f * _S6551.differential_0 + v_opacity_9;
+     float _S6555;
+     if(antialiased_29)
+     {
+-        float _S6556 = _S6520 * _S6548;
+-        eps2d_29 = _S6448 * _S6548;
++        float _S6556 = _S6520 * _S6554;
++        eps2d_29 = _S6448 * _S6554;
+         _S6555 = _S6556;
+     }
+     else
+     {
+         eps2d_29 = 0.0f;
+-        _S6555 = _S6548;
++        _S6555 = _S6554;
+     }
+-    float _S6557 = invdet_35 * _S6551.rows[int(1)].y;
+-    float _S6558 = - (invdet_35 * _S6551.rows[int(1)].x);
+-    float _S6559 = - (invdet_35 * _S6551.rows[int(0)].y);
+-    float _S6560 = invdet_35 * _S6551.rows[int(0)].x;
+-    float _S6561 = - ((_S6512 * _S6551.rows[int(1)].y + _S6522 * _S6551.rows[int(1)].x + _S6521 * _S6551.rows[int(0)].y + _S6514 * _S6551.rows[int(0)].x) / _S6518);
++    float _S6557 = invdet_35 * _S6543.rows[int(1)].y;
++    float _S6558 = - (invdet_35 * _S6543.rows[int(1)].x);
++    float _S6559 = - (invdet_35 * _S6543.rows[int(0)].y);
++    float _S6560 = invdet_35 * _S6543.rows[int(0)].x;
++    float _S6561 = - ((_S6512 * _S6543.rows[int(1)].y + _S6522 * _S6543.rows[int(1)].x + _S6521 * _S6543.rows[int(0)].y + _S6514 * _S6543.rows[int(0)].x) / _S6518);
+     DiffPair_float_0 _S6562;
+     (&_S6562)->primal_0 = _S6519;
+     (&_S6562)->differential_0 = 0.0f;
+@@ -18926,9 +18966,9 @@ inline __device__ void projection_3dgs_equirect_none_vjp(bool antialiased_29, fl
+     float _S6568 = - _S6567;
+     float _S6569 = _S6512 * _S6567;
+     float _S6570 = _S6514 * _S6567;
+-    Matrix<float, 2, 2>  _S6571 = _S6549;
+-    _S6571[int(1)] = _S6553;
+-    _S6571[int(0)] = _S6554;
++    Matrix<float, 2, 2>  _S6571 = _S6541;
++    _S6571[int(1)] = _S6552;
++    _S6571[int(0)] = _S6553;
+     _S6513 = _S6571;
+     *&(((&_S6513)->rows + (int(1)))->y) = 0.0f;
+     float _S6572 = _S6569 + _S6571.rows[int(1)].y + _S6560;
+@@ -18946,7 +18986,7 @@ inline __device__ void projection_3dgs_equirect_none_vjp(bool antialiased_29, fl
+     float2  _S6581 = _S6536;
+     *&((&_S6581)->y) = _S6576;
+     *&((&_S6581)->x) = _S6580;
+-    Matrix<float, 2, 2>  _S6582 = _S6549;
++    Matrix<float, 2, 2>  _S6582 = _S6541;
+     _S6582[int(1)] = _S6579;
+     _S6582[int(0)] = _S6581;
+     Matrix<float, 2, 2>  _S6583 = _S6513 + _S6582;
+@@ -19162,7 +19202,7 @@ inline __device__ void projection_3dgs_equirect_none_vjp(bool antialiased_29, fl
+     (&_S6676)->primal_0 = mean_c_29;
+     (&_S6676)->differential_0 = _S6528;
+     s_bwd_length_impl_0(&_S6676, v_depth_9);
+-    float3  _S6677 = _S6603 + _S6614 + _S6625 + _S6634 + _S6676.differential_0 + _S6552;
++    float3  _S6677 = _S6603 + _S6614 + _S6625 + _S6634 + _S6676.differential_0 + _S6544;
+     DiffPair_matrixx3Cfloatx2C3x2C3x3E_0 _S6678;
+     (&_S6678)->primal_0 = R_29;
+     (&_S6678)->differential_0 = _S6589;
+@@ -24123,56 +24163,56 @@ inline __device__ void projection_3dgut_equirect_none_vjp(bool antialiased_39, f
+     (&_S9012)->primal_0 = mean_c_39;
+     (&_S9012)->differential_0 = _S8894;
+     s_bwd_prop_dot_0(&_S9011, &_S9012, 0.0f);
+-    DiffPair_float_0 _S9013;
+-    (&_S9013)->primal_0 = _S9000;
+-    (&_S9013)->differential_0 = 0.0f;
+-    s_bwd_prop_sqrt_0(&_S9013, 0.0f);
+-    DiffPair_float_0 _S9014;
+-    (&_S9014)->primal_0 = _S8999;
+-    (&_S9014)->differential_0 = 0.0f;
+-    s_bwd_prop_sqrt_0(&_S9014, 0.0f);
+-    DiffPair_float_0 _S9015;
+-    (&_S9015)->primal_0 = 3.32999992370605469f;
+-    (&_S9015)->differential_0 = 0.0f;
+-    DiffPair_float_0 _S9016;
+-    (&_S9016)->primal_0 = _S8998;
+-    (&_S9016)->differential_0 = 0.0f;
+-    _d_min_0(&_S9015, &_S9016, 0.0f);
++    Matrix<float, 2, 2>  _S9013 = makeMatrix<float, 2, 2> (0.0f);
++    Matrix<float, 2, 2>  _S9014 = _S9013;
++    _S9014[int(1)] = _S9009;
++    _S9014[int(0)] = _S9010;
++    Matrix<float, 2, 2>  _S9015 = _S9014;
++    float3  _S9016 = _S9012.differential_0 + _S9011.differential_0;
+     DiffPair_float_0 _S9017;
+-    (&_S9017)->primal_0 = _S8997;
++    (&_S9017)->primal_0 = _S9000;
+     (&_S9017)->differential_0 = 0.0f;
+-    s_bwd_prop_sqrt_0(&_S9017, _S9016.differential_0);
+-    float _S9018 = 2.0f * _S9017.differential_0;
++    s_bwd_prop_sqrt_0(&_S9017, 0.0f);
++    DiffPair_float_0 _S9018;
++    (&_S9018)->primal_0 = _S8999;
++    (&_S9018)->differential_0 = 0.0f;
++    s_bwd_prop_sqrt_0(&_S9018, 0.0f);
+     DiffPair_float_0 _S9019;
+-    (&_S9019)->primal_0 = _S8996;
++    (&_S9019)->primal_0 = 3.32999992370605469f;
+     (&_S9019)->differential_0 = 0.0f;
+-    s_bwd_prop_log_0(&_S9019, _S9018);
+-    float _S9020 = v_opacity_19 + 254.9999847412109375f * _S9019.differential_0;
+-    Matrix<float, 2, 2>  _S9021 = makeMatrix<float, 2, 2> (0.0f);
+-    Matrix<float, 2, 2>  _S9022 = _S9021;
+-    _S9022[int(1)] = _S9009;
+-    _S9022[int(0)] = _S9010;
+-    Matrix<float, 2, 2>  _S9023 = _S9022;
+-    float3  _S9024 = _S9012.differential_0 + _S9011.differential_0;
+-    float2  _S9025 = make_float2 (0.0f, _S9013.differential_0);
+-    float2  _S9026 = make_float2 (_S9014.differential_0, 0.0f);
++    DiffPair_float_0 _S9020;
++    (&_S9020)->primal_0 = _S8998;
++    (&_S9020)->differential_0 = 0.0f;
++    _d_min_0(&_S9019, &_S9020, 0.0f);
++    DiffPair_float_0 _S9021;
++    (&_S9021)->primal_0 = _S8997;
++    (&_S9021)->differential_0 = 0.0f;
++    s_bwd_prop_sqrt_0(&_S9021, _S9020.differential_0);
++    float _S9022 = 2.0f * _S9021.differential_0;
++    DiffPair_float_0 _S9023;
++    (&_S9023)->primal_0 = _S8996;
++    (&_S9023)->differential_0 = 0.0f;
++    s_bwd_prop_log_0(&_S9023, _S9022);
++    float2  _S9024 = make_float2 (0.0f, _S9017.differential_0);
++    float2  _S9025 = make_float2 (_S9018.differential_0, 0.0f);
++    float _S9026 = 254.9999847412109375f * _S9023.differential_0 + v_opacity_19;
+     float _S9027;
+     if(antialiased_39)
+     {
+-        float _S9028 = _S8993 * _S9020;
+-        eps2d_39 = _S8897 * _S9020;
++        float _S9028 = _S8993 * _S9026;
++        eps2d_39 = _S8897 * _S9026;
+         _S9027 = _S9028;
+     }
+     else
+     {
+         eps2d_39 = 0.0f;
+-        _S9027 = _S9020;
++        _S9027 = _S9026;
+     }
+-    float _S9029 = invdet_45 * _S9023.rows[int(1)].y;
+-    float _S9030 = - (invdet_45 * _S9023.rows[int(1)].x);
+-    float _S9031 = - (invdet_45 * _S9023.rows[int(0)].y);
+-    float _S9032 = invdet_45 * _S9023.rows[int(0)].x;
+-    float _S9033 = - ((_S8985 * _S9023.rows[int(1)].y + _S8995 * _S9023.rows[int(1)].x + _S8994 * _S9023.rows[int(0)].y + _S8987 * _S9023.rows[int(0)].x) / _S8991);
++    float _S9029 = invdet_45 * _S9015.rows[int(1)].y;
++    float _S9030 = - (invdet_45 * _S9015.rows[int(1)].x);
++    float _S9031 = - (invdet_45 * _S9015.rows[int(0)].y);
++    float _S9032 = invdet_45 * _S9015.rows[int(0)].x;
++    float _S9033 = - ((_S8985 * _S9015.rows[int(1)].y + _S8995 * _S9015.rows[int(1)].x + _S8994 * _S9015.rows[int(0)].y + _S8987 * _S9015.rows[int(0)].x) / _S8991);
+     DiffPair_float_0 _S9034;
+     (&_S9034)->primal_0 = _S8992;
+     (&_S9034)->differential_0 = 0.0f;
+@@ -24190,9 +24230,9 @@ inline __device__ void projection_3dgut_equirect_none_vjp(bool antialiased_39, f
+     float _S9039 = - _S9038;
+     float _S9040 = _S8985 * _S9038;
+     float _S9041 = _S8987 * _S9038;
+-    Matrix<float, 2, 2>  _S9042 = _S9021;
+-    _S9042[int(1)] = _S9025;
+-    _S9042[int(0)] = _S9026;
++    Matrix<float, 2, 2>  _S9042 = _S9013;
++    _S9042[int(1)] = _S9024;
++    _S9042[int(0)] = _S9025;
+     _S8986 = _S9042;
+     *&(((&_S8986)->rows + (int(1)))->y) = 0.0f;
+     float _S9043 = _S9040 + _S9042.rows[int(1)].y + _S9032;
+@@ -24210,7 +24250,7 @@ inline __device__ void projection_3dgut_equirect_none_vjp(bool antialiased_39, f
+     float2  _S9052 = _S9008;
+     *&((&_S9052)->y) = _S9047;
+     *&((&_S9052)->x) = _S9051;
+-    Matrix<float, 2, 2>  _S9053 = _S9021;
++    Matrix<float, 2, 2>  _S9053 = _S9013;
+     _S9053[int(1)] = _S9050;
+     _S9053[int(0)] = _S9052;
+     Matrix<float, 2, 2>  _S9054 = _S8986 + _S9053;
+@@ -24438,7 +24478,7 @@ inline __device__ void projection_3dgut_equirect_none_vjp(bool antialiased_39, f
+     (&_S9166)->primal_0 = mean_c_39;
+     (&_S9166)->differential_0 = _S8894;
+     s_bwd_length_impl_0(&_S9166, v_depth_19);
+-    float3  _S9167 = _S9166.differential_0 + _S9024;
++    float3  _S9167 = _S9166.differential_0 + _S9016;
+     DiffPair_matrixx3Cfloatx2C3x2C3x3E_0 _S9168;
+     (&_S9168)->primal_0 = R_39;
+     (&_S9168)->differential_0 = _S9107;
+diff --git a/src/instantiations/RB_P3GRB.cu b/src/instantiations/RB_P3GRB.cu
+index 628024b..fc5a831 100644
+--- a/src/instantiations/RB_P3GRB.cu
++++ b/src/instantiations/RB_P3GRB.cu
+@@ -45,7 +45,7 @@ template void rasterize_to_pixels_bwd_kernel_wrapper<
+     float *__restrict__ o_accum_weight_den,
+     float *__restrict__ o_max_weight,
+     const float max_weight_scale,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+ 
+ template void rasterize_to_pixels_bwd_kernel_wrapper<
+@@ -89,7 +89,7 @@ template void rasterize_to_pixels_bwd_kernel_wrapper<
+     float *__restrict__ o_accum_weight_den,
+     float *__restrict__ o_max_weight,
+     const float max_weight_scale,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+ 
+ template void rasterize_to_pixels_bwd_kernel_wrapper<
+@@ -133,7 +133,7 @@ template void rasterize_to_pixels_bwd_kernel_wrapper<
+     float *__restrict__ o_accum_weight_den,
+     float *__restrict__ o_max_weight,
+     const float max_weight_scale,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+ 
+ template void rasterize_to_pixels_bwd_kernel_wrapper<
+@@ -177,7 +177,7 @@ template void rasterize_to_pixels_bwd_kernel_wrapper<
+     float *__restrict__ o_accum_weight_den,
+     float *__restrict__ o_max_weight,
+     const float max_weight_scale,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+ 
+ template void rasterize_to_pixels_bwd_kernel_wrapper<
+@@ -221,7 +221,7 @@ template void rasterize_to_pixels_bwd_kernel_wrapper<
+     float *__restrict__ o_accum_weight_den,
+     float *__restrict__ o_max_weight,
+     const float max_weight_scale,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+ 
+ template void rasterize_to_pixels_bwd_kernel_wrapper<
+@@ -265,7 +265,7 @@ template void rasterize_to_pixels_bwd_kernel_wrapper<
+     float *__restrict__ o_accum_weight_den,
+     float *__restrict__ o_max_weight,
+     const float max_weight_scale,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+ 
+ template void rasterize_to_pixels_bwd_kernel_wrapper<
+@@ -309,7 +309,7 @@ template void rasterize_to_pixels_bwd_kernel_wrapper<
+     float *__restrict__ o_accum_weight_den,
+     float *__restrict__ o_max_weight,
+     const float max_weight_scale,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+ 
+ template void rasterize_to_pixels_bwd_kernel_wrapper<
+@@ -353,7 +353,7 @@ template void rasterize_to_pixels_bwd_kernel_wrapper<
+     float *__restrict__ o_accum_weight_den,
+     float *__restrict__ o_max_weight,
+     const float max_weight_scale,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+ 
+ template void rasterize_to_pixels_bwd_kernel_wrapper<
+@@ -397,5 +397,5 @@ template void rasterize_to_pixels_bwd_kernel_wrapper<
+     float *__restrict__ o_accum_weight_den,
+     float *__restrict__ o_max_weight,
+     const float max_weight_scale,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+diff --git a/src/instantiations/RB_P3GRB_1.cu b/src/instantiations/RB_P3GRB_1.cu
+index 2acec97..1f5a73e 100644
+--- a/src/instantiations/RB_P3GRB_1.cu
++++ b/src/instantiations/RB_P3GRB_1.cu
+@@ -45,7 +45,7 @@ template void rasterize_to_pixels_bwd_kernel_wrapper<
+     float *__restrict__ o_accum_weight_den,
+     float *__restrict__ o_max_weight,
+     const float max_weight_scale,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+ 
+ template void rasterize_to_pixels_bwd_kernel_wrapper<
+@@ -89,7 +89,7 @@ template void rasterize_to_pixels_bwd_kernel_wrapper<
+     float *__restrict__ o_accum_weight_den,
+     float *__restrict__ o_max_weight,
+     const float max_weight_scale,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+ 
+ template void rasterize_to_pixels_bwd_kernel_wrapper<
+@@ -133,7 +133,7 @@ template void rasterize_to_pixels_bwd_kernel_wrapper<
+     float *__restrict__ o_accum_weight_den,
+     float *__restrict__ o_max_weight,
+     const float max_weight_scale,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+ 
+ template void rasterize_to_pixels_bwd_kernel_wrapper<
+@@ -177,7 +177,7 @@ template void rasterize_to_pixels_bwd_kernel_wrapper<
+     float *__restrict__ o_accum_weight_den,
+     float *__restrict__ o_max_weight,
+     const float max_weight_scale,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+ 
+ template void rasterize_to_pixels_bwd_kernel_wrapper<
+@@ -221,7 +221,7 @@ template void rasterize_to_pixels_bwd_kernel_wrapper<
+     float *__restrict__ o_accum_weight_den,
+     float *__restrict__ o_max_weight,
+     const float max_weight_scale,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+ 
+ template void rasterize_to_pixels_bwd_kernel_wrapper<
+@@ -265,7 +265,7 @@ template void rasterize_to_pixels_bwd_kernel_wrapper<
+     float *__restrict__ o_accum_weight_den,
+     float *__restrict__ o_max_weight,
+     const float max_weight_scale,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+ 
+ template void rasterize_to_pixels_bwd_kernel_wrapper<
+@@ -309,7 +309,7 @@ template void rasterize_to_pixels_bwd_kernel_wrapper<
+     float *__restrict__ o_accum_weight_den,
+     float *__restrict__ o_max_weight,
+     const float max_weight_scale,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+ 
+ template void rasterize_to_pixels_bwd_kernel_wrapper<
+@@ -353,7 +353,7 @@ template void rasterize_to_pixels_bwd_kernel_wrapper<
+     float *__restrict__ o_accum_weight_den,
+     float *__restrict__ o_max_weight,
+     const float max_weight_scale,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+ 
+ template void rasterize_to_pixels_bwd_kernel_wrapper<
+@@ -397,5 +397,5 @@ template void rasterize_to_pixels_bwd_kernel_wrapper<
+     float *__restrict__ o_accum_weight_den,
+     float *__restrict__ o_max_weight,
+     const float max_weight_scale,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+diff --git a/src/instantiations/RB_P3GRB_2.cu b/src/instantiations/RB_P3GRB_2.cu
+index fcfa342..d500c22 100644
+--- a/src/instantiations/RB_P3GRB_2.cu
++++ b/src/instantiations/RB_P3GRB_2.cu
+@@ -45,7 +45,7 @@ template void rasterize_to_pixels_bwd_kernel_wrapper<
+     float *__restrict__ o_accum_weight_den,
+     float *__restrict__ o_max_weight,
+     const float max_weight_scale,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+ 
+ template void rasterize_to_pixels_bwd_kernel_wrapper<
+@@ -89,7 +89,7 @@ template void rasterize_to_pixels_bwd_kernel_wrapper<
+     float *__restrict__ o_accum_weight_den,
+     float *__restrict__ o_max_weight,
+     const float max_weight_scale,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+ 
+ template void rasterize_to_pixels_bwd_kernel_wrapper<
+@@ -133,7 +133,7 @@ template void rasterize_to_pixels_bwd_kernel_wrapper<
+     float *__restrict__ o_accum_weight_den,
+     float *__restrict__ o_max_weight,
+     const float max_weight_scale,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+ 
+ template void rasterize_to_pixels_bwd_kernel_wrapper<
+@@ -177,7 +177,7 @@ template void rasterize_to_pixels_bwd_kernel_wrapper<
+     float *__restrict__ o_accum_weight_den,
+     float *__restrict__ o_max_weight,
+     const float max_weight_scale,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+ 
+ template void rasterize_to_pixels_bwd_kernel_wrapper<
+@@ -221,7 +221,7 @@ template void rasterize_to_pixels_bwd_kernel_wrapper<
+     float *__restrict__ o_accum_weight_den,
+     float *__restrict__ o_max_weight,
+     const float max_weight_scale,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+ 
+ template void rasterize_to_pixels_bwd_kernel_wrapper<
+@@ -265,5 +265,5 @@ template void rasterize_to_pixels_bwd_kernel_wrapper<
+     float *__restrict__ o_accum_weight_den,
+     float *__restrict__ o_max_weight,
+     const float max_weight_scale,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+diff --git a/src/instantiations/RF_P3GRF.cu b/src/instantiations/RF_P3GRF.cu
+index 216fabd..a99479f 100644
+--- a/src/instantiations/RF_P3GRF.cu
++++ b/src/instantiations/RF_P3GRF.cu
+@@ -30,7 +30,7 @@ template void rasterize_to_pixels_fwd_kernel_wrapper<
+     RenderOutput::Buffer render_distortions, // [I, image_height, image_width, ...]
+     float *__restrict__ render_median, // [I, image_height, image_width, 1], optional
+     const SplatScoreRender score,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+ 
+ template void rasterize_to_pixels_fwd_kernel_wrapper<
+@@ -59,7 +59,7 @@ template void rasterize_to_pixels_fwd_kernel_wrapper<
+     RenderOutput::Buffer render_distortions, // [I, image_height, image_width, ...]
+     float *__restrict__ render_median, // [I, image_height, image_width, 1], optional
+     const SplatScoreRender score,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+ 
+ template void rasterize_to_pixels_fwd_kernel_wrapper<
+@@ -88,7 +88,7 @@ template void rasterize_to_pixels_fwd_kernel_wrapper<
+     RenderOutput::Buffer render_distortions, // [I, image_height, image_width, ...]
+     float *__restrict__ render_median, // [I, image_height, image_width, 1], optional
+     const SplatScoreRender score,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+ 
+ template void rasterize_to_pixels_fwd_kernel_wrapper<
+@@ -117,7 +117,7 @@ template void rasterize_to_pixels_fwd_kernel_wrapper<
+     RenderOutput::Buffer render_distortions, // [I, image_height, image_width, ...]
+     float *__restrict__ render_median, // [I, image_height, image_width, 1], optional
+     const SplatScoreRender score,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+ 
+ template void rasterize_to_pixels_fwd_kernel_wrapper<
+@@ -146,7 +146,7 @@ template void rasterize_to_pixels_fwd_kernel_wrapper<
+     RenderOutput::Buffer render_distortions, // [I, image_height, image_width, ...]
+     float *__restrict__ render_median, // [I, image_height, image_width, 1], optional
+     const SplatScoreRender score,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+ 
+ template void rasterize_to_pixels_fwd_kernel_wrapper<
+@@ -175,7 +175,7 @@ template void rasterize_to_pixels_fwd_kernel_wrapper<
+     RenderOutput::Buffer render_distortions, // [I, image_height, image_width, ...]
+     float *__restrict__ render_median, // [I, image_height, image_width, 1], optional
+     const SplatScoreRender score,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+ 
+ template void rasterize_to_pixels_fwd_kernel_wrapper<
+@@ -204,7 +204,7 @@ template void rasterize_to_pixels_fwd_kernel_wrapper<
+     RenderOutput::Buffer render_distortions, // [I, image_height, image_width, ...]
+     float *__restrict__ render_median, // [I, image_height, image_width, 1], optional
+     const SplatScoreRender score,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+ 
+ template void rasterize_to_pixels_fwd_kernel_wrapper<
+@@ -233,7 +233,7 @@ template void rasterize_to_pixels_fwd_kernel_wrapper<
+     RenderOutput::Buffer render_distortions, // [I, image_height, image_width, ...]
+     float *__restrict__ render_median, // [I, image_height, image_width, 1], optional
+     const SplatScoreRender score,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+ 
+ template void rasterize_to_pixels_fwd_kernel_wrapper<
+@@ -262,5 +262,5 @@ template void rasterize_to_pixels_fwd_kernel_wrapper<
+     RenderOutput::Buffer render_distortions, // [I, image_height, image_width, ...]
+     float *__restrict__ render_median, // [I, image_height, image_width, 1], optional
+     const SplatScoreRender score,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+diff --git a/src/instantiations/RF_P3GRF_1.cu b/src/instantiations/RF_P3GRF_1.cu
+index 21a88c7..459dd8b 100644
+--- a/src/instantiations/RF_P3GRF_1.cu
++++ b/src/instantiations/RF_P3GRF_1.cu
+@@ -30,7 +30,7 @@ template void rasterize_to_pixels_fwd_kernel_wrapper<
+     RenderOutput::Buffer render_distortions, // [I, image_height, image_width, ...]
+     float *__restrict__ render_median, // [I, image_height, image_width, 1], optional
+     const SplatScoreRender score,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+ 
+ template void rasterize_to_pixels_fwd_kernel_wrapper<
+@@ -59,7 +59,7 @@ template void rasterize_to_pixels_fwd_kernel_wrapper<
+     RenderOutput::Buffer render_distortions, // [I, image_height, image_width, ...]
+     float *__restrict__ render_median, // [I, image_height, image_width, 1], optional
+     const SplatScoreRender score,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+ 
+ template void rasterize_to_pixels_fwd_kernel_wrapper<
+@@ -88,5 +88,5 @@ template void rasterize_to_pixels_fwd_kernel_wrapper<
+     RenderOutput::Buffer render_distortions, // [I, image_height, image_width, ...]
+     float *__restrict__ render_median, // [I, image_height, image_width, 1], optional
+     const SplatScoreRender score,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+diff --git a/src/kernels/raster/PeriodicConic.cuh b/src/kernels/raster/PeriodicConic.cuh
+new file mode 100644
+index 0000000..f5c224f
+--- /dev/null
++++ b/src/kernels/raster/PeriodicConic.cuh
+@@ -0,0 +1,12 @@
++#pragma once
++
++// Choose one horizontal copy that minimizes the conic at this pixel. The
++// integer copy is locally constant, so existing derivatives apply off ties.
++__device__ __forceinline__ float erp_conic_pixel_x(
++    float px, float py, float2 mean, float3 conic, float width
++) {
++    if (conic.x <= 0.f) return px;
++    float dx = mean.x - px, dy = mean.y - py;
++    float copies = floorf((dx + conic.y * dy / conic.x) / width + 0.5f);
++    return px + width * copies;
++}
+diff --git a/src/kernels/raster/RasterizationBwd.cu b/src/kernels/raster/RasterizationBwd.cu
+index 4256c00..530f00a 100644
+--- a/src/kernels/raster/RasterizationBwd.cu
++++ b/src/kernels/raster/RasterizationBwd.cu
+@@ -46,7 +46,7 @@ void rasterize_to_pixels_bwd_kernel_wrapper(
+     float *__restrict__ o_accum_weight_den,
+     float *__restrict__ o_max_weight,
+     const float max_weight_scale,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+ 
+ template <typename SplatPrimitive, DistortionType dist_type, DensifyAccumMode accum_mode, bool output_median>
+@@ -83,7 +83,7 @@ inline void launch_rasterize_to_pixels_bwd_kernel(
+     float* o_accum_weight_den,
+     float* o_max_weight,
+     float max_weight_scale,
+-    float kernel_cut
++    float kernel_cut, bool periodic
+ ) {
+     // Use the runtime cur_num_splats for the non-packed stride. The forward
+     // splat buffers (splat_wbuffer) are pre-allocated to max_num_splats, but
+@@ -115,7 +115,7 @@ inline void launch_rasterize_to_pixels_bwd_kernel(
+         v_dist_rgb_per_depth,
+         v_splat_wbuffer, v_splat_sbuffer,
+         o_accum_weight, o_accum_weight_den,
+-        o_max_weight, max_weight_scale, kernel_cut
++        o_max_weight, max_weight_scale, kernel_cut, periodic
+     );
+     CHECK_DEVICE_ERROR(cudaGetLastError());
+ }
+@@ -147,7 +147,7 @@ inline std::tuple<
+     DeviceTensor3D<float> accum_weight_map,  // [I, H, W]
+     DeviceVector<float> max_weight,
+     float max_weight_scale,
+-    float kernel_cut,
++    float kernel_cut, bool periodic,
+     // gradients of outputs
+     RenderOutput::TensorTuple v_render_outputs,
+     const DeviceTensor3D<float> v_render_Ts,
+@@ -200,7 +200,7 @@ inline std::tuple<
+         v_distortion_outputs, v_dist_rgb_per_depth,
+         v_splats_w.value(), v_splats_s.value(),
+         aw, aw_den,
+-        max_weight.data_ptr(), max_weight_scale, kernel_cut
++        max_weight.data_ptr(), max_weight_scale, kernel_cut, periodic
+     );
+ 
+     return std::make_tuple(
+@@ -238,7 +238,7 @@ inline std::tuple<
+     DeviceVector<float> max_weight,
+     float max_weight_scale,
+     // Primitive3DGS::kernel_vis: > 0 cut and renormalized, 0 the full gaussian
+-    float kernel_cut,
++    float kernel_cut, bool periodic,
+     // gradients of outputs
+     RenderOutput::TensorTuple v_render_outputs,
+     const DeviceTensor3D<float> v_render_Ts,
+@@ -272,7 +272,7 @@ inline std::tuple<
+         image_width, image_height, tile_offsets, flatten_ids,
+         macro_log2,
+         render_Ts, last_ids, render_outputs_tuple, distortion_fwd_outputs,
+-        DeviceTensor3D<float>(), accum_weight_map, max_weight, max_weight_scale, kernel_cut,
++        DeviceTensor3D<float>(), accum_weight_map, max_weight, max_weight_scale, kernel_cut, periodic,
+         v_render_outputs, v_render_Ts, v_median, v_distortion_outputs,
+         v_dist_rgb_per_depth, v_splats_w, v_splats_s
+     );
+@@ -323,14 +323,15 @@ std::tuple<
+     std::optional<RenderOutput::TensorTuple> v_distortion_outputs,
+     float v_dist_rgb_per_depth,  // used when v_distortion_outputs has no rgb
+     std::optional<std::vector<DeviceTensorFloatND>> v_splats_w,
+-    std::optional<std::vector<DeviceTensorFloatND>> v_splats_s
++    std::optional<std::vector<DeviceTensorFloatND>> v_splats_s,
++    bool periodic
+ ) {
+     return rasterize_to_pixels_bwd_tensor<Vanilla3DGS<0>>(
+         num_splats, splats_w, splats_s, gaussian_ids,
+         image_width, image_height, tile_offsets, flatten_ids,
+         macro_log2,
+         render_Ts, last_ids, render_outputs_tuple, distortion_fwd_outputs,
+-        dist_type, accum_weight_map, accum_mode, max_weight, max_weight_scale, kernel_cut,
++        dist_type, accum_weight_map, accum_mode, max_weight, max_weight_scale, kernel_cut, periodic,
+         v_render_outputs, v_render_Ts,
+         v_median, v_distortion_outputs, v_dist_rgb_per_depth, v_splats_w, v_splats_s
+     );
+diff --git a/src/kernels/raster/RasterizationBwd.cuh b/src/kernels/raster/RasterizationBwd.cuh
+index 65db97b..a047732 100644
+--- a/src/kernels/raster/RasterizationBwd.cuh
++++ b/src/kernels/raster/RasterizationBwd.cuh
+@@ -52,5 +52,6 @@ std::tuple<
+     std::optional<RenderOutput::TensorTuple> v_distortion_outputs,
+     float v_dist_rgb_per_depth,  // used when v_distortion_outputs has no rgb
+     std::optional<std::vector<DeviceTensorFloatND>> v_splats_w,
+-    std::optional<std::vector<DeviceTensorFloatND>> v_splats_s
++    std::optional<std::vector<DeviceTensorFloatND>> v_splats_s,
++    bool periodic
+ );
+diff --git a/src/kernels/raster/RasterizationEval3DBwd_kernel.cuh b/src/kernels/raster/RasterizationEval3DBwd_kernel.cuh
+index ecda6f3..dc97b0d 100644
+--- a/src/kernels/raster/RasterizationEval3DBwd_kernel.cuh
++++ b/src/kernels/raster/RasterizationEval3DBwd_kernel.cuh
+@@ -1,3 +1,4 @@
++#include "kernels/raster/PeriodicConic.cuh"
+ #ifdef _KERNEL_CUH_INC
+ #error "Rasterization backward kernel must be included no more than once"
+ #endif
+@@ -108,6 +109,9 @@ __global__ void rasterize_to_pixels_bwd_kernel(
+     float *__restrict__ o_max_weight,
+     const float max_weight_scale,
+     const float kernel_cut  // Primitive3DGS::kernel_vis; the 2D path only
++#if !IS_EVAL3D
++    , const bool periodic
++#endif
+ #if IS_EVAL3D
+     ,
+     float *__restrict__ v_viewmats // [B, C, 4, 4]
+@@ -360,6 +364,11 @@ __global__ void rasterize_to_pixels_bwd_kernel(
+                 ok = ellipse_box_overlap_test(inv_cov,
+                     cull_bx0 - c_ex, cull_bx0 + TILE_SIZE_DX - c_ex,
+                     cull_by0 - c_ey, cull_by0 + TILE_SIZE_DY - c_ey);
++#if IS_EVAL3D
++                if constexpr (camera_model == CameraModelType::EQUIRECTANGULAR) ok = true;
++#else
++                if (periodic) ok = true;
++#endif
+             }
+         }
+         uint32_t bal = __ballot_sync(~0u, ok);
+@@ -429,7 +438,8 @@ __global__ void rasterize_to_pixels_bwd_kernel(
+             if (alpha <= ALPHA_THRESHOLD || dot(ray_d, ray_d) == 0.0f)
+                 continue;
+         #else
+-            float alpha = splat.evaluate_alpha(px, py, kernel_cut);
++            float sample_px = periodic ? erp_conic_pixel_x(px, py, splat.xy, splat.conic, float(image_width)) : px;
++            float alpha = splat.evaluate_alpha(sample_px, py, kernel_cut);
+             if (alpha <= ALPHA_THRESHOLD)
+                 continue;
+         #endif
+@@ -560,7 +570,7 @@ __global__ void rasterize_to_pixels_bwd_kernel(
+                 splat.evaluate_alpha_vjp(ray_o, ray_d, v_alpha, v_splat, v_ray_o_alpha, v_ray_d_alpha);
+                 splat.evaluate_color_vjp(ray_o, ray_d, v_color, v_splat, v_ray_o_color, v_ray_d_color);
+             #else
+-                splat.evaluate_alpha_vjp(px, py, v_alpha, v_splat, kernel_cut);
++                splat.evaluate_alpha_vjp(sample_px, py, v_alpha, v_splat, kernel_cut);
+                 splat.evaluate_color_vjp(px, py, v_color, v_splat);
+             #endif
+             }
+@@ -730,6 +740,9 @@ void rasterize_to_pixels_bwd_kernel_wrapper(
+     float *__restrict__ o_max_weight,
+     const float max_weight_scale,
+     const float kernel_cut  // Primitive3DGS::kernel_vis; the 2D path only
++#if !IS_EVAL3D
++    , const bool periodic
++#endif
+ #if IS_EVAL3D
+     ,
+     float *__restrict__ v_viewmats // [B, C, 4, 4]
+@@ -779,6 +792,9 @@ void rasterize_to_pixels_bwd_kernel_wrapper(
+         o_max_weight,
+         max_weight_scale,
+         kernel_cut
++    #if !IS_EVAL3D
++        , periodic
++    #endif
+     #if IS_EVAL3D
+         , v_viewmats
+     #endif
+diff --git a/src/kernels/raster/RasterizationEval3DFwd_kernel.cuh b/src/kernels/raster/RasterizationEval3DFwd_kernel.cuh
+index db3ab5f..8d92dd0 100644
+--- a/src/kernels/raster/RasterizationEval3DFwd_kernel.cuh
++++ b/src/kernels/raster/RasterizationEval3DFwd_kernel.cuh
+@@ -1,3 +1,4 @@
++#include "kernels/raster/PeriodicConic.cuh"
+ #ifdef _KERNEL_CUH_INC
+ #error "Rasterization forward kernel must be included no more than once"
+ #endif
+@@ -87,6 +88,9 @@ __global__ void rasterize_to_pixels_fwd_kernel(
+     float * render_median, // [I, image_height, image_width, 1], optional
+     const SplatScoreRender score,
+     const float kernel_cut  // Primitive3DGS::kernel_vis; the 2D path only
++#if !IS_EVAL3D
++    , const bool periodic
++#endif
+ ) {
+     auto block = cg::this_thread_block();
+     uint32_t tid = threadIdx.x;  // 0 .. TILE_AREA-1, one per pixel
+@@ -205,6 +209,8 @@ __global__ void rasterize_to_pixels_fwd_kernel(
+                     mt_bx0 - ecx, mt_bx0 + TILE_SIZE_X - ecx,
+                     mt_by0 - ecy, mt_by0 + TILE_SIZE_Y - ecy);
+             }
++            if constexpr (camera_model == CameraModelType::EQUIRECTANGULAR)
++                hit = opac > ALPHA_THRESHOLD;
+             if (hit)
+                 splat_batch[tid].load(splat_wbuffer, splat_sbuffer, wi, g);
+         #else
+@@ -219,6 +225,7 @@ __global__ void rasterize_to_pixels_fwd_kernel(
+                     mt_bx0 - sp.xy.x, mt_bx0 + TILE_SIZE_X - sp.xy.x,
+                     mt_by0 - sp.xy.y, mt_by0 + TILE_SIZE_Y - sp.xy.y);
+             }
++            if (periodic) hit = sp.opac > ALPHA_THRESHOLD;
+         #endif
+             if constexpr (output_score) {
+                 if (hit) {
+@@ -243,7 +250,8 @@ __global__ void rasterize_to_pixels_fwd_kernel(
+         #if IS_EVAL3D
+             float alpha = splat.evaluate_alpha(ray_o, ray_d);
+         #else
+-            float alpha = splat.evaluate_alpha(px, py, kernel_cut);
++            float sample_px = periodic ? erp_conic_pixel_x(px, py, splat.xy, splat.conic, float(image_width)) : px;
++            float alpha = splat.evaluate_alpha(sample_px, py, kernel_cut);
+         #endif
+             if (alpha <= ALPHA_THRESHOLD)
+                 continue;
+@@ -371,6 +379,9 @@ void rasterize_to_pixels_fwd_kernel_wrapper(
+     float *__restrict__ render_median, // [I, image_height, image_width, 1], optional
+     const SplatScoreRender score,
+     const float kernel_cut  // Primitive3DGS::kernel_vis; the 2D path only
++#if !IS_EVAL3D
++    , const bool periodic
++#endif
+ ) {
+     // One block per micro-tile. The macro tile spans 1 << macro_log2 micro
+     // tiles per axis, so the grid is the macro-tile grid scaled up by that.
+@@ -401,6 +412,9 @@ void rasterize_to_pixels_fwd_kernel_wrapper(
+         render_distortions,
+         render_median,
+         score, kernel_cut
++#if !IS_EVAL3D
++        , periodic
++#endif
+     );
+ }
+ 
+diff --git a/src/kernels/raster/RasterizationFwd.cu b/src/kernels/raster/RasterizationFwd.cu
+index fd70c49..f8cee94 100644
+--- a/src/kernels/raster/RasterizationFwd.cu
++++ b/src/kernels/raster/RasterizationFwd.cu
+@@ -29,7 +29,7 @@ void rasterize_to_pixels_fwd_kernel_wrapper(
+     RenderOutput::Buffer render_distortions, // [I, image_height, image_width, ...]
+     float *__restrict__ render_median, // [I, image_height, image_width, 1], optional
+     const SplatScoreRender score,
+-    const float kernel_cut
++    const float kernel_cut, bool periodic
+ );
+ 
+ template <typename SplatPrimitive, DistortionType dist_type, bool output_median,
+@@ -54,7 +54,7 @@ inline void launch_rasterize_to_pixels_fwd_kernel(
+     RenderOutput::Tensor distortions,
+     DeviceTensor3D<float> render_median,
+     const SplatScoreRender& score,
+-    float kernel_cut
++    float kernel_cut, bool periodic
+ ) {
+     // splats_w.size() returns max_num_splats (pre-allocated); the projection
+     // layout uses cur_num_splats per camera stride. See RasterizationBwd.cu
+@@ -83,7 +83,7 @@ inline void launch_rasterize_to_pixels_fwd_kernel(
+         last_ids.data_ptr(),
+         dist_any(dist_type) ? distortions.buffer() : RenderOutput::Buffer(),
+         output_median ? render_median.data_ptr() : nullptr,
+-        score, kernel_cut
++        score, kernel_cut, periodic
+     );
+     CHECK_DEVICE_ERROR(cudaGetLastError());
+ }
+@@ -112,7 +112,7 @@ inline std::tuple<
+     int macro_log2,                             // binning granularity
+     bool output_depth,
+     const SplatScoreRender& score,
+-    float kernel_cut
++    float kernel_cut, bool periodic
+ ) {
+     int64_t batch = tile_offsets.size<0>();
+ 
+@@ -147,7 +147,7 @@ inline std::tuple<
+         render_last_ids,
+         distortions,
+         render_median,
+-        score, kernel_cut
++        score, kernel_cut, periodic
+     );
+ 
+     return std::make_tuple(
+@@ -178,7 +178,7 @@ static std::tuple<
+     bool output_median,
+     bool output_depth,
+     const SplatScoreRender& score,
+-    float kernel_cut
++    float kernel_cut, bool periodic
+ ) {
+ #define _F(DT, M, S) rasterize_to_pixels_fwd_tensor<Vanilla3DGS<0>, DT, M, S>
+ #define _DISPATCH_FWD(DT) (output_median \
+@@ -195,7 +195,7 @@ static std::tuple<
+         num_splats,
+         splats_w, splats_s, gaussian_ids,
+         image_width, image_height,
+-        tile_offsets, flatten_ids, macro_log2, output_depth, score, kernel_cut
++        tile_offsets, flatten_ids, macro_log2, output_depth, score, kernel_cut, periodic
+     );
+ }
+ 
+@@ -229,12 +229,12 @@ std::tuple<
+     bool output_depth,            // false: nothing reads the depth, leave it out
+     SplatScoreRender score,
+     // Primitive3DGS::kernel_vis: > 0 cut and renormalized, 0 the full gaussian
+-    float kernel_cut
++    float kernel_cut, bool periodic
+ ) {
+     return rasterize_to_pixels_2d_fwd(
+         num_splats, splats_w, splats_s, gaussian_ids, image_width, image_height,
+         tile_offsets, flatten_ids, macro_log2, dist_type, output_median,
+-        output_depth, score, kernel_cut);
++        output_depth, score, kernel_cut, periodic);
+ }
+ 
+ 
+@@ -268,10 +268,10 @@ std::tuple<
+     bool output_depth,            // false: nothing reads the depth, leave it out
+     SplatScoreRender score,
+     // Primitive3DGS::kernel_vis: > 0 cut and renormalized, 0 the full gaussian
+-    float kernel_cut
++    float kernel_cut, bool periodic
+ ) {
+     return rasterize_to_pixels_2d_fwd(
+         num_splats, splats_w, splats_s, gaussian_ids, image_width, image_height,
+         tile_offsets, flatten_ids, macro_log2, dist_type, output_median,
+-        output_depth, score, kernel_cut);
++        output_depth, score, kernel_cut, periodic);
+ }
+diff --git a/src/kernels/raster/RasterizationFwd.cuh b/src/kernels/raster/RasterizationFwd.cuh
+index 7352873..a965fe3 100644
+--- a/src/kernels/raster/RasterizationFwd.cuh
++++ b/src/kernels/raster/RasterizationFwd.cuh
+@@ -39,7 +39,7 @@ std::tuple<
+     bool output_depth,            // false: nothing reads the depth, leave it out
+     SplatScoreRender score,
+     // Primitive3DGS::kernel_vis: > 0 cut and renormalized, 0 the full gaussian
+-    float kernel_cut
++    float kernel_cut, bool periodic
+ );
+ 
+ 
+@@ -67,5 +67,5 @@ std::tuple<
+     bool output_depth,            // false: nothing reads the depth, leave it out
+     SplatScoreRender score,
+     // Primitive3DGS::kernel_vis: > 0 cut and renormalized, 0 the full gaussian
+-    float kernel_cut
++    float kernel_cut, bool periodic
+ );
+diff --git a/src/shaders/primitive_3dgs.slang b/src/shaders/primitive_3dgs.slang
+index 2f943fe..2c32c2b 100644
+--- a/src/shaders/primitive_3dgs.slang
++++ b/src/shaders/primitive_3dgs.slang
+@@ -559,6 +559,15 @@ void projection_3dgs<
+     float ymin = detach<float>(mean2d.y - radius_y);
+     float ymax = detach<float>(mean2d.y + radius_y);
+ 
++    // A seam-crossing ERP footprint reaches both sides of the image. Keep
++    // one conservative full-width box; rasterization chooses one periodic
++    // Gaussian contribution per pixel.
++    if (camera_model == CameraModelType::EQUIRECTANGULAR &&
++        (xmin < 0.f || xmax > float(image_width))) {
++        xmin = 0.f;
++        xmax = float(image_width);
++    }
++
+     // mask out gaussians outside the image region
+     if (!assume_valid && (
+         xmax <= 0 || xmin >= image_width ||

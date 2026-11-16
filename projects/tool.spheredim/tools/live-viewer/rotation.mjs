@@ -18,3 +18,13 @@ export function levelOrientation(orientation) {
   const m=new THREE.Matrix4().lookAt(new THREE.Vector3(),forward,up);
   return new THREE.Quaternion().setFromRotationMatrix(m).normalize();
 }
+
+// Turntable pitch remains on the upright side of both poles.
+export function turntablePitch(orientation, delta) {
+  const q=orientation.clone().normalize();
+  const forward=new THREE.Vector3(0,0,-1).applyQuaternion(q);
+  const pitch=Math.asin(THREE.MathUtils.clamp(forward.y,-1,1));
+  const limit=Math.PI/2-1e-4;
+  const next=THREE.MathUtils.clamp(pitch+delta,-limit,limit);
+  return q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0),next-pitch)).normalize();
+}

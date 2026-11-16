@@ -31,6 +31,9 @@ def verify(path):
     prep.validate_schedule(iterations,save_every)
     if flags['--num-iterations']!=str(iterations) or flags['--steps-per-save']!=str(save_every):raise ValueError('Noncanonical training schedule')
     required={'--data':str(root),'--seed-pointcloud':'seed.ply','--num-iterations':str(iterations),'--steps-per-save':str(save_every),'--save-full-checkpoint':'1','--disable-viewer':'1','--cap-max':'300000','--min-init-fraction':'0','--sampling-seed':'42','--load-masks':'1','--apply-loss-for-mask':'0','--flip-mask':'0','--mask-boundary-offset':'0','--warp-spherical-to-pinhole':'0','--warp-to-pinhole':'0','--eval-mode':'filename','--eval-lpips':'0','--save-eval-images':'1','--auto-scale-poses':'0','--orientation-method':'none','--center-method':'none','--scene-center':'none','--calib-correction':'off','--use-calib-warp':'0','--perceptual-loss':'ssim','--eval-align':'0'}
+    if '--log-performance' in flags:required['--log-performance']='1'
+    if '--packed' in flags:required['--packed']='0'
+    if '--use-bilateral-grid' in flags or '--use-ppisp' in flags:required.update({'--use-bilateral-grid':'0','--use-ppisp':'0'})
     if set(flags)!=set(required)|{'--output-dir-prefix','--output-dir-name'} or any(flags.get(k)!=v for k,v in required.items()):raise ValueError('Command differs from reviewed ERP training settings')
     prefix=Path(flags['--output-dir-prefix']).resolve(strict=True);name=flags['--output-dir-name']
     if not name or Path(name).name!=name:raise ValueError('Invalid run name')

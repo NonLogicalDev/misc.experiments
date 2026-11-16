@@ -20,13 +20,17 @@ def publish(file, data):
     temp.replace(file)
 
 
-def command(binary, dataset, workspace, config, standalone=False, ba_real="float"):
+def command(binary, dataset, workspace, config, standalone=False, ba_real="float", pair_mode="exhaustive"):
+    if pair_mode not in ('exhaustive', 'sequential'):
+        raise ValueError('Unsupported pair mode')
     return [str(binary), *([] if standalone else ['sfm']), 'auto', str(dataset / 'images'), '-o', str(workspace),
             '--manifest', str(config), '--mapper', 'global',
             '--camera-model', 'equirectangular', '--camera-mode', 'folder',
             '--masks', str(dataset / 'masks'), '--feature-masks', str(dataset / 'feature-masks'),
             '--sequence', 'cam0,cam1', '--features', 'sift', '--matcher', 'bruteforce',
-            '--pairs', 'exhaustive', '--data-type', 'video', '--quality', 'medium',
+            '--pairs', pair_mode, *(['--overlap', '10', '--quadratic-overlap', '--loop-closure',
+                                  '--prefilter-features', '128', '--prefilter-train', '128',
+                                  '--prefilter-neighbors', '8'] if pair_mode == 'sequential' else []), '--data-type', 'video', '--quality', 'medium',
             '--max-image-size', '1024', '--threads', '4', '--decode-threads', '2',
             '--no-refine-rigs', '--no-orient', '--exif-orientation', 'none',
             '--no-manage', '--seam-weld', '0', '--ba-real', ba_real, '--ba-real-coarse', ba_real,
@@ -65,6 +69,8 @@ def main():
     parser.add_argument('--ba-real', choices=('float', 'double', 'df', 'cpu'), default='float',
                         help='Bundle-adjustment scalar/backend for both normal and coarse solves')
     parser.add_argument('--arms', nargs='+', choices=('zero', 'separated', 'fitted-metric', 'metadata'), default=['zero', 'separated'])
+    parser.add_argument('--pair-mode', choices=('exhaustive', 'sequential'), default='exhaustive',
+                        help='Sequential with retrieval is experimental and requires quality comparison')
     parser.add_argument('--timeout-seconds', type=int, default=600)
     args = parser.parse_args()
     args.binary = args.binary.resolve()
@@ -96,7 +102,7 @@ def main():
     inputs = {str(file.relative_to(args.dataset)): digest(file) for folder in ('images', 'masks', 'feature-masks', 'eval-masks') for file in sorted((args.dataset / folder).rglob('*.png'))}
     manifest = {'binary_sha256': digest(args.binary), 'dataset_manifest_sha256': digest(args.dataset / 'manifest.json'),
                 'input_sha256': inputs, 'comparison': 'same images, masks, intrinsics and rig rotation; only fixed cam1 translation varies', 'arms': args.arms,
-                'mapper': 'global', 'ba_scalar': args.ba_real, 'runs': records}
+                'mapper': 'global', 'ba_scalar': args.ba_real, 'pair_mode': args.pair_mode, 'runs': records}
     if args.rotation_priors:
         manifest['rotation_priors'] = {'path': str(args.rotation_priors), 'sha256': digest(args.rotation_priors)}
     if args.telemetry:
@@ -107,7 +113,7 @@ def main():
             config = args.dataset / f'rig-{arm}.json'
             work = args.output / arm
             work.mkdir()
-            cmd = command(args.binary, args.dataset, work, config, args.standalone, args.ba_real)
+            cmd = command(args.binary, args.dataset, work, config, args.standalone, args.ba_real, args.pair_mode)
             if args.telemetry:
                 cmd.extend(['--telemetry', str(args.telemetry), '--sensor-gauge', 'up', '--metric-gps', 'none'])
             if args.rotation_priors:

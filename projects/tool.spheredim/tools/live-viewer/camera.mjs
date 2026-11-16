@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {levelOrientation} from './rotation.mjs';
 
 // 360DVO camera coordinates x-right, y-down, z-forward; Three's camera
 // coordinates x-right, y-up, -z-forward. Both transforms act on columns.
@@ -14,15 +15,22 @@ export function trackPose(matrix, up=null, correction=null) {
 }
 
 
-// On first entry use the tracked orientation. Later frame changes move only
-// position; alignment changes rotate the current look by the alignment delta.
+// Track entry and frame changes move only position; alignment changes rotate
+// the current look by the alignment delta.
 export function updateTrackedCamera(camera,matrix,up,correction,previousAlignment=null){
   const base=Array.isArray(up)&&up.length===3&&up.every(Number.isFinite)&&Math.hypot(...up)>1e-8?new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(...up).normalize(),new THREE.Vector3(0,1,0)):new THREE.Quaternion();
   const alignment=base.premultiply(correction||new THREE.Quaternion()).normalize(),pose=trackPose(matrix,up,correction);
   camera.position.copy(pose.position);
-  if(!previousAlignment)camera.quaternion.copy(pose.quaternion);
-  else camera.quaternion.premultiply(alignment.clone().multiply(previousAlignment.clone().invert())).normalize();
+  if(previousAlignment)camera.quaternion.premultiply(alignment.clone().multiply(previousAlignment.clone().invert())).normalize();
   camera.updateMatrixWorld();return alignment;
+}
+
+// Level after an alignment change, but preserve the look on entry and scrubbing.
+export function finishTrackTransition(camera, rotationMode, previousAlignment, alignment) {
+  if(rotationMode==='turntable' && previousAlignment && Math.abs(previousAlignment.dot(alignment)) < 1-1e-12) {
+    camera.quaternion.copy(levelOrientation(camera.quaternion));
+    camera.up.set(0,1,0);
+  }
 }
 
 // Fit once when usable geometry first arrives. Later snapshots preserve manual view.

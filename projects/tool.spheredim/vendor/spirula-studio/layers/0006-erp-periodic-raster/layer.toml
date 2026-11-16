@@ -1,0 +1,7 @@
+[layer]
+enabled = false
+[vcs]
+commit-msg = "Wrap equirectangular splat rasterization"
+[[operation]]
+[operation.patch]
+file = "erp-periodic-raster.patch"

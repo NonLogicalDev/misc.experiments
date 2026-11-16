@@ -1,0 +1,5 @@
+# Native ERP seam invariance
+
+This GPU regression renders one isotropic Gaussian two units from an ERP camera, first on the forward axis and then on the opposite axis. A half-width periodic image shift must preserve its opacity image. The test compares alpha rather than color, so appearance corrections and transfer functions do not enter the result. Both packed and unpacked 3DGS and 3DGUT paths are checked. A relative L1 error above 1% fails; a nonfinite or empty reference is a separate failure.
+
+Build against the same pinned source, portable engine, Vulkan backend and dependency archives as the source trainer. Reuse the configured trainer build rather than generate another full shader set. This is a rotation-invariance regression, not a depth or pose accuracy benchmark. It is expected to expose the source-level seam clipping defect described in `docs/research/spirula-native-erp-audit.md`; source inspection alone does not count as execution. Store commands, binary/source hashes and actual output with the run before recording a result. It does not establish polar behavior or gradient correctness.

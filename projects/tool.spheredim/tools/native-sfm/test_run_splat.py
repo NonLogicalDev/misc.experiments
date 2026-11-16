@@ -57,4 +57,36 @@ class RunnerTests(unittest.TestCase):
    p=Path(tmp);(p/'status').write_text('existing')
    with self.assertRaises(FileExistsError):r.monitor([sys.executable],p/'out',p/'status',p/'log',2,reserve=0)
    self.assertEqual((p/'status').read_text(),'existing')
+ def test_performance_logging_opt_in_and_validation(self):
+  with tempfile.TemporaryDirectory() as tmp:
+   root=Path(tmp);source=root/'source';model=root/'model';source.mkdir();model.mkdir()
+   for name in ('cameras.bin','images.bin','points3D.bin','rigs.txt'):(model/name).write_bytes(name.encode())
+   binary=root/'trainer';binary.write_bytes(b'trainer')
+   cameras=[(1,4,2,0.,0.),(2,4,2,0.,0.)];poses=[];frames=[]
+   for frame in (0,15):
+    lenses={}
+    for camera,lens in enumerate(('cam0','cam1'),1):
+     name=f'{lens}/frame_{frame:06}.png'
+     for folder in ('images','masks'):
+      path=source/folder/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(f'{folder}-{name}'.encode())
+     lenses[lens]={'image_sha256':r.prep.digest(source/'images'/name),'mask_sha256':r.prep.digest(source/'masks'/name)}
+     poses.append((name,(len(poses)+1,1.,0.,0.,0.,0.,0.,0.,camera)))
+    frames.append({'source_frame':frame,'timestamp_microseconds':frame,'source_packet_pts':[],'lenses':lenses})
+   (source/'manifest.json').write_text(json.dumps({'resolution':[4,2],'frames':frames}))
+   with patch.object(r.prep,'read_model',return_value=(cameras,poses,[(0.,0.,0.,1,2,3)])):
+    for enabled in (False,True):
+     out=root/str(enabled);manifest=r.prep.prepare(source,model,binary,out,'run-'+str(enabled),log_performance=enabled)
+     command=manifest['command'];self.assertEqual('--log-performance' in command,enabled)
+     r.verify(out/'manifest.json')
+     if enabled:
+      command[command.index('--log-performance')+1]='0';(out/'manifest.json').write_text(json.dumps(manifest))
+      with self.assertRaisesRegex(ValueError,'reviewed ERP'):r.verify(out/'manifest.json')
+    out=root/'unpacked';manifest=r.prep.prepare(source,model,binary,out,'run-unpacked',unpacked=True)
+    self.assertEqual(manifest['command'][-2:],['--packed','0']);r.verify(out/'manifest.json')
+    manifest['command'][-1]='1';(out/'manifest.json').write_text(json.dumps(manifest))
+    with self.assertRaisesRegex(ValueError,'reviewed ERP'):r.verify(out/'manifest.json')
+    out=root/'no-correction';manifest=r.prep.prepare(source,model,binary,out,'run-no-correction',no_appearance_correction=True)
+    self.assertEqual(manifest['command'][-4:],['--use-bilateral-grid','0','--use-ppisp','0']);r.verify(out/'manifest.json')
+    del manifest['command'][-2:];(out/'manifest.json').write_text(json.dumps(manifest))
+    with self.assertRaisesRegex(ValueError,'reviewed ERP'):r.verify(out/'manifest.json')
 if __name__=='__main__':unittest.main()
