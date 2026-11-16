@@ -9,8 +9,8 @@
 
 - Completed `/root/trainer_profile`: frozen-geometry synthetic control lowers heldout MSE but slightly reduces chart contrast; no clear detail gain. Root inspected both crops; no real-scene promotion.
 - Completed `/root/fixture_review`: reproducible analytic-plane validation scripts, matching source/comparison hashes, and seven focused tests.
-- Active `/root/detail_diagnostic`: fixed-camera, three-parameter photometric poster-plane refinement from training captures only; fixed observations, no dropped samples, 60-second/1-MB limits.
-- Active `/root`: review source/fit detail and integrate the structural result. The exact-geometry control recovers chart structure with smoothing; measured real poster splat counts do not support simply assuming too few points. Viewer HTTP 200 verified.
+- Completed `/root/detail_diagnostic`: photometric plane refinement reduced training error but transferred inconsistently; 1440 worsened, 1560 improved, and the separate valid 1505 subset worsened. No scene/model change. Nine focused tests pass.
+- Active `/root`: source-like real-scene fidelity remains unmet. Exact-geometry controls and local plane refinement did not establish a visual improvement. Keep anchors and selected reconstruction intact; no full training run or model promotion follows these results. Viewer HTTP 200 verified.
 
 - Completed `/root/detail_diagnostic`: native-resolution SfM has lower source-region residuals in all five checked views, but uses different landmarks and sparse far-view support. The report preserves both populations and camera gauges. Twelve focused diagnostic tests passed in root verification.
 - Completed `/root/trainer_profile`: native-camera local fit took 95.76 seconds and only lowered pooled error 1.78% versus the older local fit; both evaluation poster footprints worsen versus its own initial model. No model saved or meaningful visual gain.

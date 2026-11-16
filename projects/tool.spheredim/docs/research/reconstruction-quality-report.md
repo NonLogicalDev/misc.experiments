@@ -233,3 +233,10 @@ The synthetic native-ERP chart separates estimated scene geometry from the rende
 A matched control keeps position, scale and rotation fixed while fitting color and opacity. It took 14.04 seconds. Its MSE is lower at 0.01307/0.01297, but contrast is slightly worse at 84.2%/84.2%. Neither result demonstrates near-source fidelity or establishes the cause of the real scene's missing detail. The real poster region already has 45,818 projected Gaussian centers inside a 250 by 250 pixel region; this count includes occluded and weak contributors, so it neither proves adequate visible detail nor supports assuming a simple shortage of splats.
 
 [Validation source](../../validation/native-splat-fidelity/README.md) records the analytic geometry and comparison method. Local evidence is `/private/tmp/spheredim-analytic-plane/comparison.json` and `/private/tmp/spheredim-analytic-plane-frozen/comparison.json`. The viewer continues to display the selected real reconstruction; these controls are reported only as diagnostic activity.
+
+
+## Local plane alignment check
+
+Fitting the poster plane directly to nearby training images did not resolve the detail problem. The test adjusted three plane parameters while fixing cameras and all 182 training patches. It improved the training objective, but excluded frame 1440 became 4.0% worse and frame 1560 became 17.4% better on unchanged support. The reserved 1505 view could not retain the full training support; a separate subset chosen only from initial-plane mask validity retained 109 patches and became 16.3% worse. This is a mixed source-alignment result, not a new splat or a successful geometry correction.
+
+The fit took 9.49 seconds on CPU. Nine focused geometry and comparison tests pass. The authoritative local interpretation is `/private/tmp/spheredim-photometric-plane-20261116/classification.json`; the first report retains its superseded training-only status for provenance. No camera, source frame or reconstruction was changed.
