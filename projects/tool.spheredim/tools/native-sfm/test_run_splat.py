@@ -81,6 +81,12 @@ class RunnerTests(unittest.TestCase):
      if enabled:
       command[command.index('--log-performance')+1]='0';(out/'manifest.json').write_text(json.dumps(manifest))
       with self.assertRaisesRegex(ValueError,'reviewed ERP'):r.verify(out/'manifest.json')
+    out=root/'explicit';manifest=r.prep.prepare(source,model,binary,out,'run-explicit',iterations=3,save_every=3,eval_frames=[15],save_full_checkpoint=False)
+    self.assertEqual({r['source_frame'] for r in manifest['frames'] if r['split']=='eval'},{15})
+    self.assertEqual(manifest['command'][manifest['command'].index('--save-full-checkpoint')+1],'0');r.verify(out/'manifest.json')
+    manifest['command'][manifest['command'].index('--steps-per-save')+1]='1';(out/'manifest.json').write_text(json.dumps(manifest))
+    with self.assertRaisesRegex(ValueError,'compact checkpoint'):r.verify(out/'manifest.json')
+    with self.assertRaisesRegex(ValueError,'Invalid explicit'):r.prep.prepare(source,model,binary,root/'invalid','run-invalid',eval_frames=[99])
     out=root/'unpacked';manifest=r.prep.prepare(source,model,binary,out,'run-unpacked',unpacked=True)
     self.assertEqual(manifest['command'][-2:],['--packed','0']);r.verify(out/'manifest.json')
     manifest['command'][-1]='1';(out/'manifest.json').write_text(json.dumps(manifest))
