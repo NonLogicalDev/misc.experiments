@@ -84,16 +84,37 @@ def unique_depth(reference,target,mask0,mask1,x,y,point,pose0,pose1):
     return True,None
 
 
-def main():
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('prepared',type=Path);p.add_argument('model',type=Path);p.add_argument('output',type=Path);p.add_argument('--timeout',type=int,default=170);a=p.parse_args();start=time.monotonic()
-    if a.output.exists():raise FileExistsError(a.output)
-    manifest=json.loads((a.prepared/'manifest.json').read_text());frames={}
+def parse_args(argv=None):
+    p=argparse.ArgumentParser(description=__doc__)
+    p.add_argument('prepared',type=Path);p.add_argument('model',type=Path);p.add_argument('output',type=Path)
+    p.add_argument('--reference',type=int,default=1435)
+    p.add_argument('--neighbors',type=int,nargs=3,default=[1430,1445,1450])
+    p.add_argument('--roi',type=int,nargs=4,default=[800,660,280,70],metavar=('X','Y','W','H'))
+    p.add_argument('--stride',type=int,default=8);p.add_argument('--timeout',type=int,default=170)
+    a=p.parse_args(argv);x,y,w,h=a.roi
+    if x<0 or y<0 or w<7 or h<7 or x+w>W or y+h>H or a.stride<1 or not 1<=a.timeout<=180:
+        p.error('ROI, stride or timeout outside supported bounds')
+    if len(set([a.reference,*a.neighbors]))!=4:p.error('Reference and neighbors must be distinct')
+    return a
+
+
+def select_training_frames(manifest,ids):
+    frames={}
     for row in manifest['frames']:
         if row['lens']!='cam0':continue
         if row['source_frame'] in frames:raise ValueError('Duplicate cam0 source frame')
         frames[row['source_frame']]=row
-    ids=[1435,1430,1445,1450]
-    if any(frames[i]['split']!='train' or frames[i]['name'] in manifest['heldout_evaluation_order'] for i in ids):raise ValueError('All input captures must be training frames')
+    if any(i not in frames or frames[i]['split']!='train' or frames[i]['name'] in manifest['heldout_evaluation_order'] for i in ids):
+        raise ValueError('All input captures must be training frames')
+    return frames
+
+
+def main():
+    a=parse_args();start=time.monotonic()
+    if a.output.exists():raise FileExistsError(a.output)
+    manifest=json.loads((a.prepared/'manifest.json').read_text())
+    ids=[a.reference,*a.neighbors]
+    frames=select_training_frames(manifest,ids)
     cameras=read_erp_cameras(a.model/'cameras.bin')
     if any(v[:2]!=(W,H) or not np.allclose(v[2:],[W,H],rtol=0,atol=1e-9) for v in cameras.values()):raise ValueError('Expected full-sphere native ERP cameras')
     poses=rig.read_binary_poses(a.model/'images.bin');items=[];inputs={}
@@ -108,7 +129,8 @@ def main():
         f=dis_flow(ref,target,pose0[0],pose1[0],pad)
         b=dis_flow(target,ref,pose1[0],pose0[0],pad)
         flows.append((f,b))
-    positions=[(x,y) for y in range(663,727,8) for x in range(803,1077,8)];std=[]
+    rx,ry,rw,rh=a.roi
+    positions=[(x,y) for y in range(ry+3,ry+rh-3,a.stride) for x in range(rx+3,rx+rw-3,a.stride)];std=[]
     for x,y in positions:
         src,ok=patch(ref,mask0,x,y)
         if ok.all():std.append(float(np.std(src)))
@@ -140,7 +162,7 @@ def main():
                 if reason:break
         if reason:reasons[reason]+=1;cv2.circle(overlay,(x,y),1,(0,0,255),-1)
         else:accepted.append({'xy':[x,y],'neighbors_xy':observed});cv2.circle(overlay,(x,y),2,(0,255,0),-1)
-    a.output.mkdir(parents=True);cv2.rectangle(overlay,(800,660),(1079,729),(255,255,0),1);cv2.imwrite(str(a.output/'overlay.png'),overlay)
-    report={'method':'DIS FAST full native ERP with 256-pixel longitude wrap padding and rotation initialization. No virtual views, altered source or seed output. Forward/backward uses bilinear subpixel flow sampling with periodic longitude. Source and target mask footprints are checked; DIS pyramids can still be influenced by masked content beyond this 16-pixel guard, so acceptance is provisional. Constant-radial depth patch uniqueness is a diagnostic approximation. Native SfM poses use all frames including splat holdouts, but only training pixels are used here.','inputs':inputs,'model_images_sha256':sha(a.model/'images.bin'),'model_cameras_sha256':sha(a.model/'cameras.bin'),'manifest_sha256':sha(a.prepared/'manifest.json'),'script_sha256':sha(Path(__file__)),'config':{'roi_xywh':[800,660,280,70],'stride':8,'padding':pad,'dis_preset':'FAST','dis_finest_scale':0,'dis_patch_size':8,'dis_patch_stride':4,'fb_max_native_px':1,'cross_view_max_native_px':2,'min_parallax_degrees':2,'source_patch_std_8bit_min':texture_threshold,'source_patch_std_median_8bit':float(np.median(std)),'uniqueness_ncc_min':.8,'uniqueness_margin':.05,'depth_factors':[.5,.7,.85,1,1.15,1.3,1.5]},'sampled':len(positions),'rejections':dict(reasons),'per_neighbor_note':'Sequential first-failure counts; later neighbors are evaluated only when earlier checks pass.', 'per_neighbor_failures':{k:dict(v) for k,v in view_failures.items()},'per_neighbor_fb_native_px_p50_p90':{k:(np.percentile(v,[50,90]).tolist() if v else None) for k,v in fb_values.items()},'accepted':accepted,'elapsed_seconds':time.monotonic()-start,'overlay_sha256':sha(a.output/'overlay.png')}
+    a.output.mkdir(parents=True);cv2.rectangle(overlay,(rx,ry),(rx+rw-1,ry+rh-1),(255,255,0),1);cv2.imwrite(str(a.output/'overlay.png'),overlay)
+    report={'method':'DIS FAST full native ERP with 256-pixel longitude wrap padding and rotation initialization. No virtual views, altered source or seed output. Forward/backward uses bilinear subpixel flow sampling with periodic longitude. Source and target mask footprints are checked; DIS pyramids can still be influenced by masked content beyond this 16-pixel guard, so acceptance is provisional. Constant-radial depth patch uniqueness is a diagnostic approximation. Native SfM poses use all frames including splat holdouts, but only training pixels are used here.','inputs':inputs,'model_images_sha256':sha(a.model/'images.bin'),'model_cameras_sha256':sha(a.model/'cameras.bin'),'manifest_sha256':sha(a.prepared/'manifest.json'),'script_sha256':sha(Path(__file__)),'config':{'roi_xywh':a.roi,'stride':a.stride,'reference':a.reference,'neighbors':a.neighbors,'padding':pad,'dis_preset':'FAST','dis_finest_scale':0,'dis_patch_size':8,'dis_patch_stride':4,'fb_max_native_px':1,'cross_view_max_native_px':2,'min_parallax_degrees':2,'source_patch_std_8bit_min':texture_threshold,'source_patch_std_median_8bit':float(np.median(std)),'uniqueness_ncc_min':.8,'uniqueness_margin':.05,'depth_factors':[.5,.7,.85,1,1.15,1.3,1.5]},'sampled':len(positions),'rejections':dict(reasons),'per_neighbor_note':'Sequential first-failure counts; later neighbors are evaluated only when earlier checks pass.', 'per_neighbor_failures':{k:dict(v) for k,v in view_failures.items()},'per_neighbor_fb_native_px_p50_p90':{k:(np.percentile(v,[50,90]).tolist() if v else None) for k,v in fb_values.items()},'accepted':accepted,'elapsed_seconds':time.monotonic()-start,'overlay_sha256':sha(a.output/'overlay.png')}
     (a.output/'report.json').write_text(json.dumps(report,indent=2,allow_nan=False)+'\n');print(json.dumps({k:report[k] for k in ('sampled','rejections','elapsed_seconds')},indent=2));print('accepted',len(accepted))
 if __name__=='__main__':main()

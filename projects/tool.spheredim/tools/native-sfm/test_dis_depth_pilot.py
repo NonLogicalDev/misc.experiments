@@ -4,6 +4,14 @@ import dis_depth_pilot as d
 import temporal_depth_roi as erp
 
 class DisDepthTests(unittest.TestCase):
+ def test_cli_defaults_and_bounds(self):
+  args=d.parse_args(['prepared','model','out']);self.assertEqual(args.reference,1435);self.assertEqual(args.neighbors,[1430,1445,1450]);self.assertEqual(args.roi,[800,660,280,70]);self.assertEqual(args.stride,8)
+  for extra in (['--roi','2040','0','20','10'],['--stride','0'],['--neighbors','1430','1430','1450'],['--timeout','181']):
+   with self.subTest(extra=extra),self.assertRaises(SystemExit):d.parse_args(['prepared','model','out',*extra])
+ def test_training_frames_exclude_holdout_and_missing(self):
+  frames=[{'lens':'cam0','source_frame':i,'name':str(i),'split':'train'} for i in (1490,1495,1500,1505)];m={'frames':frames,'heldout_evaluation_order':[]};self.assertEqual(len(d.select_training_frames(m,[1500,1490,1495,1505])),4)
+  for bad in ({**m,'heldout_evaluation_order':['1500']},{**m,'frames':frames[:-1]}):
+   with self.assertRaisesRegex(ValueError,'training frames'):d.select_training_frames(bad,[1500,1490,1495,1505])
  def test_rotated_cameras_recover_known_depth(self):
   angle=.1;R=np.array([[np.cos(angle),0,np.sin(angle)],[0,1,0],[-np.sin(angle),0,np.cos(angle)]]);p=np.array([.2,.1,4.]);a=(np.eye(3),np.zeros(3));b=(R,np.array([.4,0,0]))
   x0,y0,_=erp.project(p,*a,d.W,d.H);x1,y1,_=erp.project(p,*b,d.W,d.H);out,reason=d.triangulate(x0,y0,x1,y1,a,b)

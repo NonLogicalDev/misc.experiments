@@ -11,8 +11,7 @@ import cv2
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-# Spirula ERP CV ray (right, down, forward) -> exporter camera body ray.
-BODY_FROM_CV=np.array([[0.,0.,-1.],[1.,0.,0.],[0.,-1.,0.]])
+from camera_basis import BODY_FROM_CV
 
 
 def rig_extrinsic(rotation,baseline):

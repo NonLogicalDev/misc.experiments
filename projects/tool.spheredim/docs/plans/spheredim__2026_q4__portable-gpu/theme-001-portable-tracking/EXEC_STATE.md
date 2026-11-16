@@ -7,6 +7,13 @@
 
 ## Current execution: quality and runtime optimization
 
+- Active `/root/detail_diagnostic`: audit measured plane support in the static poster/clock wall region before any new geometry seed. No training is running.
+- Active `/root/trainer_profile`: remove run-specific conclusions from the source-patch audit helper and validate native camera dimensions. The completed source audit did not justify sharpness weights.
+- Completed `/root/detail_diagnostic`: one-view detail improved at the fitted capture but became stretched streaks at neighboring captures; three of four neighboring slat regions worsened. Root inspected the images. No quality promotion.
+- Completed `/root/trainer_profile`: corrected conditional readout analysis found only 0.14–0.40% diagnostic residual-error reduction; full-amplitude corrections worsen every time block. Five tests pass; readout build is deprioritized.
+- Completed `/root/detail_diagnostic`: common-rig pose sweep improved joint error at most 0.447%; native DIS at a clearly detailed source region accepted 0/240. Three pose and eight DIS tests pass. No pose or seed changes.
+- Completed `/root/frame_plan`: current sharpness investigation and completed diagnostics published through state only. Selected model and 412 poses unchanged; LAN HTTP/API 200 verified.
+
 - Completed `/root/detail_diagnostic`: matched 1,000-update local 3DGUT fit took 137.33 seconds; pooled local spherical error fell 3.76%, but blind slats remain missing and one of three views worsened. No checkpoint or quality promotion. GPU is free.
 - Completed `/root/frame_plan`: viewer activity now reports source-alignment validation pending storage approval, with the finished local comparison in details. LAN HTTP/API returned 200; selected model and 412 poses preserved.
 - Pending `/root`: explicit user approval for the exact 18-file, 418 MB build-archive retirement after automatic approval review rejected deletion. No deletion or new exporter build occurred.
@@ -32,7 +39,7 @@
 - Dense SfM: 824/824 observations registered in 108.33 s, 74,984 points. Explicit-pair baseline has 24,611 points in 61.86 s; the separate original reviewed baseline has 24,614. More points are not independent pose accuracy.
 - Dense 6k took 378.42 s including evaluation; against older rig10k, spherical error fell33.49%. Continuing6k→7k lowered the same36-view error another7.65% and selected10 training captures4.12%, without convincing fabric/blind detail recovery. All good checkpoints remain preserved.
 - Verified pushed checkpoints: `951995046b8f4a2d20c6563604b4a0d3362338c6` records native geometry/detail diagnostics; `232d56fdf7baaf59381649cf7ddb1e8e8d307c53` repairs viewer scene selection and copying. Fixed-window selector checkpoint `b826f7c` is also verified pushed. Unrelated SolidRecipe changes remain untouched.
-- Next: test reliable multi-view surface support and determine a discriminating local-view diagnostic before another full training run. More capacity, sharper frame replacement, and edge allocation have not recovered fine detail. Keep the fixed 6k acceptance anchor and 7k numerical incumbent.
+- Next: test reliable multi-view surface support and determine a discriminating local-view diagnostic before another full training run. More capacity, sharper frame replacement, and edge allocation have not recovered fine detail. Keep the fixed 6k acceptance anchor and original-model 15k numerical incumbent.
 - Evidence: [living quality report](../../../research/reconstruction-quality-report.md), [quality plan](active/plan-04%20Reconstruction%20quality%20implementation.md), [high-resolution preparation](active/high-resolution-pilot-support.md). Older entries below are history.
 
 ## Prior execution: larger physical-lens reconstruction
