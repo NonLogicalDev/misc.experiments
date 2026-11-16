@@ -29,13 +29,13 @@ export async function readState({posesFile, pointsFile, trajectoryFilter} = {}, 
   const samples = [];
   if (Array.isArray(poses?.frames)) for (const frame of poses.frames) {
     const m=frame?.world_from_camera;
-    if (Array.isArray(m) && m.length === 3 && m.every(r => Array.isArray(r) && r.length === 4 && r.every(Number.isFinite))) samples.push({point:[m[0][3],m[1][3],m[2][3]], matrix:m, time:frame.time_seconds});
+    if (Array.isArray(m) && m.length === 3 && m.every(r => Array.isArray(r) && r.length === 4 && r.every(Number.isFinite))) samples.push({point:[m[0][3],m[1][3],m[2][3]], matrix:m, time:frame.time_seconds, sourceFrame:frame.source_frame});
   }
   const rawTrajectory=samples.flatMap(s=>s.point);
   const cut=trajectoryFilter?.cutIndex;
   const filter=Number.isInteger(cut)&&cut>=0&&cut<samples.length?trajectoryFilter:null;
   let points=null; if(pointsFile)try {points=parsePLY(await readFile(pointsFile,'utf8'),cap)} catch {}
-  return {trajectory:filter?rawTrajectory.slice(0,cut*3):rawTrajectory,rawTrajectory,trajectoryFilter:filter,cameraPoses:samples.map(s=>({matrix:s.matrix,timeSeconds:Number.isFinite(s.time)?s.time:null})),points};
+  return {trajectory:filter?rawTrajectory.slice(0,cut*3):rawTrajectory,rawTrajectory,trajectoryFilter:filter,cameraPoses:samples.map(s=>({matrix:s.matrix,timeSeconds:Number.isFinite(s.time)?s.time:null,sourceFrame:Number.isInteger(s.sourceFrame)?s.sourceFrame:null})),points};
 }
 
 // Read only the end of a configured local log; the client cannot choose paths.
