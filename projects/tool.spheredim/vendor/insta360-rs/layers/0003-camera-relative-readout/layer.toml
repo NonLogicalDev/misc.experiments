@@ -1,0 +1,7 @@
+[layer]
+enabled = false
+[vcs]
+commit-msg = "Prototype camera-relative readout correction"
+[[operation]]
+[operation.patch]
+file = "camera-readout.patch"

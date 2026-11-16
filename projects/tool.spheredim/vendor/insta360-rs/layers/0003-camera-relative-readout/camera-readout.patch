@@ -1,0 +1,425 @@
+--- a/src-rust/media/sequence_export.rs
++++ b/src-rust/media/sequence_export.rs
+@@ -3,7 +3,7 @@
+ use super::*;
+ use crate::media::VideoPreflight;
+ use crate::paired::{DecodedLayout, PairedReader};
+-use crate::{RecordingSequence, Stabilization};
++use crate::RecordingSequence;
+ 
+ pub(in crate::media) fn preflight_video(
+     sequence: &RecordingSequence,
+@@ -40,13 +40,6 @@
+     if !(1..=100).contains(&options.quality) {
+         return Err(Error::InvalidMedia(
+             "HEVC quality must be between 1 and 100".into(),
+-        ));
+-    }
+-    if config.stabilization == Stabilization::Off
+-        && config.rolling_shutter == crate::RollingShutterCorrection::Required
+-    {
+-        return Err(Error::InvalidMedia(
+-            "required rolling-shutter correction conflicts with disabled stabilization".into(),
+         ));
+     }
+     let first_width = DecodedLayout::inspect(first)?.lens_width(first);
+--- a/src-rust/media/stabilization.rs
++++ b/src-rust/media/stabilization.rs
+@@ -183,13 +183,11 @@
+         config: &StitchConfig,
+         previous: Option<&Self>,
+     ) -> Result<Option<Self>> {
+-        if config.stabilization == Stabilization::Off {
+-            if config.rolling_shutter == RollingShutterCorrection::Required {
+-                return Err(Error::InvalidMedia(
+-                    "required rolling-shutter correction conflicts with disabled stabilization"
+-                        .into(),
+-                ));
+-            }
++        // Preserve the existing off/auto behavior. Explicit required readout
++        // still prepares per-lens timing while keeping the reference camera frame.
++        if config.stabilization == Stabilization::Off
++            && config.rolling_shutter != RollingShutterCorrection::Required
++        {
+             return Ok(None);
+         }
+         // Validate the camera convention before reading large telemetry payloads.
+@@ -1044,6 +1042,98 @@
+             }
+         }
+         assert_yaw(motion.correction(), yaw_rate() * 0.097);
++    }
++
++    #[test]
++    fn camera_frame_readout_preserves_reference_and_lens_capture_times() {
++        let config = StitchConfig {
++            stabilization: Stabilization::Off,
++            rolling_shutter: RollingShutterCorrection::Required,
++            ..StitchConfig::default()
++        };
++        let stabilizer = prepare(&metadata(), &config, Some(exposures(2_000))).unwrap();
++        let motion = stabilizer.frame_motion(0).unwrap();
++        // A fixed output ray stays in the reference camera frame. Each lens
++        // samples its own exposure center and source-row readout time.
++        assert_yaw(motion.correction(), 0.0);
++        for lens in 0..2 {
++            let table = motion.readout()[lens].as_ref().unwrap();
++            for fraction in [0.0, 0.5, 1.0] {
++                assert_yaw(
++                    table.rotation_at_fraction(fraction),
++                    yaw_rate() * ((0.5 - fraction) * 0.010 - lens as f64 * 0.002),
++                );
++            }
++        }
++    }
++
++    #[test]
++    fn camera_frame_stationary_sensor_has_identity_readout() {
++        let config = StitchConfig {
++            stabilization: Stabilization::Off,
++            rolling_shutter: RollingShutterCorrection::Required,
++            ..StitchConfig::default()
++        };
++        let mut stationary = gyro();
++        for record in stationary.chunks_exact_mut(20) {
++            for offset in [14, 16, 18] {
++                record[offset..offset + 2].copy_from_slice(&32_768_u16.to_le_bytes());
++            }
++        }
++        let stabilizer = FileStabilizer::from_payloads(
++            &metadata(),
++            &config,
++            &stationary,
++            exposures(0),
++            None,
++            vec![vec![0, 33_333, 100_000]; 2],
++        )
++        .unwrap();
++        let motion = stabilizer.frame_motion(0).unwrap();
++        assert_yaw(motion.correction(), 0.0);
++        for table in motion.readout().iter().flatten() {
++            for fraction in [0.0, 0.5, 1.0] {
++                assert_yaw(table.rotation_at_fraction(fraction), 0.0);
++            }
++        }
++    }
++
++    #[test]
++    fn camera_frame_zero_readout_has_identity_for_synchronized_lenses() {
++        let mut metadata = metadata();
++        metadata.rolling_shutter_time = Some(0.0);
++        let config = StitchConfig {
++            stabilization: Stabilization::Off,
++            rolling_shutter: RollingShutterCorrection::Required,
++            ..StitchConfig::default()
++        };
++        let motion = prepare(&metadata, &config, None)
++            .unwrap()
++            .frame_motion(0)
++            .unwrap();
++        assert_yaw(motion.correction(), 0.0);
++        assert!(motion.readout().iter().all(Option::is_none));
++    }
++
++    #[test]
++    fn camera_frame_zero_readout_keeps_unequal_lens_centers() {
++        let mut metadata = metadata();
++        metadata.rolling_shutter_time = Some(0.0);
++        let config = StitchConfig {
++            stabilization: Stabilization::Off,
++            rolling_shutter: RollingShutterCorrection::Required,
++            ..StitchConfig::default()
++        };
++        let motion = prepare(&metadata, &config, Some(exposures(2_000)))
++            .unwrap()
++            .frame_motion(0)
++            .unwrap();
++        assert_yaw(motion.correction(), 0.0);
++        assert!(motion.readout()[0].is_none());
++        let table = motion.readout()[1].as_ref().unwrap();
++        for fraction in [0.0, 0.5, 1.0] {
++            assert_yaw(table.rotation_at_fraction(fraction), -yaw_rate() * 0.002);
++        }
+     }
+ 
+     #[test]
+@@ -1345,8 +1435,15 @@
+                 .unwrap()
+                 .is_none()
+         );
++        // Explicit required must attempt metadata validation instead of silently
++        // treating this request as disabled; this empty fixture has no profile.
+         config.rolling_shutter = RollingShutterCorrection::Required;
+-        assert!(FileStabilizer::from_reader(&mut reader, &inspection, &config).is_err());
++        let error = FileStabilizer::from_reader(&mut reader, &inspection, &config)
++            .err()
++            .expect("missing motion metadata must fail");
++        assert!(!error
++            .to_string()
++            .contains("conflicts with disabled stabilization"));
+     }
+ 
+     #[test]
+@@ -1364,6 +1461,18 @@
+             .unwrap()
+             .unwrap();
+         assert!(stabilizer.diagnostics().contains("actual video PTS"));
++        let camera_config = StitchConfig {
++            stabilization: Stabilization::Off,
++            rolling_shutter: RollingShutterCorrection::Required,
++            ..StitchConfig::default()
++        };
++        let camera = FileStabilizer::from_reader(&mut reader, &inspection, &camera_config)
++            .unwrap()
++            .unwrap()
++            .frame_motion(0)
++            .unwrap();
++        assert_yaw(camera.correction(), 0.0);
++        assert!(camera.readout().iter().all(Option::is_some));
+         let late = stabilizer.frame_motion(1_330_562_567).unwrap();
+         let first = stabilizer.frame_motion(0).unwrap();
+         let late_again = stabilizer.frame_motion(1_330_562_567).unwrap();
+--- a/src-rust/stitch.rs
++++ b/src-rust/stitch.rs
+@@ -1177,6 +1177,58 @@
+ mod tests {
+     use super::*;
+     use crate::calibration::synthetic_dual_fisheye_calibration;
++
++    #[test]
++    fn camera_frame_readout_source_coordinates_match_analytic_yaw() {
++        use crate::motion::{ReadoutDirection, ReadoutPoseTable};
++        struct CoordinateSource;
++        impl ProjectionSource for CoordinateSource {
++            fn dimensions(&self) -> (u32, u32) {
++                (256, 256)
++            }
++            fn sample_inside(&self, x: f64, y: f64, _: Option<&FisheyeMask>) -> [f64; 3] {
++                [x, y, 0.0]
++            }
++        }
++        let calibration = synthetic_dual_fisheye_calibration(256, 256).unwrap();
++        let theta: f64 = 0.2;
++        // Rotation about each optical Y axis leaves the projected source row
++        // at exactly 128; an equidistant lens then gives x = 128 + f * angle.
++        // This analytic one-dimensional result does not call the projector.
++        let fraction = (128.0 + 0.5) / 256.0;
++        for (index, phase) in [(0, 0.0), (1, 0.03)] {
++            let lens = &calibration.lenses[index];
++            let axis = lens.orientation.inverse().rotate_vector([0.0, 1.0, 0.0]);
++            let table = ReadoutPoseTable::new(
++                ReadoutDirection::TopToBottom,
++                [0.0, 1.0],
++                [0.0, 1.0]
++                    .into_iter()
++                    .map(|t| Orientation::from_axis_angle(axis, phase + 0.3 * (t - 0.5)).unwrap())
++                    .collect(),
++            )
++            .unwrap();
++            let ray = lens
++                .orientation
++                .inverse()
++                .rotate_vector([theta.sin(), 0.0, theta.cos()]);
++            let sample = project_and_sample(
++                &CoordinateSource,
++                lens,
++                index,
++                ray,
++                0.0,
++                None,
++                None,
++                Some(&table),
++            )
++            .unwrap();
++            let expected_x = 128.0 + lens.fx * (theta + phase + 0.3 * (fraction - 0.5));
++            assert!((sample.source_x - expected_x).abs() < 1e-7);
++            assert!((sample.source_y - 128.0).abs() < 1e-7);
++            assert!((sample.color[0] - expected_x).abs() < 1e-7);
++        }
++    }
+ 
+     #[test]
+     fn parallel_color_statistics_match_serial_row_order_exactly() {
+--- a/tests/stitch.rs
++++ b/tests/stitch.rs
+@@ -543,3 +543,48 @@
+         assert!(actual.as_rgb8().iter().all(|channel| *channel == 100));
+     }
+ }
++
++#[test]
++fn camera_frame_readout_recovers_forward_sensor_sphere() {
++    use insta360_rs::motion::ReadoutDirection;
++    let cpu = CpuStitcher::new();
++    // Both sensors sweep top to bottom. The second phase represents a known
++    // exposure-center delay, not an invented lens rotation or target frame.
++    for (angle, secondary_phase) in [(0.0, 0.0), (0.3, 0.0), (0.3, 0.03)] {
++        let scans = [0.0, secondary_phase].map(|phase| rolling_shutter::Scan {
++            direction: ReadoutDirection::TopToBottom,
++            crop: [0.0, 1.0],
++            angle,
++            phase,
++        });
++        let chart = rolling_shutter::chart(scans, [17.0, -23.0, 41.0], [17.0, -23.0, 41.0]);
++        let rendered = cpu
++            .stitch_with_motion(
++                &chart.lenses,
++                &chart.calibration,
++                chart.projection,
++                &chart.motion,
++            )
++            .unwrap();
++        let (mean, max) = rolling_shutter::error(&rendered, &chart.expected);
++        assert!(
++            mean < 0.3 && max <= 2,
++            "camera-frame sphere error mean={mean} max={max}"
++        );
++        if angle > 0.0 {
++            let uncorrected = cpu
++                .stitch_with_orientation(
++                    &chart.lenses,
++                    &chart.calibration,
++                    chart.projection,
++                    chart.motion.correction(),
++                )
++                .unwrap();
++            let (error, _) = rolling_shutter::error(&uncorrected, &chart.expected);
++            assert!(
++                error > 1.0 && mean * 8.0 < error,
++                "row correction did not remove the generated skew: {mean} vs {error}"
++            );
++        }
++    }
++}
+--- a/tests/gpu.rs
++++ b/tests/gpu.rs
+@@ -1589,3 +1589,112 @@
+     }
+     assert_eq!((y, uv), original, "borrowed decoded source changed");
+ }
++
++#[test]
++fn gpu_camera_frame_readout_recovers_forward_sensor_sphere() {
++    use insta360_rs::motion::ReadoutDirection;
++    if !gpu_available_or_skip() {
++        return;
++    }
++    let gpu = insta360_rs::gpu::GpuStitcher::new().expect("GPU renderer");
++    let adapter = gpu.adapter_info();
++    // This targeted qualification requires real GPU execution, not software
++    // Vulkan or the automatic CPU fallback used by higher-level APIs.
++    assert_ne!(
++        adapter.device_type, "Cpu",
++        "camera-frame fixture needs a physical GPU"
++    );
++    let cpu = CpuStitcher::new();
++    for (angle, secondary_phase) in [(0.0, 0.0), (0.3, 0.0), (0.3, 0.03)] {
++        let scans = [0.0, secondary_phase].map(|phase| rolling_shutter::Scan {
++            direction: ReadoutDirection::TopToBottom,
++            crop: [0.0, 1.0],
++            angle,
++            phase,
++        });
++        let chart = rolling_shutter::chart(scans, [17.0, -23.0, 41.0], [17.0, -23.0, 41.0]);
++        let actual = gpu
++            .stitch_with_motion(
++                &chart.lenses,
++                &chart.calibration,
++                chart.projection,
++                &chart.motion,
++            )
++            .unwrap();
++        let cpu_result = cpu
++            .stitch_with_motion(
++                &chart.lenses,
++                &chart.calibration,
++                chart.projection,
++                &chart.motion,
++            )
++            .unwrap();
++        let (mean, max) = rolling_shutter::error(&actual, &chart.expected);
++        assert!(
++            mean < 0.3 && max <= 2,
++            "GPU camera-frame sphere error mean={mean} max={max}"
++        );
++        let difference = sorted_channel_differences(actual.as_rgb8(), cpu_result.as_rgb8());
++        assert!(*difference.last().unwrap() <= 1, "CPU/GPU image mismatch");
++        if angle > 0.0 {
++            let uncorrected = gpu
++                .stitch_with_orientation(
++                    &chart.lenses,
++                    &chart.calibration,
++                    chart.projection,
++                    chart.motion.correction(),
++                )
++                .unwrap();
++            let (error, _) = rolling_shutter::error(&uncorrected, &chart.expected);
++            assert!(
++                error > 1.0 && mean * 8.0 < error,
++                "row correction did not remove generated skew: {mean} vs {error}"
++            );
++        }
++    }
++}
++
++#[test]
++fn gpu_camera_frame_readout_preserves_source_coordinate_texture() {
++    use insta360_rs::motion::ReadoutDirection;
++    if !gpu_available_or_skip() {
++        return;
++    }
++    let gpu = insta360_rs::gpu::GpuStitcher::new().expect("GPU renderer");
++    assert_ne!(
++        gpu.adapter_info().device_type,
++        "Cpu",
++        "physical GPU required"
++    );
++    let cpu = CpuStitcher::new();
++    let scans = [0.0, 0.03].map(|phase| rolling_shutter::Scan {
++        direction: ReadoutDirection::TopToBottom,
++        crop: [0.0, 1.0],
++        angle: 0.3,
++        phase,
++    });
++    let chart = rolling_shutter::chart(scans, [17.0, -23.0, 41.0], [17.0, -23.0, 41.0]);
++    // Red and green encode decoded source x and y directly. Thus a
++    // CPU/GPU channel difference reflects source-coordinate or sampling
++    // disagreement, including the two independently projected lenses.
++    let lenses = std::array::from_fn(|lens| {
++        let mut rgb = Vec::with_capacity(256 * 256 * 3);
++        for y in 0..256_u32 {
++            for x in 0..256_u32 {
++                rgb.extend_from_slice(&[x as u8, y as u8, (lens * 127) as u8]);
++            }
++        }
++        LensFrame::new(256, 256, rgb).unwrap()
++    });
++    let a = cpu
++        .stitch_with_motion(&lenses, &chart.calibration, chart.projection, &chart.motion)
++        .unwrap();
++    let b = gpu
++        .stitch_with_motion(&lenses, &chart.calibration, chart.projection, &chart.motion)
++        .unwrap();
++    let diff = sorted_channel_differences(a.as_rgb8(), b.as_rgb8());
++    assert!(
++        *diff.last().unwrap() <= 2,
++        "source-coordinate texture differs across backends"
++    );
++}
+--- a/src-python/docs/reference.md
++++ b/src-python/docs/reference.md
+@@ -129,9 +129,11 @@
+ See the [migration and provenance guide](../../docs/housings.md).
+ 
+ `RollingShutterCorrection.AUTO` uses a supported recorded readout profile when
+-available and reports omissions as job warnings. `OFF` keeps only global
+-stabilization; `REQUIRED` fails if readout correction cannot be established and
+-cannot be combined with `Stabilization.OFF`.
++available and reports omissions as job warnings. With `Stabilization.OFF`, AUTO
++retains the existing no-correction behavior. `REQUIRED` fails if readout
++correction cannot be established. Combined with `Stabilization.OFF`, it applies
++per-lens source-row correction in the reference camera frame without global
++stabilization. The timing model remains subject to recorded-profile validation.
+ 
+ | Enum                       | Values                                                                                                                                            |
+ | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
