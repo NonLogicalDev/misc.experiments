@@ -7,6 +7,11 @@
 
 ## Current execution: quality and runtime optimization
 
+- Completed `/root/trainer_profile`: 256-ray contribution audit matches the retained native render within half an 8-bit level; broad splats dominate the sampled poster pixels.
+- Completed `/root/detail_diagnostic`: oversize threshold uses angular support and is far looser than fine texture size; previous capacity trials did not force division of these contributors.
+- Completed `/root/trainer_profile`: matched footprint-directed splitting commands, input hashes, CLI flags and model-size forecast prepared; both models retained within a 280 MB run envelope after cleanup. No GPU launch.
+- Active `/root`: exact paired proposal reviewed; explicit approval requested for the eighteen obsolete build archives after prior automatic-review rejection. About 16 MB remains under the 15 GB cap. No deletion or training occurred; selected preview remains running.
+
 - Completed `/root/trainer_profile`: frozen-geometry synthetic control lowers heldout MSE but slightly reduces chart contrast; no clear detail gain. Root inspected both crops; no real-scene promotion.
 - Completed `/root/fixture_review`: reproducible analytic-plane validation scripts, matching source/comparison hashes, and seven focused tests.
 - Completed `/root/detail_diagnostic`: photometric plane refinement reduced training error but transferred inconsistently; 1440 worsened, 1560 improved, and the separate valid 1505 subset worsened. No scene/model change. Nine focused tests pass.
