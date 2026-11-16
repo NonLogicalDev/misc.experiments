@@ -15,3 +15,5 @@ Maintain the plan root, owner register, project map, and recovery records. [Owne
 - 2026-11-15: Final clarification: `vendor/<name>/work` is the composed source checkout itself. Flattened 360DVO `work/source` into `work`; removed both superseded local Python environments after external uv runtime import checks. Setup and usage now use `uv run --isolated --no-project --with-requirements` with pinned dependency files; environments stay in the external uv cache. Exporter worker applies the same source layout to insta360-rs.
 
 - Both vendor source checkouts now live directly at `vendor/{360DVO,insta360-rs}/work`. layerctl check/list passed for both; CPU/GPU external uv imports and CLI help passed. No source duplication or rebuild. Viewer HTTP 200 after migration.
+
+- 2026-11-16: Refresh the project map and current execution after the native 2048 and 450k trials, direct LAN/mobile delivery, and reframed report. Preserve historical entries; replace stale current-state claims using measured comparisons and verified Git HEAD. Private report derivatives remain local.
