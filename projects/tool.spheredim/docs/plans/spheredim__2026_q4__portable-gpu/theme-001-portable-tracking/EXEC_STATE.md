@@ -7,10 +7,15 @@
 
 ## Current execution: quality and runtime optimization
 
+- Blocked `/root`: the next saved-model comparison needs the pending build-archive cleanup decision. Read-only lossless compression and exact-duplicate checks did not establish the required reserve. No new training, deletion or model promotion occurred. Viewer remains available.
+- Completed `/root/fixture_review`: all eighteen archive compression probes and executable hash comparison; originals intact.
+- Completed `/root/trainer_profile`: guarded paired runner prepared; storage preflight rejects execution at current usage.
+- Completed `/root/detail_diagnostic`: independent review accepts the bounded oversize-biased recipe, with contribution and neighboring-view checks required for interpretation.
+
 - Completed `/root/trainer_profile`: 256-ray contribution audit matches the retained native render within half an 8-bit level; broad splats dominate the sampled poster pixels.
 - Completed `/root/detail_diagnostic`: oversize threshold uses angular support and is far looser than fine texture size; previous capacity trials did not force division of these contributors.
 - Completed `/root/trainer_profile`: matched footprint-directed splitting commands, input hashes, CLI flags and model-size forecast prepared; both models retained within a 280 MB run envelope after cleanup. No GPU launch.
-- Active `/root`: exact paired proposal reviewed; explicit approval requested for the eighteen obsolete build archives after prior automatic-review rejection. About 16 MB remains under the 15 GB cap. No deletion or training occurred; selected preview remains running.
+- Blocked `/root`: exact paired proposal reviewed; explicit approval requested for the eighteen obsolete build archives after prior automatic-review rejection. About 16 MB remains under the 15 GB cap. No deletion or training occurred; selected preview remains running.
 
 - Completed `/root/trainer_profile`: frozen-geometry synthetic control lowers heldout MSE but slightly reduces chart contrast; no clear detail gain. Root inspected both crops; no real-scene promotion.
 - Completed `/root/fixture_review`: reproducible analytic-plane validation scripts, matching source/comparison hashes, and seven focused tests.
