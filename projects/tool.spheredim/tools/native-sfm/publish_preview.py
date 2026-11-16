@@ -148,12 +148,12 @@ def read_status(path):
 
 def status_stage(status):
     names=['Extracting','Matching','Mapping','Merging','Orienting','Finishing','Loading','Selecting pairs','Seeding','Refining','Calibrating','Initializing']
-    if status is None: return {'name':'Reconstruction','status':'running'}
+    if status is None: return {'name':'Camera pose estimation','status':'running'}
     flags=status['flags']
     if flags & 1:
         partial=bool(flags & 2)
-        return {'name':'Reconstruction','status':'partial' if partial else 'complete',
-                'detail':'Reconstruction partial' if partial else 'Reconstruction complete'}
+        return {'name':'Camera pose estimation','status':'partial' if partial else 'complete',
+                'detail':'Pose estimation partial' if partial else 'Pose estimation finished'}
     out={'name':names[status['stage']],'status':'running'}
     if status['total']>0 and status['done']>=0:
         out.update(current=status['done'],total=status['total'])
@@ -184,8 +184,34 @@ def activity_override(path, run, output):
             if not isinstance(log,dict) or not isinstance(log.get('name'),str) or not isinstance(log.get('file'),str): return None
             log_path=(path.parent/log['file']).resolve()
             logs.append({'name':log['name'],'file':os.path.relpath(log_path,output)})
-        return {'stages':stages,'currentActivity':current,'logs':logs}
+        artifact_input=value.get('artifacts',{})
+        if not isinstance(artifact_input,dict) or set(artifact_input)-{'splat','dense','mesh'}: return None
+        artifacts={'splat':None,'dense':None,'mesh':None}
+        for kind,descriptor in artifact_input.items():
+            if descriptor is None: continue
+            if not isinstance(descriptor,dict) or not isinstance(descriptor.get('file'),str) or not descriptor['file']: return None
+            for field in ('file','transform','run','label','space'):
+                if field in descriptor and (not isinstance(descriptor[field],str) or not descriptor[field]): return None
+            if 'checkpoint' in descriptor:
+                checkpoint=descriptor['checkpoint']
+                if not ((isinstance(checkpoint,str) and checkpoint) or (isinstance(checkpoint,int) and not isinstance(checkpoint,bool) and checkpoint>=0)): return None
+            if 'space' in descriptor and descriptor['space'] not in ('train','world'): return None
+            item=dict(descriptor)
+            for field in ('file','transform'):
+                if field in item: item[field]=os.path.relpath((path.parent/item[field]).resolve(),output)
+            artifacts[kind]=item
+        return {'stages':stages,'currentActivity':current,'logs':logs,'artifacts':artifacts}
     except (OSError,ValueError,KeyError,TypeError): return None
+
+
+def activity_or_status(path,run,output,native):
+    if path is None:
+        return {'stages':[status_stage(native)],'currentActivity':0,'logs':[],'artifacts':{'splat':None,'dense':None,'mesh':None}}
+    activity=activity_override(path,run,output)
+    if activity is not None: return activity
+    return {'stages':[{'name':'Activity unavailable','status':'failed',
+                       'detail':'Configured activity file is missing, invalid, or belongs to another run.'}],
+            'currentActivity':0,'logs':[],'artifacts':{'splat':None,'dense':None,'mesh':None}}
 
 def publish(progress,model,dataset_path,output,reference=None,activity_state=None):
     # Pin both paths to a single run before reading a movable source pointer.
@@ -200,16 +226,16 @@ def publish(progress,model,dataset_path,output,reference=None,activity_state=Non
     try: status=read_status(progress/'status.bin')
     except (OSError,ValueError,struct.error): status=None
     log={'name':'Reconstruction','file':os.path.relpath(run/'run.log',output)}
-    activity=activity_override(activity_state,run,output)
-    stages=activity['stages'] if activity else [status_stage(status)]
-    current=activity['currentActivity'] if activity else 0
-    logs=[log]+(activity['logs'] if activity else [])
+    activity=activity_or_status(activity_state,run,output,status)
+    stages=activity['stages']
+    current=activity['currentActivity']
+    logs=[log]+activity['logs']
     state_path=output/'viewer-state.json'
     try: previous=json.loads(state_path.read_text())
     except (OSError,ValueError): previous={}
     if previous.get('source')!=source_id:
         # Clear the previous run before attempting to decode this run's model.
-        pending={'version':1,'source':source_id,'trajectory':{},'artifacts':{},
+        pending={'version':1,'source':source_id,'trajectory':{},'artifacts':activity['artifacts'],
                  'stages':stages,'currentActivity':current,'logs':logs,
                  'details':['Waiting for this run’s first complete reconstruction snapshot.']+coverage_details(status)}
         atomic(state_path,(json.dumps(pending,indent=2,allow_nan=False)+'\n').encode())
@@ -244,7 +270,7 @@ def publish(progress,model,dataset_path,output,reference=None,activity_state=Non
     ply=('ply\nformat ascii 1.0\nelement vertex '+str(len(points))+'\nproperty float x\nproperty float y\nproperty float z\nproperty uchar red\nproperty uchar green\nproperty uchar blue\nend_header\n'+''.join('%g %g %g %d %d %d\n'%p for p in points)).encode()
     if not (output/pose_name).is_file(): atomic(output/pose_name,pose_bytes)
     if not (output/point_name).is_file(): atomic(output/point_name,ply)
-    trajectory={'poses':pose_name,'points':point_name};artifacts={'splat':None,'dense':None,'mesh':None}
+    trajectory={'poses':pose_name,'points':point_name};artifacts=activity['artifacts']
     selected=dataset['frames']
     times=[float(row['timestamp_microseconds'])/1e6 for row in selected]
     if not times or not all(map(math.isfinite,times)): raise ValueError('invalid dataset interval')
@@ -277,10 +303,11 @@ def refresh_activity(progress,model,output,activity_state):
         if state.get('source')!=str(run): return
         try: native=read_status(progress/'status.bin')
         except (OSError,ValueError,struct.error): native=None
-        activity=activity_override(activity_state,run,output)
-        state['stages']=activity['stages'] if activity else [status_stage(native)]
-        state['currentActivity']=activity['currentActivity'] if activity else 0
-        state['logs']=[{'name':'Reconstruction','file':os.path.relpath(run/'run.log',output)}]+(activity['logs'] if activity else [])
+        activity=activity_or_status(activity_state,run,output,native)
+        state['stages']=activity['stages']
+        state['currentActivity']=activity['currentActivity']
+        state['artifacts']=activity['artifacts']
+        state['logs']=[{'name':'Reconstruction','file':os.path.relpath(run/'run.log',output)}]+activity['logs']
         data=(json.dumps(state,indent=2,allow_nan=False)+'\n').encode()
         if path.read_bytes()!=data: atomic(path,data)
     except (OSError,ValueError,KeyError,TypeError): return

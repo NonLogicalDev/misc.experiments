@@ -66,6 +66,19 @@ A broader run uses all 138 reviewed timestamps from source frames 0–2055 in st
 
 The Apple GPU run with metadata baseline and the original 1° per-image prior assumption took 59.9 seconds, registered all 276 images in one model, and produced 24,614 sparse points. Its final solve included 138 body frames and all 137 relative prior factors. Training reprojection mean/median is .468/.341 px; these are training residuals, not independent accuracy. Motion consistency and subsequent image reconstruction remain to be checked. The live viewer exposes this model separately from the earlier 16-frame sample and splat.
 
+## Splat convergence on held-out lens views
+
+A 3,000-step run and a 10,000-step run used the same 276 source images and masks, seed, fixed poses, trainer binary, and settings other than the schedule and output paths. Each withheld the same 36 lens views from splat training, while those views still contributed to SfM. The 10,000-step run used a 5,000-step save interval and completed with 240 training cameras before and after splitting. No fitted image alignment or view filtering was applied.
+
+| Steps | Mean spherical PSNR | Mean spherical SSIM | Mean gradient ratio |
+| ---: | ---: | ---: | ---: |
+| 3,000 | 21.871 dB | 0.7824 | 0.6217 |
+| 10,000 | 23.544 dB | 0.8498 | 0.7501 |
+
+These are averages over the same 36 masked physical-lens ERPs. All saved references matched the linked input pixels exactly, and all saved masks matched. Spherical PSNR improved on 33 views and regressed on three. At frame 960, cam0 decreased by 0.408 dB to 22.48 dB and cam1 increased by 0.061 dB to 20.23 dB. The lowest 10,000-step score is 17.29 dB at frame 840 cam1. The associated contact sheets show sharper results overall but continued blur and geometry loss, including the doorway. This diagnostic does not establish the required quality at training path points: exact training-camera rendering is not yet implemented, and the held-out images are not independent of the source reconstruction.
+
+Private artifacts beside the recording: `rig-reviewed-splat-3000/evaluation-audit.json`, `rig-reviewed-splat-10000/evaluation-audit.json`, and their respective `evaluation-contact-sheet.png` files. The 10,000-step report includes hashes of its associated checkpoint, configuration, and status; saved render files are individually hashed, but their checkpoint association is not independently verified by the evaluator.
+
 ## Evidence
 
 - `rig-dataset-20261115-balanced/manifest.json`: image and mask provenance.

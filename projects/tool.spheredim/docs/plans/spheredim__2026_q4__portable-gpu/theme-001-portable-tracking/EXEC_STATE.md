@@ -5,7 +5,17 @@
 - Next action: investigate low-texture failure and image alignment, add confidence/failure reporting and seam/long-video tests, and validate and package AMD ROCm on suitable hardware.
 - [Plan](active/plan-01%20Portable%20360DVO.md) · [Owners](../OWNERS.md)
 
-## Workers
+## Current execution: larger physical-lens reconstruction
+
+- `/root`: larger-run integration complete. All 276 physical-lens observations across 138 timestamps registered, producing 24,614 points. The former 27.4° adjacent rotation discrepancy fell to 1.3° with broader coverage; global orientation disagreement remains.
+- `/root/terra_sample_quality`: paired image comparison complete. The 10,000-step run improved 33 of 36 held-out views: mean spherical PSNR 21.87 → 23.54 dB, SSIM 0.782 → 0.850, gradient ratio 0.622 → 0.750. Doorway geometry and detail remain poor. These views participated in SfM and were held out only from splat training.
+- `/root/terra_handoff_check`: viewer verification complete. Port 5178 remains available; live state selects the final 10,000-step artifact, and separate 3,000/10,000-step scenes preserve their own pose/point files. Image comparison is finished; no reconstruction-quality acceptance is claimed.
+- `/root/terra_export_baseline`: independent review complete. The runner now rejects incomplete checkpoint payloads, including stable paused writes; nine focused runner tests passed. The current run was not interrupted, and its saved checkpoint passed the stricter checker.
+- The bounded training run took 802 seconds and produced 232 MB. Free disk remained about 37 GiB, above the 35 GiB reserve. No training process remains active.
+- Pending quality work: original training-camera render evaluation with original camera-indexed appearance state; localized pose/geometry diagnosis around the doorway; controlled resolution and renderer checks. Additional training alone is not an accepted fix. See [quality plan](active/plan-04%20Reconstruction%20quality%20implementation.md) and [comparison report](../../../research/rig-sfm-comparison.md).
+- Older entries below are execution history, not current worker assignments.
+
+## Workers (history)
 
 - /root/kernel_audit: complete; audited geometry and bundle adjustment, with depth update, fixed calibration and Cholesky findings corrected by the owner.
 - /root/layer_packaging: complete; the real port layer was integrated and checked. Source is now fetched at its pinned revision rather than from a bundled archive.

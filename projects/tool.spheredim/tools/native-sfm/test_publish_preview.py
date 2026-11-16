@@ -43,9 +43,9 @@ class PreviewTest(unittest.TestCase):
             self.assertEqual((root/'out/viewer-state.json').read_bytes(),before)
 
     def test_status_counts_and_no_zero_progress(self):
-        self.assertEqual(m.status_stage(None),{'name':'Reconstruction','status':'running'})
+        self.assertEqual(m.status_stage(None),{'name':'Camera pose estimation','status':'running'})
         base={'stage':5,'flags':1,'done':0,'total':0,'registered':6,'images':6,'points':4,'models':1}
-        self.assertEqual(m.status_stage(base),{'name':'Reconstruction','status':'complete','detail':'Reconstruction complete'})
+        self.assertEqual(m.status_stage(base),{'name':'Camera pose estimation','status':'complete','detail':'Pose estimation finished'})
         self.assertIn('6/6',m.coverage_details(base)[0])
         partial={**base,'flags':3}
         self.assertEqual(m.status_stage(partial)['status'],'partial')
@@ -123,8 +123,54 @@ class PreviewTest(unittest.TestCase):
             pointer.unlink();pointer.symlink_to(b,target_is_directory=True)
             m.publish(pointer/'progress',pointer/'sparse/0',b/'dataset.json',out,activity_state=a/'activity.json')
             third=json.loads((out/'viewer-state.json').read_text())
-            self.assertEqual(third['stages'][0]['name'],'Reconstruction')
+            self.assertEqual(third['stages'][0]['name'],'Activity unavailable')
             self.assertEqual(len(third['logs']),1)
+
+    def test_artifact_updates_and_invalid_or_other_run_clear_them(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);a=root/'a';b=root/'b';a.mkdir();b.mkdir()
+            self.fixture(a);self.fixture(b);out=root/'out';out.mkdir()
+            pointer=root/'active';pointer.symlink_to(a,target_is_directory=True)
+            activity=pointer/'activity.json'
+            def write(value):
+                activity.write_text(json.dumps({'stages':[{'name':'Training','status':'running'}],
+                                                'currentActivity':0,'artifacts':value}))
+            write({'splat':{'file':'runs/step1/splat.ply','transform':'runs/scene.json',
+                            'run':'test run','checkpoint':'step1'}})
+            m.publish(pointer/'progress',pointer/'sparse/0',a/'dataset.json',out,activity_state=activity)
+            first=json.loads((out/'viewer-state.json').read_text()); artifact=first['artifacts']['splat']
+            self.assertEqual((out/artifact['file']).resolve(),(a/'runs/step1/splat.ply').resolve())
+            self.assertEqual((out/artifact['transform']).resolve(),(a/'runs/scene.json').resolve())
+            self.assertEqual((artifact['run'],artifact['checkpoint']),('test run','step1'))
+            write({'splat':{'file':'runs/step2/splat.ply','checkpoint':2000}})
+            m.refresh_activity(pointer/'progress',pointer/'sparse/0',out,activity)
+            second=json.loads((out/'viewer-state.json').read_text())
+            self.assertEqual(second['artifacts']['splat']['checkpoint'],2000)
+            self.assertEqual(first['trajectory'],second['trajectory'])
+            for bad in ({'splat':'file.ply'},{'mesh':{'file':5}},{'unknown':None},{'dense':{'file':'a','space':7}}):
+                write(bad)
+                m.refresh_activity(pointer/'progress',pointer/'sparse/0',out,activity)
+                state=json.loads((out/'viewer-state.json').read_text())
+                self.assertEqual(state['stages'][0]['name'],'Activity unavailable')
+                self.assertEqual(state['artifacts'],{'splat':None,'dense':None,'mesh':None})
+            pointer.unlink();pointer.symlink_to(b,target_is_directory=True)
+            m.publish(pointer/'progress',pointer/'sparse/0',b/'dataset.json',out,activity_state=a/'activity.json')
+            self.assertEqual(json.loads((out/'viewer-state.json').read_text())['artifacts']['splat'],None)
+
+    def test_missing_and_invalid_activity_never_fall_back_to_complete(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);self.fixture(root)
+            (root/'progress/status.bin').write_bytes(struct.pack('<4sIII6qd',b'VKPS',1,5,1,0,0,6,6,1,1,0.))
+            activity=root/'activity.json'
+            for contents in (None, {'stages':[{'name':'Done','status':'complete'},
+                                               {'name':'Working','status':'completed'}], 'currentActivity':1}):
+                if contents is not None: activity.write_text(json.dumps(contents))
+                m.publish(root/'progress',root/'sparse/0',root/'dataset.json',root/'out',activity_state=activity)
+                state=json.loads((root/'out/viewer-state.json').read_text())
+                self.assertEqual(state['stages'][0]['name'],'Activity unavailable')
+                self.assertEqual(state['stages'][0]['status'],'failed')
+                self.assertIn('missing, invalid, or belongs',state['stages'][0]['detail'])
+                self.assertTrue(state['trajectory']['poses'])
 
     def test_alignment_from_fused(self):
         frames=[{'source_frame':i,'timestamp_microseconds':i*1000000,'fused_row':{'q_w':'1','q_x':'0','q_y':'0','q_z':'0'}} for i in (1,2,3)]
