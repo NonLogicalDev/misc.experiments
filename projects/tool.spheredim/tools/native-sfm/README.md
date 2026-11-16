@@ -90,3 +90,6 @@ uv run --offline --isolated --no-project --python 3.14 \
   test_rig_pose test_register_rig_frames test_prepare_sharp_overlay \
   test_audit_landmark_coverage test_select_track_coverage
 ```
+
+
+`targeted_geometry_tracks.py BASELINE_MODEL NATIVE_MODEL PREPARED NEW_REPORT` compares two camera solutions using frozen original 1024 source-feature coordinates in the current clock, poster and blinds regions. For each target feature it triangulates from the same two neighboring timestamps and predicts the target ray under each model. The report includes missing support, failed triangulations and signed residuals. The regions and neighbor interval belong to this recording-specific diagnostic; it is not a generic accuracy benchmark. Both pose solutions and the associations come from related data, so this measures consistency rather than independent camera accuracy. Run `test_targeted_geometry_tracks` for analytic projection and triangulation checks.
