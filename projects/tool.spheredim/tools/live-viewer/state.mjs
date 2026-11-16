@@ -1,5 +1,6 @@
 import {readFile, stat} from 'node:fs/promises';
 import path from 'node:path';
+import {validateInitialView,initialViewForPoseCount} from './view-info.mjs';
 import {readState,parsePLY,readLogTail} from './data.mjs';
 
 // Keep the last valid snapshot while a producer is replacing its state file.
@@ -39,7 +40,7 @@ export function stateReader(stateFile) {
   data.meshAvailable=!!ms?.isFile();data.meshVersion=ms?`${ms.size}:${ms.mtimeMs}`:null;data.densePoints=await cached(dense,async()=>parsePLY(await readFile(dense,'utf8')));data.denseVersion=cache.get(dense)?.key||null;
   data.denseLabel=a.dense?.label;data.denseSpace=a.dense?.space==='train'?'train':'world';data.worldFromTrain=null;
   try{const t=JSON.parse(await readFile(resolveScene(a.splat?.transform),'utf8'));const m=t?.world_from_train?.matrix_4x4;if(Array.isArray(m)&&m.length===4&&m.every(r=>Array.isArray(r)&&r.length===4&&r.every(Number.isFinite)))data.worldFromTrain=m}catch{}
-  data.referenceVideoAvailable=!!rs?.isFile();data.referenceVideoLabel=scene.reference?.label;data.up=Array.isArray(scene.up)&&scene.up.length===3&&scene.up.every(Number.isFinite)?scene.up:null;data.sceneId=selected?.id||null;data.scenes=scenes.map(({id,label})=>({id,label}));
+  data.initialView=initialViewForPoseCount(validateInitialView(scene.initialView),data.trajectoryFilter?.cutIndex ?? data.cameraPoses.length);data.referenceVideoAvailable=!!rs?.isFile();data.referenceVideoLabel=scene.reference?.label;data.up=Array.isArray(scene.up)&&scene.up.length===3&&scene.up.every(Number.isFinite)?scene.up:null;data.sceneId=selected?.id||null;data.scenes=scenes.map(({id,label})=>({id,label}));
   data.stages=Array.isArray(scene.stages)?scene.stages:[];data.currentActivity=Number.isInteger(scene.currentActivity)?scene.currentActivity:null;data.logs=await Promise.all((Array.isArray(scene.logs)?scene.logs:[]).map(async l=>({name:l.name,lines:await readLogTail(resolveScene(l.file))})));data.details=Array.isArray(scene.details)?scene.details:[];
   return data;
  }

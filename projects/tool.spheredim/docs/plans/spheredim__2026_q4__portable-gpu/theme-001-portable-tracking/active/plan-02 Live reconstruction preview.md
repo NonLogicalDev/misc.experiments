@@ -42,3 +42,15 @@ The operator explicitly requested direct port access without pairing. Root resta
 - 2026-11-16: Added simultaneous two-finger pinch and pan, canvas-origin non-passive touch scroll suppression, and the in-place viewport representation selector. Simulated Chrome touch input changed the view without page scroll; physical phone validation remains pending.
 
 - 2026-11-16: Publish completed higher-resolution candidate checkpoints in the preview scene catalog for inspection, including candidates that did not win a quality comparison. Make the 8,000-step continuation the initial scene; preserve the prior 7,000-step and other scenes separately.
+
+- 2026-11-16: Publish each completed 8,300-step loss comparison as its own scene, retaining the 8,000-step selection and live activity. Distinguish original loss from pixel loss and training completion from image comparison.
+
+- 2026-11-16: Make Copy view info work on plain HTTP using a direct-gesture clipboard fallback, with honest failure handling and the existing payload intact.
+
+- 2026-11-16: Verified Copy view info in Chrome on localhost and the LAN HTTP address. Clipboard readback contained the test scene and camera; physical phone verification remains pending. The synchronous fallback restores the previous focus and uses 16px text to avoid iOS focus zoom.
+
+- 2026-11-16: Investigate and fix switching to earlier reconstruction scenes end to end; verify actual rendering and matching tracks across the catalog.
+
+- 2026-11-16: Support an optional validated state-provided initial view so copied camera reports can be reproduced independently; use it to verify distinct scene artifacts and preserve ordinary camera behavior when absent.
+
+- 2026-11-16: The isolated viewer reproduced the supplied orbit camera and rendered its clock/wall view; all six checked scenes initialized Spark with counts matching their PLY vertex headers and retained 412 track frames. A separate track import retained the supplied quaternion over subsequent polls and matched the selected track pose position. The temporary test server and profiles were removed; the screenshot remains at /private/tmp/spheredim-clock-view.png.

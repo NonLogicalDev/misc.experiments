@@ -21,3 +21,7 @@ Each profile is an independent version 1 state file. Paths within it resolve rel
 ## LAN access
 
 Set `SPHEREDIM_HOST=0.0.0.0` when starting the viewer to serve the same state directly on the local network. Open `http://<computer-LAN-address>:5178/` from another device. The default host remains `127.0.0.1`; no pairing proxy is needed.
+
+### Initial view
+
+A scene state may provide `initialView` containing the JSON object from Copy view info (omit its introductory text). The viewer validates it and applies it once when entering that scene. Scene transforms remain authoritative. Follow Track uses the selected recorded position and the supplied orientation; an out-of-range track index is ignored with the entire initial view. These initial control and alignment settings persist like ordinary viewer controls when changing scenes. Without this field the normal scene and camera behavior applies.
