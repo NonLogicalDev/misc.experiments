@@ -17,3 +17,7 @@ A state file can instead be an explicit catalog, for example:
 ```
 
 Each profile is an independent version 1 state file. Paths within it resolve relative to that profile; `stateFile` resolves relative to the catalog. The selected scene supplies its own trajectory, artifacts, reference, activity, and logs. Update the catalog to add or reorder scenes or change the default; no viewer restart is required. Unknown scene IDs are rejected.
+
+## LAN access
+
+Set `SPHEREDIM_HOST=0.0.0.0` when starting the viewer to serve the same state directly on the local network. Open `http://<computer-LAN-address>:5178/` from another device. The default host remains `127.0.0.1`; no pairing proxy is needed.

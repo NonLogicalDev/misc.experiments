@@ -32,3 +32,11 @@ The native progress publisher supports --activity-state for workflow stages and 
 During the next workflow transition, the producer was given status completed while the schema accepts complete. It rejected the activity override and fell back to the native whole-Reconstruction complete label. Root corrected the state immediately. /root/terra_handoff_check will harden this failure path: invalid explicitly configured activity must display unavailable/failed activity, never imply completed reconstruction; native fallback completion describes camera-pose estimation only. Add regression coverage and verify through the running API without stopping reconstruction.
 
 Splat diagnostic progress will publish through an explicit --activity-state destination in the run data, not frontend edits. /root/terra_sample_quality owns guarded trainer progress/activity output; /root/terra_handoff_check owns optional artifact paths in the existing activity override, rebased relative to that state file, with no reuse across runs. Display only saved stable checkpoints and preserve the matching 138-pose scene. Training completion advances to pending image comparison, not overall completion.
+
+- 2026-11-16: Canvas-only touch capture owns viewport gestures. One finger rotates using the active mode; two fingers pan the scene and leave Follow Track, with centroid reset on finger-count changes. Controls outside the canvas retain normal touch behavior. Automated gesture-state and viewer build checks cover transitions; physical phone verification remains pending.
+
+### 2026-11-16: direct LAN access
+
+The operator explicitly requested direct port access without pairing. Root restarted the existing viewer service with `SPHEREDIM_HOST=0.0.0.0`, verified HTTP200 on `10.173.10.174:5178` and localhost, stopped the obsolete pairing proxy, and removed its source/tests. Canvas-scoped touch handling remains the separate viewer worker change.
+
+- 2026-11-16: Added simultaneous two-finger pinch and pan, canvas-origin non-passive touch scroll suppression, and the in-place viewport representation selector. Simulated Chrome touch input changed the view without page scroll; physical phone validation remains pending.

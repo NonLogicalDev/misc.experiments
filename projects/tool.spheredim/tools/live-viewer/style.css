@@ -35,3 +35,7 @@
 #activity-drawer:not([hidden]){height:min(30vh,320px);overflow:hidden}.log-drawer{height:100%;display:flex;flex-direction:column;overflow:hidden}.activity-stages{max-height:80px;overflow-y:auto;flex:none}.log-drawer pre{flex:1;min-height:0;height:auto;overflow:auto}
 
 .view-copy{position:absolute;top:14px;left:14px;z-index:3;display:flex;align-items:center;gap:6px}.view-copy button{background:#111a20ed;border:1px solid #526b70;border-radius:7px;color:#e6f2ee;font-size:11px;padding:8px 10px}.view-copy span{color:#e6f2ee;font-size:11px;background:#111a20ed}.view-copy textarea{position:absolute;top:36px;left:0;width:min(500px,75vw);height:220px;background:#111a20;color:#effaf6;border:1px solid #78958e;padding:10px;resize:both}.scene-badge{top:56px}
+
+.viewport canvas{touch-action:none;overscroll-behavior:contain}
+
+.scene-badge select{font:inherit;color:inherit;background:transparent;border:0;cursor:pointer;max-width:180px}.scene-badge select option{background:#111a20;color:#e6f2ee}
