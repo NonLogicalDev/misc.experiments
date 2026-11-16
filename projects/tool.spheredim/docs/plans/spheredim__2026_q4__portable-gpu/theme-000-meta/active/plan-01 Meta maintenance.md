@@ -17,3 +17,5 @@ Maintain the plan root, owner register, project map, and recovery records. [Owne
 - Both vendor source checkouts now live directly at `vendor/{360DVO,insta360-rs}/work`. layerctl check/list passed for both; CPU/GPU external uv imports and CLI help passed. No source duplication or rebuild. Viewer HTTP 200 after migration.
 
 - 2026-11-16: Refresh the project map and current execution after the native 2048 and 450k trials, direct LAN/mobile delivery, and reframed report. Preserve historical entries; replace stale current-state claims using measured comparisons and verified Git HEAD. Private report derivatives remain local.
+
+- 2026-11-16: Carry forward the operator correction that completed candidate reconstructions must be inspectable in the live state-driven viewer even when their metrics regress. Availability for inspection is separate from which model is the measured incumbent. Viewer worker publishes existing artifacts without copying large files.

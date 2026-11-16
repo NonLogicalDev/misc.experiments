@@ -40,3 +40,5 @@ Splat diagnostic progress will publish through an explicit --activity-state dest
 The operator explicitly requested direct port access without pairing. Root restarted the existing viewer service with `SPHEREDIM_HOST=0.0.0.0`, verified HTTP200 on `10.173.10.174:5178` and localhost, stopped the obsolete pairing proxy, and removed its source/tests. Canvas-scoped touch handling remains the separate viewer worker change.
 
 - 2026-11-16: Added simultaneous two-finger pinch and pan, canvas-origin non-passive touch scroll suppression, and the in-place viewport representation selector. Simulated Chrome touch input changed the view without page scroll; physical phone validation remains pending.
+
+- 2026-11-16: Publish completed higher-resolution candidate checkpoints in the preview scene catalog for inspection, including candidates that did not win a quality comparison. Make the 8,000-step continuation the initial scene; preserve the prior 7,000-step and other scenes separately.
