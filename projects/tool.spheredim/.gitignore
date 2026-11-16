@@ -4,10 +4,9 @@ __pycache__/
 
 .validation-work/
 .build/
-vendor/runtime/
 
-# Installed environment and layerctl projections are reproducible locally.
-vendor/360dvo-port/work/
+# Generated layerctl source projections.
+/vendor/*/work/
 
 # Locally downloaded model, wheels and regenerated media.
 .artifacts/

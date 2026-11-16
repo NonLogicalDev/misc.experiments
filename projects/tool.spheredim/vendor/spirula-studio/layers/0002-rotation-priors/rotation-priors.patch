@@ -1,0 +1,351 @@
+diff --git a/cmake/SsApps.cmake b/cmake/SsApps.cmake
+index 0950246..4f23ad2 100644
+--- a/cmake/SsApps.cmake
++++ b/cmake/SsApps.cmake
+@@ -388,6 +388,11 @@ if(SS_SEPARATE_TOOLS)
+         ss_tool_exe(spirula-sfm
+             "${SS_SRC}/app/cli/sfm_main.cpp;${SS_SRC}/app/cli/sfm_ba.cpp"
+             "SS_TOOL_SFM=1" "ss_sfm")
++        target_sources(spirula-sfm PRIVATE ${SS_SRC}/app/AppPaths.cpp ${SS_SRC}/app/CrashLog.cpp ${SS_SRC}/app/RunReport.cpp)
++        target_compile_definitions(spirula-sfm PRIVATE SS_STANDALONE_SFM)
++        if(SS_BACKEND STREQUAL "vulkan")
++            target_compile_definitions(spirula-sfm PRIVATE SS_BACKEND_VULKAN)
++        endif()
+     endif()
+     if(SS_BUILD_SAM)
+         set(_sam_src ${SS_SRC}/app/cli/sam_main.cpp ${SS_SRC}/app/CubeLut.cpp
+diff --git a/src/app/Main.cpp b/src/app/Main.cpp
+index ad72dea..bc8af50 100644
+--- a/src/app/Main.cpp
++++ b/src/app/Main.cpp
+@@ -259,6 +259,7 @@ int main(int argc, char** argv) {
+ 
+     if (argc > 1) {
+         const std::string a = argv[1];
++#ifndef SS_STANDALONE_SFM
+         if (a == "export-bg" || a == "export_bg") {
+             namespace bgmsg = spirula::i18n::msg::background_export;
+             using spirula::i18n::format;
+@@ -278,6 +279,7 @@ int main(int argc, char** argv) {
+             std::fprintf(stderr, "%s\n", format(bgmsg::failed, {ckpt_dir.string(), out_path.string()}).c_str());
+             return 1;
+         }
++#endif
+         if (a == "help" || a == "--help" || a == "-h") {
+             print_usage();
+             return 0;
+diff --git a/src/app/cli/sfm_main.cpp b/src/app/cli/sfm_main.cpp
+index 6cd37a7..c6dab8d 100644
+--- a/src/app/cli/sfm_main.cpp
++++ b/src/app/cli/sfm_main.cpp
+@@ -153,6 +153,7 @@ static void ownOptionsAuto(FILE* out) {
+     helpLine(out, "-o, --output DIR", H::word_required.get(),
+              H::opt_auto_output.get());
+     helpLine(out, "--manifest FILE", "", H::opt_manifest.get());
++    helpLine(out, "--rotation-priors FILE", "", "CSV camera-to-world rotations by image, with 1-sigma degrees; relative soft priors.");
+     helpLine(out, "--rig [KIND=]PREFIX,PREFIX,...", "", H::opt_rig.get());
+     helpLine(out, "--sequence PREFIX[,PREFIX...]", "", H::opt_sequence.get());
+     helpLine(out, "--no-masks", "", H::opt_no_masks.get());
+diff --git a/src/sfm/Pipeline.cpp b/src/sfm/Pipeline.cpp
+index 481bcef..0e5fbe3 100644
+--- a/src/sfm/Pipeline.cpp
++++ b/src/sfm/Pipeline.cpp
+@@ -1,3 +1,4 @@
++#include "sfm/map/RotationCsvPriors.h"
+ // Pipeline.cpp -- the stages of a run, and `auto`'s ordering of them.
+ //
+ // This is the half of the old sfm_main.cpp that is not argument parsing: what
+@@ -717,6 +718,21 @@ bool fixGauge(std::vector<Reconstruction>& models, const SfmConfig& cfg,
+         return g.found ? composeSim3(g.T, T) : T;
+     };
+     std::vector<GroundFit> levelled(models.size());
++    auto preserveRigScale = [&](size_t i, Sim3& T) {
++        bool fixed = false;
++        for (const auto& rig : models[i].rigs)
++            for (size_t k=0; k<rig.cam_from_rig.size(); ++k)
++                fixed = fixed || (k<rig.fixed.size() && rig.fixed[k] && rig.cam_from_rig[k].t.norm()>1e-12);
++        if (!fixed || std::fabs(T.scale-1.0)<1e-12) return false;
++        L::err_raw(Tag::Orient, "[orient] fixed nonzero rig baseline retains its scale; proposed gauge scale was discarded");
++        Vec3 centre{0,0,0}; size_t count=0;
++        for (const auto& item : models[i].images) if (item.second.registered) {
++            centre = centre + cameraCenter(item.second.pose); ++count;
++        }
++        if (count) T.t = T.t + mul(T.R, centre * (1.0 / double(count))) * (T.scale - 1.0);
++        T.scale=1.0;
++        return true;
++    };
+ 
+     // `gauge[i]` is the state, not just the record: `oriented` and `metric` say
+     // what a source has already settled, and every source below reads them
+@@ -745,10 +761,12 @@ bool fixGauge(std::vector<Reconstruction>& models, const SfmConfig& cfg,
+             reportSensorGauge(i, r, loaded, verbose);
+             if (r.gps_frames > 0) log_fit[i] = r.gps;
+             if (!r.applied) continue;
+-            applySim3(models[i], r.T);
++            Sim3 sensor_transform = r.T;
++            const bool retained_rig_scale = preserveRigScale(i, sensor_transform);
++            applySim3(models[i], sensor_transform);
+             gauge[i].oriented = true;
+             gauge[i].up = "sensors";
+-            if (r.metric) {
++            if (r.metric && !retained_rig_scale) {
+                 gauge[i].metric = true;
+                 gauge[i].scale = r.scale_from_imu && r.scale_from_gps ? "imu+gps"
+                                  : r.scale_from_imu                   ? "imu"
+@@ -914,7 +932,8 @@ bool fixGauge(std::vector<Reconstruction>& models, const SfmConfig& cfg,
+         for (size_t i = 0; i < models.size(); i++) {
+             if (gauge[i].oriented || gauge[i].metric) continue;
+             GroundFit g;
+-            const Sim3 T = unmeasured(i, g);
++            Sim3 T = unmeasured(i, g);
++            preserveRigScale(i, T);
+             applySim3(models[i], T);
+             placed[i] = 1;
+             const long long model = (long long)i;
+@@ -1441,6 +1460,8 @@ std::vector<Reconstruction> runMapper(Mapper& mapper, const MatchesDatabase& db,
+         GlobalReconstructionStats gs;
+         models = buildGlobalReconstructions(db, feats, mapper.cameraIds(), mapper.startingCameras(),
+                                             mapper.options().known_focal_cameras, go, gs);
++        if (go.rotation_priors && go.rotation_priors->competeVisualRotations())
++            L::diag(Tag::Map, "[prior] global rotation edges: %zu", gs.rotation_priors);
+         if (!gs.rotation_converged) L::warn(Tag::Map, M::map_global_rotation_unconverged);
+         if (!cfg.quiet)
+             L::out(Tag::Map, M::map_global_initial,
+@@ -2875,7 +2896,16 @@ AutoResult run_auto(SfmConfig& cfg, const AutoInputs& in) {
+         r.exit_code = 2;
+         return r;
+     }
+-    PriorSource* mapped = cfg.sensor_map ? calib.positionPriors() : nullptr;
++    std::unique_ptr<RotationCsvPriors> rotation_csv;
++    if (!cfg.rotation_priors_csv.empty()) {
++        if (!sensors.empty()) throw std::runtime_error("rotation priors cannot be combined with telemetry");
++        std::vector<std::string> names;
++        for (const auto& image : db.images) names.push_back(image.name);
++        rotation_csv = std::make_unique<RotationCsvPriors>(cfg.rotation_priors_csv, names, &rigs);
++        L::diag(Tag::Map, "[prior] loaded %zu external image rotations", names.size());
++    }
++    PriorSource* mapped = rotation_csv ? static_cast<PriorSource*>(rotation_csv.get()) :
++                          (cfg.sensor_map ? calib.positionPriors() : nullptr);
+     Mapper mapper(db, feats, mapopt, cs.ids, &rigs, &seqs, mapped);
+     AssembleStats ast;
+     std::vector<Reconstruction> models = runMapper(mapper, db, feats, cfg, ast);
+@@ -3117,6 +3147,11 @@ std::string parse_auto_args(const std::vector<std::string>& args, AutoRequest& o
+             manifest_path = args[(size_t)++i];
+             continue;
+         }
++        if (a == "--rotation-priors") {
++            if (i + 1 >= argc) return "--rotation-priors: missing value";
++            cfg.rotation_priors_csv = args[(size_t)++i];
++            continue;
++        }
+         if (a == "--rig") {
+             if (i + 1 >= argc) return "--rig: missing value";
+             RigDef d;
+diff --git a/src/sfm/SfmConfig.h b/src/sfm/SfmConfig.h
+index 913c2aa..55f3a9a 100644
+--- a/src/sfm/SfmConfig.h
++++ b/src/sfm/SfmConfig.h
+@@ -77,6 +77,7 @@ struct TelemetryInput {
+ // The aggregate. Sub-option structs are held unchanged so that library callers
+ // -- the tests, the mapper's own defaults -- are unaffected by anything here.
+ struct SfmConfig {
++    std::string rotation_priors_csv;
+     // ---- pipeline-level knobs ----
+     // Presets (auto only). Applied before the table's overrides, so an explicit
+     // flag always wins; see applyPresets().
+diff --git a/src/sfm/core/PriorSource.h b/src/sfm/core/PriorSource.h
+index 4dace27..9b5550b 100644
+--- a/src/sfm/core/PriorSource.h
++++ b/src/sfm/core/PriorSource.h
+@@ -28,6 +28,7 @@ struct PosedImage {
+ class PriorSource {
+ public:
+     virtual ~PriorSource() = default;
++    virtual bool competeVisualRotations() const { return false; }
+     // Whether the source has anything at all to say about an image.
+     virtual bool has(uint32_t img) const = 0;
+     // R_j <- R_i between two images' camera frames (world -> camera
+diff --git a/src/sfm/map/GlobalReconstruction.h b/src/sfm/map/GlobalReconstruction.h
+index d45f11f..8112b50 100644
+--- a/src/sfm/map/GlobalReconstruction.h
++++ b/src/sfm/map/GlobalReconstruction.h
+@@ -135,7 +135,8 @@ inline std::vector<Reconstruction> buildGlobalReconstructions(
+             for (uint32_t j : opt.rotation_priors->neighbours(i)) {
+                 if (j >= n || i == j) continue;
+                 const std::pair<uint32_t, uint32_t> key{std::min(i, j), std::max(i, j)};
+-                if (visual_pairs.count(key) || !added.emplace(key).second) continue;
++                if ((!opt.rotation_priors->competeVisualRotations() && visual_pairs.count(key)) ||
++                    !added.emplace(key).second) continue;
+                 Mat3 R;
+                 double sigma;
+                 if (!opt.rotation_priors->relativeRotation(key.first, key.second, R, sigma) ||
+diff --git a/src/sfm/map/Mapper.h b/src/sfm/map/Mapper.h
+index 3c7944c..6f6664e 100644
+--- a/src/sfm/map/Mapper.h
++++ b/src/sfm/map/Mapper.h
+@@ -2150,6 +2150,8 @@ public:
+     PosePriors priorFactors(const Reconstruction& rec) {
+         if (!priors_) return PosePriors{};
+         PosePriors pf = priors_->factors(posedImages(rec));
++        if (priors_->competeVisualRotations())
++            slog::diag(slog::Tag::Map, "[prior] BA rotation factors: %zu", pf.rotations.size());
+         prior_stats_.rotations = pf.rotations.size();
+         prior_stats_.ups = pf.ups.size();
+         prior_stats_.centres = pf.centres.size();
+@@ -2159,7 +2161,7 @@ public:
+     // The camera rotation a placed neighbour and the gyro predict for `img`,
+     // from the neighbour whose prior is tightest. False without one.
+     bool priorRotation(uint32_t img, Mat3& R, double& sigma_deg) const {
+-        if (!priors_) return false;
++        if (!priors_ || priors_->competeVisualRotations()) return false;
+         bool have = false;
+         for (uint32_t j : priors_->neighbours(img)) {
+             auto it = rec_.images.find(j);
+@@ -3867,7 +3869,7 @@ private:
+              opt_.given_focal_cameras.count(cb.id));
+         Mat3 Rp;
+         double sig;
+-        if (priors_ && priors_->relativeRotation(a, b, Rp, sig)) {
++        if (priors_ && !priors_->competeVisualRotations() && priors_->relativeRotation(a, b, Rp, sig)) {
+             // The gyro fallback depends on the full free-pose verdict.
+             tvo.estimate_homography = opt_.seed_homography;
+             // The gyro's rotation, with the translation from the two-point
+diff --git a/src/sfm/map/RotationCsvPriors.h b/src/sfm/map/RotationCsvPriors.h
+new file mode 100644
+index 0000000..d369d97
+--- /dev/null
++++ b/src/sfm/map/RotationCsvPriors.h
+@@ -0,0 +1,102 @@
++#pragma once
++// Camera-to-world rotation observations, stated per image in a common frame.
++#include <algorithm>
++#include <cmath>
++#include <fstream>
++#include <map>
++#include <sstream>
++#include <stdexcept>
++#include <string>
++#include <vector>
++#include "sfm/core/PriorSource.h"
++#include "sfm/core/Rig.h"
++
++namespace sfm {
++class RotationCsvPriors : public PriorSource {
++    struct Row { Mat3 camera_from_world; double sigma = 0; };
++    std::vector<Row> rows_;
++    std::vector<std::vector<uint32_t>> neighbours_;
++public:
++    RotationCsvPriors(const std::string& path, const std::vector<std::string>& names, const RigTable* rigs = nullptr) {
++        std::ifstream f(path);
++        if (!f) throw std::runtime_error("cannot open rotation priors: " + path);
++        std::string line;
++        if (!std::getline(f, line) || line != "image,qw,qx,qy,qz,sigma_degrees")
++            throw std::runtime_error("rotation priors: invalid header");
++        std::map<std::string, Row> input;
++        while (std::getline(f, line)) {
++            if (!line.empty() && line.back() == '\r') line.pop_back();
++            std::vector<std::string> fields;
++            std::stringstream ss(line); std::string field;
++            while (std::getline(ss, field, ',')) fields.push_back(field);
++            if (fields.size() != 6 || fields[0].empty()) throw std::runtime_error("rotation priors: invalid row");
++            double v[5];
++            try {
++                for (int i=0; i<5; ++i) {
++                    size_t used = 0; v[i] = std::stod(fields[i+1], &used);
++                    if (used != fields[i+1].size() || !std::isfinite(v[i])) throw std::runtime_error("number");
++                }
++            } catch (...) { throw std::runtime_error("rotation priors: invalid number"); }
++            const double norm = std::sqrt(v[0]*v[0]+v[1]*v[1]+v[2]*v[2]+v[3]*v[3]);
++            if (std::fabs(norm-1.0)>1e-4 || !(v[4]>0)) throw std::runtime_error("rotation priors: invalid quaternion or sigma");
++            std::string key = fields[0];
++            const size_t dot = key.find_last_of('.'), slash = key.find_last_of('/');
++            if (dot != std::string::npos && (slash == std::string::npos || dot > slash)) key.erase(dot);
++            Row row{transpose(quaternionToRotation({v[0],v[1],v[2],v[3]})), v[4]*M_PI/180.0};
++            if (!input.emplace(key,row).second) throw std::runtime_error("rotation priors: duplicate image " + key);
++        }
++        rows_.resize(names.size()); neighbours_.resize(names.size());
++        std::map<std::string,std::vector<uint32_t>> groups;
++        for (uint32_t i=0; i<names.size(); ++i) {
++            auto it=input.find(names[i]);
++            if (it==input.end()) throw std::runtime_error("rotation priors: missing image " + names[i]);
++            rows_[i]=it->second;
++            const size_t slash=names[i].find_last_of('/');
++            groups[slash==std::string::npos ? "" : names[i].substr(0,slash)].push_back(i);
++            input.erase(it);
++        }
++        if (!input.empty()) throw std::runtime_error("rotation priors: unknown image " + input.begin()->first);
++        if (rigs) {
++            groups.clear();
++            for (uint32_t i=0; i<names.size(); ++i) {
++                RigSlot slot=rigs->slot(i);
++                if (!slot.valid()) {
++                    const size_t slash=names[i].find_last_of('/');
++                    groups[slash==std::string::npos ? "" : names[i].substr(0,slash)].push_back(i);
++                    continue;
++                }
++                const auto& frame=rigs->frameOf(slot);
++                uint32_t representative=kNoImage;
++                for (uint32_t member : frame) if (member!=kNoImage) { representative=member; break; }
++                if (representative==i) groups["rig:"+std::to_string(slot.rig)].push_back(i);
++            }
++        }
++        for (auto& group : groups) {
++            auto& ids=group.second;
++            std::sort(ids.begin(),ids.end(),[&](uint32_t a,uint32_t b){return names[a]<names[b];});
++            for (size_t i=0;i<ids.size();++i) {
++                if (i>0) neighbours_[ids[i]].push_back(ids[i-1]);
++                if (i+1<ids.size()) neighbours_[ids[i]].push_back(ids[i+1]);
++            }
++        }
++    }
++    bool competeVisualRotations() const override { return true; }
++    bool has(uint32_t i) const override { return i<rows_.size(); }
++    bool relativeRotation(uint32_t i,uint32_t j,Mat3& R,double& sigma) const override {
++        if (!has(i)||!has(j)) return false;
++        R=mul(rows_[j].camera_from_world,transpose(rows_[i].camera_from_world));
++        sigma=std::hypot(rows_[i].sigma,rows_[j].sigma); return true;
++    }
++    std::vector<uint32_t> neighbours(uint32_t i) const override { return has(i)?neighbours_[i]:std::vector<uint32_t>{}; }
++    PosePriors factors(const std::vector<PosedImage>& imgs) override {
++        PosePriors out; std::vector<bool> present(rows_.size(),false);
++        for (const auto& p : imgs) if (has(p.image)) present[p.image]=true;
++        for (const auto& p : imgs) if (has(p.image)) for (uint32_t j:neighbours_[p.image]) {
++            if (j<=p.image || !present[j]) continue;
++            PriorRotation r; r.i=p.image; r.j=j;
++            if (relativeRotation(r.i,r.j,r.R_ji,r.sigma)) out.rotations.push_back(r);
++        }
++        return out;
++    }
++};
++}
+diff --git a/src/sfm/tests/sfm_rotation_csv_test.cpp b/src/sfm/tests/sfm_rotation_csv_test.cpp
+new file mode 100644
+index 0000000..cc0279a
+--- /dev/null
++++ b/src/sfm/tests/sfm_rotation_csv_test.cpp
+@@ -0,0 +1,25 @@
++#include "sfm/map/RotationCsvPriors.h"
++#include <cmath>
++#include <cstdio>
++#include <fstream>
++#include <stdexcept>
++using namespace sfm;
++int main() {
++    const char* file="/tmp/sfm-rotation-csv-test.csv";
++    const char* head="image,qw,qx,qy,qz,sigma_degrees\n";
++    { std::ofstream f(file); f << head << "cam0/0.png,1,0,0,0,1\ncam0/1.png,0.7071067811865476,0,0,0.7071067811865476,2\n"; }
++    RotationCsvPriors p(file,{"cam0/0","cam0/1"}); Mat3 R; double sigma=0;
++    if (!p.relativeRotation(0,1,R,sigma) || std::fabs(R[1]-1)>1e-8 || std::fabs(R[3]+1)>1e-8 || std::fabs(sigma-std::sqrt(5.0)*M_PI/180)>1e-8) return 1;
++    auto factors=p.factors({{0,0,{}},{1,0,{}}}); if (factors.rotations.size()!=1) return 2;
++    { std::ofstream f(file); f << head << "cam0/0.png,1,0,0,0,1\ncam0/1.png,1,0,0,0,1\ncam1/0.png,1,0,0,0,1\ncam1/1.png,1,0,0,0,1\n"; }
++    RigDef def; def.members.resize(2); def.members[0].prefix="cam0"; def.members[1].prefix="cam1";
++    std::vector<std::string> names={"cam0/0","cam0/1","cam1/0","cam1/1"};
++    RigTable rig=buildRigTable(names,{def});
++    RotationCsvPriors paired(file,names,&rig);
++    if (paired.factors({{0,0,{}},{1,0,{}},{2,0,{}},{3,0,{}}}).rotations.size()!=1 || !paired.neighbours(2).empty()) return 5;
++    { std::ofstream f(file); f << head << "cam0/0.png,1,0,0,0,1\ncam0/0.png,1,0,0,0,1\n"; }
++    try { RotationCsvPriors duplicate(file,{"cam0/0"}); return 3; } catch (const std::runtime_error&) {}
++    { std::ofstream f(file); f << head << "cam0/0.png,2,0,0,0,1\n"; }
++    try { RotationCsvPriors invalid(file,{"cam0/0"}); return 4; } catch (const std::runtime_error&) {}
++    std::remove(file); return 0;
++}

@@ -1,0 +1,134 @@
+diff --git a/src-rust/gpu.rs b/src-rust/gpu.rs
+index 36cfef0..df3a44f 100644
+--- a/src-rust/gpu.rs
++++ b/src-rust/gpu.rs
+@@ -273,9 +273,37 @@ impl GpuStitcher {
+ 
+         let out_of_memory = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
+         let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
++        let observation_mode = match std::env::var("SPHEREDIM_OBSERVATION_MODE").as_deref() {
++            Ok("color") => "1u", Ok("validity") => "2u", Ok("ownership") => "3u",
++            Ok("lens0") => "4u", Ok("lens1") => "5u", Ok("mask0") => "6u", Ok("mask1") => "7u",
++            Err(std::env::VarError::NotPresent) => "0u",
++            _ => return Err(gpu_unavailable(GpuFailureCode::ShaderValidation,
++                GpuFailureStage::Preparation, "invalid SPHEREDIM_OBSERVATION_MODE".into(), Some(adapter_info.clone()))),
++        };
++        assert_eq!(include_str!("stitch_gpu.wgsl").matches("const SPHEREDIM_OBSERVATION_MODE: u32 = 0u;").count(), 1);
++        let alignment = match std::env::var("SPHEREDIM_LENS1_INVERSE_QUAT_WXYZ") {
++            Ok(raw) => {
++                let parsed: Option<Vec<f64>> = raw.split(',').map(|part| part.parse::<f64>().ok()).collect();
++                match parsed {
++                    Some(values) if values.len() == 4 && values.iter().all(|v| v.is_finite()) &&
++                        (values.iter().map(|v| v*v).sum::<f64>() - 1.0).abs() < 1e-5 => values,
++                    _ => return Err(gpu_unavailable(GpuFailureCode::ShaderValidation,
++                        GpuFailureStage::Preparation, "invalid SPHEREDIM_LENS1_INVERSE_QUAT_WXYZ".into(), Some(adapter_info.clone()))),
++                }
++            }
++            Err(std::env::VarError::NotPresent) => vec![1.0, 0.0, 0.0, 0.0],
++            Err(_) => return Err(gpu_unavailable(GpuFailureCode::ShaderValidation,
++                GpuFailureStage::Preparation, "invalid SPHEREDIM_LENS1_INVERSE_QUAT_WXYZ".into(), Some(adapter_info.clone()))),
++        };
++        let alignment_marker = "const SPHEREDIM_LENS1_ALIGNMENT: vec4<f32> = vec4<f32>(1.0, 0.0, 0.0, 0.0);";
++        assert_eq!(include_str!("stitch_gpu.wgsl").matches(alignment_marker).count(), 1);
++        let shader_source = include_str!("stitch_gpu.wgsl").replace(
++            "const SPHEREDIM_OBSERVATION_MODE: u32 = 0u;",
++            &format!("const SPHEREDIM_OBSERVATION_MODE: u32 = {observation_mode};"),
++        ).replace(alignment_marker, &format!("const SPHEREDIM_LENS1_ALIGNMENT: vec4<f32> = vec4<f32>({:.9}, {:.9}, {:.9}, {:.9});", alignment[0], alignment[1], alignment[2], alignment[3]));
+         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+             label: Some("insta360-rs fixed stitch shader"),
+-            source: wgpu::ShaderSource::Wgsl(include_str!("stitch_gpu.wgsl").into()),
++            source: wgpu::ShaderSource::Wgsl(shader_source.into()),
+         });
+         let stitch_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+             label: Some("insta360-rs fixed stitch pipeline"),
+diff --git a/src-rust/media/pipeline_impl.rs b/src-rust/media/pipeline_impl.rs
+index bb9117f..9ad69c7 100644
+--- a/src-rust/media/pipeline_impl.rs
++++ b/src-rust/media/pipeline_impl.rs
+@@ -226,6 +226,9 @@ fn export_frames_attempt(
+         context.check_cancelled()?;
+ 
+         for output_key in requested {
++            if std::env::var_os("SPHEREDIM_OBSERVATION_MODE").is_some() {
++                eprintln!("SPHEREDIM_FRAME {} {}", output_key, pair.timestamp_micros);
++            }
+             emit_progress(
+                 &context,
+                 ExportPhase::Encoding,
+diff --git a/src-rust/stitch_gpu.wgsl b/src-rust/stitch_gpu.wgsl
+index 6916ddc..4cf35c7 100644
+--- a/src-rust/stitch_gpu.wgsl
++++ b/src-rust/stitch_gpu.wgsl
+@@ -1,3 +1,5 @@
++const SPHEREDIM_OBSERVATION_MODE: u32 = 0u;
++const SPHEREDIM_LENS1_ALIGNMENT: vec4<f32> = vec4<f32>(1.0, 0.0, 0.0, 0.0);
+ struct FrameParams {
+     output_size: vec2<u32>,
+     _padding0: vec2<u32>,
+@@ -594,6 +596,22 @@ fn project_sample(lens_index: u32, direction: vec3<f32>) -> ProjectedSample {
+     );
+ }
+ 
++// Conservative complete interpolation footprint, including subsampled chroma.
++fn observation_supported(lens_index: u32, sample: ProjectedSample) -> bool {
++    if sample.valid == 0u { return false; }
++    let source = sample.source;
++    let size = lenses[lens_index].source.xy;
++    if any(source < vec2<f32>(3.0)) || any(source > size - vec2<f32>(4.0)) { return false; }
++    if masks.offsets[lens_index] == 0xffffffffu { return true; }
++    let center = vec2<i32>(floor(source));
++    for (var y = -3; y <= 3; y += 1) {
++        for (var x = -3; x <= 3; x += 1) {
++            if mask_pixel_weight(lens_index, vec2<u32>(center + vec2<i32>(x, y))) < 0.999 { return false; }
++        }
++    }
++    return true;
++}
++
+ fn panorama_direction(column: u32, row: u32) -> vec3<f32> {
+     let longitude = (f32(column) + 0.5) / f32(frame.output_size.x) * 2.0 * PI;
+     let latitude = 0.5 * PI - (f32(row) + 0.5) / f32(frame.output_size.y) * PI;
+@@ -979,7 +997,42 @@ fn stitch(@builtin(global_invocation_id) id: vec3<u32>) {
+     let direction = rotate_vector(frame.output_to_camera, panorama_direction(id.x, id.y));
+     let position = camera_position(direction);
+     let first = project_sample(0u, direction);
+-    let second = project_sample(1u, corrected_direction(direction));
++    var second_direction = direction;
++    if SPHEREDIM_OBSERVATION_MODE == 0u { second_direction = corrected_direction(direction); }
++    else { second_direction = rotate_vector(SPHEREDIM_LENS1_ALIGNMENT, direction); }
++    let second = project_sample(1u, second_direction);
++    if SPHEREDIM_OBSERVATION_MODE != 0u {
++        if SPHEREDIM_OBSERVATION_MODE >= 4u {
++            let lens_index = select(0u, 1u, SPHEREDIM_OBSERVATION_MODE == 5u || SPHEREDIM_OBSERVATION_MODE == 7u);
++            var sample = first;
++            if lens_index == 1u { sample = second; }
++            var value = vec3<f32>(0.0);
++            if observation_supported(lens_index, sample) {
++                if SPHEREDIM_OBSERVATION_MODE >= 6u { value = vec3<f32>(1.0); }
++                else { value = sample.color; }
++            }
++            output_pixels[id.y * frame.output_size.x + id.x] = quantize(value);
++            return;
++        }
++        // Cut a conservative transition around the weight crossover. This is
++        // uncertainty, not proof of physical occlusion or scene disagreement.
++        let first_ok = observation_supported(0u, first);
++        let second_ok = observation_supported(1u, second);
++        let total = first.detail_weight + second.detail_weight;
++        let ratio = select(0.5, first.detail_weight / max(total, 1e-12), total > 0.0);
++        let cut = first_ok && second_ok && ratio >= 0.45 && ratio <= 0.55;
++        let valid = (first_ok || second_ok) && !cut;
++        let owner = select(1u, 0u, !second_ok || (first_ok && first.detail_weight >= second.detail_weight));
++        var observed = vec3<f32>(0.0);
++        if valid {
++            if SPHEREDIM_OBSERVATION_MODE == 2u { observed = vec3<f32>(1.0); }
++            else if SPHEREDIM_OBSERVATION_MODE == 3u {
++                observed = select(vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(1.0, 0.0, 0.0), owner == 0u);
++            } else { observed = select(second.color, first.color, owner == 0u); }
++        }
++        output_pixels[id.y * frame.output_size.x + id.x] = quantize(observed);
++        return;
++    }
+     var color = vec3<f32>(0.0);
+     if first.valid == 0u && second.valid == 0u {
+         color = vec3<f32>(0.0);

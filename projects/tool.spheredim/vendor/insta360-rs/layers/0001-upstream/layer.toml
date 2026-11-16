@@ -1,0 +1,9 @@
+[layer]
+enabled = true
+[vcs]
+commit-msg = "Import insta360-rs b4f3845"
+[[operation]]
+[operation.git-clone]
+url = "https://github.com/OpenSpeleo/insta360-rs.git"
+depth = 1
+commit = "b4f3845feb105b70c1928ed4316fe1d8a963bc36"

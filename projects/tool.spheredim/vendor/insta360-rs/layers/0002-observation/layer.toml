@@ -1,0 +1,7 @@
+[layer]
+enabled = true
+[vcs]
+commit-msg = "Prototype observation selection and validity"
+[[operation]]
+[operation.patch]
+file = "observation.patch"

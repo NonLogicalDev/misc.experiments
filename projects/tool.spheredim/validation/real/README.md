@@ -5,7 +5,7 @@ This sample is derived from the `tokyo_citywalk` sequence in [360DVO](https://hu
 To recompute the reported position metrics from the saved result:
 
 ```sh
-uv run --python .venv/bin/python python tests/evaluate_real.py validation/real/tokyo-reference.txt validation/real/tokyo-poses.json 2
+uv run --isolated --no-project --python 3.14 --with-requirements requirements.txt python tests/evaluate_real.py validation/real/tokyo-reference.txt validation/real/tokyo-poses.json 2
 ```
 
 The subset does not include an independent depth map or known 3D points, so it cannot establish image alignment error. The video was re-encoded and no other visual modification was applied. The data and derived video are subject to the dataset's noncommercial share-alike license; this does not apply to SphereDim source code.

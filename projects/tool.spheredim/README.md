@@ -4,7 +4,9 @@ SphereDim estimates a camera trajectory from a full, unwrapped 2:1 equirectangul
 
 ## Experimental GPU backend
 
-The [portable 360DVO backend](vendor/360dvo-port/README.md) runs full equirectangular inference on Apple MPS and is designed for ROCm. Its setup, Blender export, accuracy evidence, and current AMD limitations are documented separately.
+The [portable 360DVO backend](vendor/360DVO/README.md) runs full equirectangular inference on Apple MPS and is designed for ROCm. Its setup, Blender export, accuracy evidence, and current AMD limitations are documented separately.
+
+For app-free Insta360 stitching with horizon leveling and preserved heading, see [Insta360 export](docs/insta360-export.md). The [experimental masked tracker](tools/masked-tracking/README.md) provides progress snapshots and Blender output; the [live 3D viewer](tools/live-viewer/README.md) shows its latest trajectory and points.
 
 The experimental GPU backend runs the user's `layerctl` directly with Go at a pinned revision.
 
@@ -15,15 +17,13 @@ Requires uv and CPython 3.14 on macOS arm64 for the pinned wheels, a C compiler 
 ```sh
 git submodule update --init -- vendor/colmap vendor/ffmpeg
 scripts/fetch-runtime.sh cpu
-uv venv --python 3.14 .venv
-uv pip sync --python .venv/bin/python --only-binary :all: --require-hashes --find-links .artifacts/cpu-wheels requirements.txt
 scripts/build_ffmpeg.sh
 ```
 
 ## Track a video
 
 ```sh
-uv run --python .venv/bin/python python src/spheredim.py path/to/video.mp4 path/to/new-output
+uv run --isolated --no-project --python 3.14 --with-requirements requirements.txt python src/spheredim.py path/to/video.mp4 path/to/new-output
 ```
 
 The output directory must be absent or empty. By default, sampling uses the source average frame rate, so constant-frame-rate videos are processed at their original rate. `--fps` can select a different rate. Sampling produces a constant-rate timeline; output timestamps start at zero and correspond to the resampled video, not source packet timestamps for variable-frame-rate footage. Lower `--fps` to reduce processing time, at the cost of temporal coverage. Move the camera through the scene, not just rotate it in place. Camera position is recovered up to an unknown global rotation, translation, and scale; distances are not meters unless aligned to a known measurement.
@@ -47,21 +47,21 @@ The script adds an animated panoramic camera to the current scene. Its keyframes
 ## Checks
 
 ```sh
-uv run --python .venv/bin/python python -m unittest discover -s tests
+uv run --isolated --no-project --python 3.14 --with-requirements requirements.txt python -m unittest discover -s tests
 ```
 
 `tests/render_scene.py` renders a native equirectangular camera and known trajectory in Blender Cycles for an end-to-end experiment. It uses Cycles because the panoramic camera is supported there. Test captures and reconstructions can be large; keep them outside the source tree.
 
 The original `validation/` capture was rendered at 1024×512 and 4 fps for 20 frames, with translation and rotation inside a textured scene. The encoded video applies FFmpeg `lenscorrection=k1=0.003:k2=0`, temporal uniform noise with strength 2, and H.264 compression at CRF 16. These distortions are a controlled test, not a calibrated model of any particular camera. The Blender import can be recreated with `tests/check_import.py`; `truth.json`, `poses.json`, `distorted-imported.json`, and `metrics.json` preserve the comparison. Position errors are in synthetic scene units after a single 7-DoF similarity alignment; orientation errors use that same world rotation.
 
-To reproduce the synthetic experiment, render with `blender --background --python tests/render_scene.py -- /tmp/spheredim-render`, encode the numbered PNGs at 4 fps with the filter above, track that video at `--fps 4 --width 1024`, and run `tests/check_import.py` in Blender followed by `tests/evaluate.py` in the project virtual environment. The import checker takes the importer path, pose JSON, and an output basename after `--`; the evaluator takes ground-truth JSON, pose JSON, and the imported-matrix JSON. Use an empty directory for each new run.
+To reproduce the synthetic experiment, render with `blender --background --python tests/render_scene.py -- /tmp/spheredim-render`, encode the numbered PNGs at 4 fps with the filter above, track that video at `--fps 4 --width 1024`, and run `tests/check_import.py` in Blender followed by `tests/evaluate.py` with the same uv command. The import checker takes the importer path, pose JSON, and an output basename after `--`; the evaluator takes ground-truth JSON, pose JSON, and the imported-matrix JSON. Use an empty directory for each new run.
 
 ## Accuracy experiments
 
 The `validation/loop/` experiment rendered 48 frames of a camera moving through a textured scene while rotating through a full turn. The video includes mild lens distortion, noise, and compression. The source renderer ray-casts 512 scene points per frame to record visible 3D points independently of the tracker. Run:
 
 ```sh
-uv run --python .venv/bin/python python tests/check_accuracy.py validation/loop/truth.json validation/loop/poses.json validation/loop/loop-imported.json
+uv run --isolated --no-project --python 3.14 --with-requirements requirements.txt python tests/check_accuracy.py validation/loop/truth.json validation/loop/poses.json validation/loop/loop-imported.json
 ```
 
 Camera positions are aligned once to the known ground truth with a similarity transform because monocular SfM cannot recover absolute position, orientation, or scale. Trajectory error is position error divided by the full known path length. Image error is the Euclidean distance between the projected and true equirectangular coordinates, after normalizing horizontal and vertical coordinates by their respective dimensions and wrapping horizontally across the seam. The check requires every frame to be registered, trajectory position RMS below 1% of path length, and the 95th percentile of image displacement below 1% in each frame. It also reports the worst image point. It does not measure occluded pixels or prove performance on other scenes.
@@ -74,4 +74,4 @@ A second synthetic experiment in `validation/dynamic/` uses a different randomiz
 
 Additional tests in [validation/complexity](validation/complexity/README.md) cover low texture, repeated patterns, low light, and three real 360° clips. The plain scene failed to initialize; the night bridge and indoor RC-car reference comparisons exceeded 1% trajectory RMS. Complete registration does not guarantee an accurate track.
 
-Binary artifacts are not tracked. `scripts/fetch-runtime.sh` verifies dependencies with uv, uses cached wheels when present, and downloads the SHA-256-verified model into the ignored `.artifacts/` cache. Generated video and Blender files can be recreated as described in `validation/RECREATE.md`; existing local copies are in `.artifacts/originals/validation/`.
+Binary artifacts are not tracked. `scripts/fetch-runtime.sh` verifies dependencies with uv, keeps Python environments in uv’s external cache, and downloads the SHA-256-verified model into the ignored `.artifacts/` cache. Generated video and Blender files can be recreated as described in `validation/RECREATE.md`; existing local copies are in `.artifacts/originals/validation/`.

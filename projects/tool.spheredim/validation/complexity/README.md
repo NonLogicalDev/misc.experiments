@@ -22,7 +22,7 @@ The synthetic clips and scene generator are project test artifacts. The real cli
 To repeat the synthetic suite with fresh renders, use a Blender executable and an FFmpeg with `libx264` on `PATH`:
 
 ```sh
-uv run --python .venv/bin/python python tests/run_synthetic_suite.py /path/to/new-results --blender /path/to/blender --encoder /path/to/ffmpeg
+uv run --isolated --no-project --python 3.14 --with-requirements requirements.txt python tests/run_synthetic_suite.py /path/to/new-results --blender /path/to/blender --encoder /path/to/ffmpeg
 ```
 
 The command returns a nonzero exit code if any scene fails. That is expected for the `plain` scene on the tested prototype. `summary.json` and individual logs identify which stage failed. A complete fresh rerun produced the same pass/fail outcomes; its measurements are in `synthetic-repeat.json`.

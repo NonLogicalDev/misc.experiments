@@ -20,3 +20,11 @@ Build a local React Three Fiber preview that reads the existing progress, camera
 - 2026-11-15: Matched visible Gaussian scene at one unchanged camera/CSSviewport measured25.0rAF callbacks/s atDPR2,72.6 atDPR1,and25.4 afterDPR2restoration (5seconds each, no navigation). This supports pixel-dependent render cost. Active `/root/terra_viewer_quality` will implement bounded reduced pixel ratio only while camera moves, restoring full settled resolution. No reduction of splat population or static reconstruction quality.
 
 - 2026-11-15: Adaptive DPR runtime verified by `/root/terra_splat_perf` in a separate loaded-splat tab: canvas3366×2031 settled,1683×1015 duringWmovement, restored3366×2031; no splat asset requests during transition. Full resolution observed608msafterkeyup; actual last camera motion was not timed. `/root` visually verified Scene/Activity and saved screenshots in the configured Codex visualization directory. Source changes complete for this UI/performance increment; reconstruction fidelity remains a separate active task.
+
+- 2026-11-15: User selects Turntable as default Rotation mode. Active `/root/terra_viewer_quality` changes the initial fallback while retaining Free Orbit as an explicit choice.
+
+### Run catalog and workflow activity
+
+The recording's viewer-state.json is now the explicit catalog: currentScene plus scene id, label and stateFile records. All run labels, selections, outputs and stages come from state. The legacy run-state launchd service was stopped and its plist moved beside the recording, preventing old stages from being republished. Scene profiles resolve their own relative artifact paths; unknown selections fail rather than silently falling back.
+
+The native progress publisher supports --activity-state for workflow stages and optional logs while preserving the latest geometry. It accepts activity only from the selected run directory and refreshes activity even if no new geometry arrives. The persistent rig-preview service passes this option. Six focused publisher tests passed. Browser verification shows the current 16-timestamp geometry with “Testing orientation constraints”; finishing SfM no longer labels the ongoing reconstruction complete. Reconstruction work continued during the UI repair.

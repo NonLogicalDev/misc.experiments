@@ -1,0 +1,7 @@
+[layer]
+enabled = true
+[vcs]
+commit-msg = "Refine final model with external rotation priors"
+[[operation]]
+[operation.patch]
+file = "final-prior-refinement.patch"

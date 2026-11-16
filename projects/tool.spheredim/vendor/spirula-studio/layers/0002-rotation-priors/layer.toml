@@ -1,0 +1,7 @@
+[layer]
+enabled = true
+[vcs]
+commit-msg = "Add external soft rotation priors"
+[[operation]]
+[operation.patch]
+file = "rotation-priors.patch"

@@ -29,3 +29,7 @@
 
 .reference-panel:not(.is-open){width:auto!important;height:auto!important}
 #activity-drawer[hidden]{display:none}#activity-drawer .log-drawer{max-height:none}#activity-drawer .log-drawer pre{height:40vh}.drawer-toggle[aria-pressed=true]{background:#36554c;border-color:#6abfa4}
+/* Keep activity on one compact row; omit the bar and ETA when not measured. */
+.progress-strip{display:flex;align-items:center;gap:12px;min-height:40px;padding:5px 10px}.progress-title{min-width:0;flex:0 1 auto;white-space:nowrap}.progress-title strong,.progress-title span:not(.status-dot){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.progress-title span:not(.status-dot){font-size:11px;color:#a2bbb0}.progress-main{display:flex;align-items:center;gap:8px;flex:1;min-width:120px}.progress-main>span{font-size:11px;color:#c6d9d0;white-space:nowrap}.progress-main .bar{flex:1;min-width:30px;margin:0;height:5px}.progress-eta{border:0;padding:0;font-size:11px;white-space:nowrap;color:#a2bbb0}.progress-strip>button{margin-left:auto;white-space:nowrap}@media(max-width:650px){.progress-strip{gap:6px;flex-wrap:wrap}.progress-title{flex:1}.progress-main{order:3;flex-basis:100%}.progress-eta{display:none}}
+/* Keep the scene visible when activity is open. */
+#activity-drawer:not([hidden]){height:min(30vh,320px);overflow:hidden}.log-drawer{height:100%;display:flex;flex-direction:column;overflow:hidden}.activity-stages{max-height:80px;overflow-y:auto;flex:none}.log-drawer pre{flex:1;min-height:0;height:auto;overflow:auto}

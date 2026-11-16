@@ -23,7 +23,7 @@ def run(video: Path, output: Path, fps: float | None, width: int, overlap: int) 
         raise ValueError("Overlap must be at least 1")
     if output.exists() and any(output.iterdir()):
         raise ValueError(f"Output directory is not empty: {output}")
-    runtime = Path(__file__).resolve().parent.parent / 'vendor' / 'runtime' / 'bin'
+    runtime = Path(__file__).resolve().parent.parent / '.artifacts' / 'ffmpeg-runtime' / 'bin'
     ffmpeg = str(runtime / 'ffmpeg') if (runtime / 'ffmpeg').is_file() else shutil.which('ffmpeg')
     ffprobe = str(runtime / 'ffprobe') if (runtime / 'ffprobe').is_file() else shutil.which('ffprobe')
     if not ffmpeg or not ffprobe:

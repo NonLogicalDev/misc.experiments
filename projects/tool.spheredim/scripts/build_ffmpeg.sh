@@ -10,7 +10,7 @@ fi
 mkdir -p "$build"
 cd "$build"
 "$project/vendor/ffmpeg/configure" \
-  --prefix="$project/vendor/runtime" \
+  --prefix="$project/.artifacts/ffmpeg-runtime" \
   --disable-everything --disable-autodetect --disable-network \
   --disable-doc --disable-debug --disable-shared --enable-static --enable-zlib \
   --enable-ffmpeg --enable-ffprobe --disable-ffplay \

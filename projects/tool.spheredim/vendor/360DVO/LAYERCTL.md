@@ -5,8 +5,8 @@ The first layer imports [360DVO](https://github.com/chris1004336379/360DVO) comm
 From the project root, run:
 
 ```sh
-(cd vendor/360dvo-port && ./run-layerctl.sh check)
-(cd vendor/360dvo-port && ./run-layerctl.sh projection create portable --worktree /absolute/path/to/new-worktree)
+(cd vendor/360DVO && ../../scripts/layerctl.sh check)
+(cd vendor/360DVO && ../../scripts/layerctl.sh projection create portable --worktree /absolute/path/to/new-worktree)
 ```
 
 A fresh checkout must first initialize this definition directory as a Git repository; `install-macos.sh` does that for the Apple runtime. The projection target must not exist. The patch provides inference on full equirectangular frames; seam behavior remains unvalidated.

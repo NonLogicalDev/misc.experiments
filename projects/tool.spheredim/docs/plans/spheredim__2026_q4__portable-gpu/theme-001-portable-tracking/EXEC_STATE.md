@@ -20,3 +20,36 @@
 ## Current assignments (2026-11-15 evening)
 
 Earlier worker entries above are historical. Active `/root/terra_viewer_quality` owns the generic state consumer and Scene/Activity UI; active `/root/terra_splat_perf` diagnoses splat performance read-only. `/root/terra_export_baseline` completed the three-timestamp source observation audit. `/root` owns integration and the reconstruction quality plan; no new long training job is running.
+
+- Current viewer increment complete, local checkpoint `e1c33d98c99ac85753a70307e810451f5e19a775`. Active `/root/terra_sample_quality` checks fidelity at matched path samples; active `/root/terra_export_baseline` builds an observation-only seam-cutout sample; `/root` integrates. Viewer service remains running.
+
+## Current execution, 2026-11-15 18:45 PST
+
+- Active `/root/terra_export_baseline`: independently projected camera-frame lens probes and a corrected-color aligned preview; actual X5 embedded V6 calibration verified. Active `/root`: fit one fixed inter-lens rotation and check held-out frames. User explicitly requests alignment before a new video preview; wider masks alone do not satisfy this.
+- `/root/terra_sample_quality`: completed the 3k + 3k native GPU no-warp comparison. Removing three suspect poses did not improve mean held-out PSNR/SSIM; do not promote the exclusion as a quality fix. Both checkpoints and identical-reference comparisons are preserved beside the recording.
+- `/root/terra_live_progress`: completed configurable extra stages in the state producer; Source alignment and color is visible on the running viewer.
+- `/root/terra_handoff_check`: completed pinned Spirula source composition and verified-toolchain configuration; 1,210 shader blobs, no GPU regression build launched. A correct calibration-warp fix needs explicit ERP camera context; no blind global wrap patch.
+
+## Current rig experiment
+
+- Active `/root`: paired zero-baseline/separated-baseline global SfM on the same 16 timestamps, native spherical measurements, fixed relative rotation, identical masks and withheld feature regions; bounded run and result integration.
+- `/root/terra_export_baseline`: complete; synchronized nominal-body ERP lens pairs and support masks exported with verified hashes/PTS, 52 MiB.
+- Active `/root/terra_sample_quality`: rig dataset, inverse orientation mapping for reviewed operator masks, mask review sheets and physical/zero rig manifests.
+- Active `/root/terra_handoff_check`: independent held-out spherical feature tracks and geometry comparison. Known SfM global rig support verified from pinned source/CLI; run accuracy still pending.
+- Viewer remains available on port 5178; free disk last verified 38 GiB. No long training run is active. User's new two-physical-camera permission supersedes the earlier one-observation-per-timestamp restriction; no virtual perspectives/cube faces remain allowed.
+
+## Computed baseline and orientation constraints
+
+- Computed separation tested in four controlled native GPU arms; see [rig comparison](../../../research/rig-sfm-comparison.md). No clear held-out quality improvement. Frame930 remains rotationally inconsistent in the models that register it.
+- Stock INSV telemetry run failed to calibrate mapping priors and later rescaled fixed baseline while leveling.
+- Active `/root/terra_handoff_check`: layerctl patch for explicit soft rotation priors and fixed-rig scale preservation; bounded standalone GPU SfM build.
+- Active `/root/terra_sample_quality`: fused orientation to camera-basis CSV adapter, provenance and tests.
+- Active `/root`: integration, paired GPU validation, report, progress and disk monitoring. Viewer5178 confirmed200; free disk38GiB before boundedbuild.
+
+## Current execution after workflow-status repair
+
+- Active /root: integrate explicit orientation priors, audit the completed 1°, 0.5° and 0.25° GPU trials, and review broader reconstruction inputs. The final bundle adjustment now includes all 16 body poses and all 15 orientation factors; registration alone does not establish accuracy.
+- Active /root/terra_handoff_check: audit residual math and orientation-constraint weighting. The 0.25° trial still disagrees with fused relative rotation by 13° after frame 930, so none is accepted as a pose-quality fix.
+- Active /root/terra_sample_quality: prepare all 138 reviewed timestamps as 276 physical-lens observations with no feature holdout, paginated operator-mask review sheets, fixed rig hypotheses and quaternion provenance. Root must review masks before the broader SfM run.
+- /root/terra_export_baseline: completed the 138-timestamp export, verified both packet streams within 1 μs and exact image hashes for the prior 16-frame subset. Output 472 MB; free disk 39.7 GB, above the 35 GiB reserve.
+- Viewer remains on port 5178. Its direct state catalog selects a run profile; the retired legacy publisher is stopped. Native geometry completion and workflow activity are separate. The live profile shows “Camera reconstruction — Testing orientation constraints,” verified through /api/state and browser. No overall reconstruction-complete claim is justified.

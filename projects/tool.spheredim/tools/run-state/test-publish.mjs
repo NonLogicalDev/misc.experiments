@@ -1,0 +1,37 @@
+import assert from 'node:assert/strict';
+import {mkdtemp, mkdir, readFile, rm, writeFile} from 'node:fs/promises';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
+import os from 'node:os';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+const dir = await mkdtemp(path.join(os.tmpdir(), 'run-state-'));
+const publish = fileURLToPath(new URL('./publish.mjs', import.meta.url));
+try {
+  await mkdir(path.join(dir, 'tracking'));
+  await mkdir(path.join(dir, 'splat'));
+  await writeFile(path.join(dir, 'quality.json'), JSON.stringify({status:'running',stage:'Checking source colors'}));
+  await writeFile(path.join(dir, 'quality.log'), 'checking\n');
+  const config = {tracking:'tracking',splatRun:'splat',extraStages:[{name:'Source alignment and color',statusFile:'quality.json',logFile:'quality.log'}]};
+  await writeFile(path.join(dir, 'config.json'), JSON.stringify(config));
+  await promisify(execFile)(process.execPath, [publish,path.join(dir,'config.json'),path.join(dir,'state.json')]);
+  const state = JSON.parse(await readFile(path.join(dir,'state.json'),'utf8'));
+  assert.equal(state.stages[0].name, 'Source alignment and color');
+  assert.equal(state.stages[0].detail, 'Checking source colors');
+  assert.equal(state.stages[0].status, 'running');
+  assert.equal(state.currentActivity, 0);
+  assert.equal(state.logs[0].file, 'quality.log');
+  assert.equal(state.stages[0].current, undefined);
+  await mkdir(path.join(dir,'profile'));
+  await writeFile(path.join(dir,'profile','viewer-state.json'),JSON.stringify({version:1,trajectory:{poses:'generation/poses.json',points:'generation/points.ply'},artifacts:{},stages:[{name:'Rig mapping',status:'running'}]}));
+  config.sceneProfiles=[{id:'live-rig',label:'Current rig',stateFile:'profile/viewer-state.json'}];config.currentScene='live-rig';
+  await writeFile(path.join(dir,'config.json'),JSON.stringify(config));
+  await promisify(execFile)(process.execPath,[publish,path.join(dir,'config.json'),path.join(dir,'state.json')]);
+  const multi=JSON.parse(await readFile(path.join(dir,'state.json'),'utf8'));assert.equal(multi.currentScene,'live-rig');assert.equal(multi.scenes[1].trajectory.poses,'profile/generation/poses.json');assert.equal(multi.scenes[1].artifacts.splat,null);assert.equal(multi.scenes[1].stages[0].name,'Rig mapping');assert.deepEqual(multi.scenes[0].stages,[]);assert.equal(multi.scenes[1].logs.length,0);
+  delete config.sceneProfiles;delete config.currentScene;
+  delete config.extraStages;
+  await writeFile(path.join(dir, 'config.json'), JSON.stringify(config));
+  await promisify(execFile)(process.execPath, [publish,path.join(dir,'config.json'),path.join(dir,'state.json')]);
+  assert.deepEqual(JSON.parse(await readFile(path.join(dir,'state.json'),'utf8')).stages, []);
+  console.log('PASS configurable stages and legacy configuration');
+} finally { await rm(dir,{recursive:true,force:true}); }

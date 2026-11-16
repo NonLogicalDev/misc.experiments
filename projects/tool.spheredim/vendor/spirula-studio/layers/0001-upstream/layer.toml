@@ -1,0 +1,9 @@
+[layer]
+enabled = true
+[vcs]
+commit-msg = "Import Spirula Studio 667e353"
+[[operation]]
+[operation.git-clone]
+url = "https://github.com/harry7557558/spirula-studio.git"
+depth = 1
+commit = "667e353bca3941303a4d93e93aa8ae3f2c202712"

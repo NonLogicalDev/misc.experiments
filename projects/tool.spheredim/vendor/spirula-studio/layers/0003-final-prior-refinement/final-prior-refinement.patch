@@ -1,0 +1,165 @@
+--- a/src/sfm/map/Mapper.h
++++ b/src/sfm/map/Mapper.h
+@@ -51,6 +51,7 @@
+ #include "sfm/core/Log.h"
+ #include "sfm/map/BlockScale.h"
+ #include "sfm/map/Bundle.h"
++#include "sfm/map/FinalPriorValidation.h"
+ #include "sfm/ba/CpuParallel.h"
+ #include "i18n/catalog/Sfm.h"
+ #include "sfm/map/CorrespondenceGraph.h"
+@@ -872,6 +873,44 @@
+         return snapshotModel();
+     }
+ 
++    // Final solve after assembly has registered its late rig mates. Do not
++    // synthesize more mates after this solve: they would not have entered BA.
++    Reconstruction refineFinalRotationPriors(const Reconstruction& m) {
++        if (!priors_) throw std::runtime_error("final prior refinement needs rotation priors");
++        ensureSetup();
++        resetModel();
++        adopt(m);
++        fitGpsFrame();
++        rebuildScores();
++        if (rec_.numRegistered() < 2 || rec_.points3D.size() < 10)
++            throw std::runtime_error("final prior refinement has insufficient geometry");
++        auto bodyCount = [&]() {
++            std::set<bundle_detail::FrameKey> frames;
++            for (const auto& kv : rec_.images) if (kv.second.registered)
++                frames.insert(bundle_detail::frameKeyOf(rec_, rigs_, true, kv.first));
++            return frames.size();
++        };
++        const PosePriors initial = priorFactors(rec_);
++        if (bodyCount() > 1 && initial.rotations.empty())
++            throw std::runtime_error("final prior refinement has no connected rotation factors");
++        slog::diag(slog::Tag::Map,
++                   "[prior] final BA input: %u images, %zu body frames, %zu rotation factors",
++                   rec_.numRegistered(), bodyCount(), initial.rotations.size());
++        const bool old_budget = ba_over_budget_throws_;
++        ba_over_budget_throws_ = true;
++        const auto before_ba = g_map_prof.n_ba.load();
++        try { globalRefine(true, false, false); }
++        catch (...) { ba_over_budget_throws_ = old_budget; throw; }
++        ba_over_budget_throws_ = old_budget;
++        if (g_map_prof.n_ba == before_ba)
++            throw std::runtime_error("final prior refinement did not execute a bundle solve");
++        if (rec_.numRegistered() < 2 || rec_.points3D.size() < 10)
++            throw std::runtime_error("final prior refinement left insufficient geometry");
++        slog::diag(slog::Tag::Map, "[prior] final BA output: %u images, %zu body frames",
++                   rec_.numRegistered(), bodyCount());
++        return snapshotModel();
++    }
++
+     // The same, in place, for a caller that is asking a question rather than
+     // producing an answer: false means the solve did not fit the device and
+     // `m` is untouched. A single model's bundle adjustment cannot be split the
+@@ -5439,7 +5478,8 @@
+ 
+ 
+     // Completion uses a stricter threshold than filtering to avoid observation churn.
+-    void globalRefine(bool final_pass, bool fixed_rotation_stage = false) {
++    void globalRefine(bool final_pass, bool fixed_rotation_stage = false,
++                      bool complete_rig_after = true) {
+         std::unordered_set<uint64_t> welded;
+         welded.swap(welded_);
+         if (rec_.numRegistered() < 2 || rec_.points3D.size() < 10) return;
+@@ -5501,6 +5541,17 @@
+                         bo.metres_per_unit = std::sqrt(A[0] * A[0] + A[3] * A[3] + A[6] * A[6]);
+                 }
+             }
++            if (!complete_rig_after) {
++                const BundleLayout proof = buildBundle(rec_, bo);
++                std::set<bundle_detail::FrameKey> frames;
++                for (const auto& kv : rec_.images) if (kv.second.registered)
++                    frames.insert(bundle_detail::frameKeyOf(rec_, rigs_, true, kv.first));
++                validateFinalPriorLayout(proof.P, proof.priors, rec_.numRegistered(),
++                                         (uint32_t)frames.size(), pf.rotations.size());
++                slog::diag(slog::Tag::Map,
++                           "[prior] final BA verified layout: %u images, %u body frames, %zu factors, %u free rig parameters",
++                           proof.P.num_images, proof.P.num_frames, proof.priors.rotations.size(), proof.P.ext_dim);
++            }
+             if (fixed_rotation_stage) {
+                 BundleOptions fixed = bo;
+                 fixed.fix_rotations = true;
+@@ -5541,7 +5592,7 @@
+             slog::diag(slog::Tag::Map,
+                        "[map] de-registered %d image(s) (few points or bogus camera), "
+                        "%u remain", dropped, rec_.numRegistered());
+-        if (rigs_ && !final_.no_rig) completeRigFrames();
++        if (complete_rig_after && rigs_ && !final_.no_rig) completeRigFrames();
+     }
+ 
+     // A correspondence permits fusion only when the entire union still fits.
+--- a/src/sfm/Pipeline.cpp
++++ b/src/sfm/Pipeline.cpp
+@@ -2934,6 +2934,19 @@
+         t_map += t_finish;
+         events::stage_end(Stage::Refine);
+     }
++    // External rotation priors must also reach poses registered during assembly
++    // and finishing. The final solve does not insert rig mates afterwards.
++    if (rotation_csv) {
++        try {
++            for (Reconstruction& model : models)
++                model = mapper.refineFinalRotationPriors(model);
++        } catch (const std::exception& e) {
++            L::err_raw(Tag::Map, "[prior] final BA failed: " + std::string(e.what()));
++            events::stage_end(Stage::Map);
++            r.exit_code = 1;
++            return r;
++        }
++    }
+     events::stage_end(Stage::Map);
+ 
+     resolveImageNames(models, _imagedir);
+--- /dev/null
++++ b/src/sfm/map/FinalPriorValidation.h
+@@ -0,0 +1,26 @@
++#pragma once
++// Prove that the final fixed-rig solve carries every registered body frame
++// and its available relative rotation factors; it does not assess accuracy.
++#include <stdexcept>
++#include <vector>
++#include "sfm/ba/Priors.h"
++
++namespace sfm {
++inline void validateFinalPriorLayout(const BAProblem& p, const PosePriors& priors,
++                                     uint32_t images, uint32_t frames, size_t factors) {
++    if (p.num_images != images || p.num_frames != frames || p.image_frame.size() != images)
++        throw std::runtime_error("final prior BA omitted registered images or body frames");
++    if (p.ext_dim != 0)
++        throw std::runtime_error("final prior BA would refine rig extrinsics");
++    if (priors.rotations.size() != factors)
++        throw std::runtime_error("final prior BA omitted rotation factors");
++    std::vector<bool> covered(frames, false);
++    for (const PriorRotation& r : priors.rotations) {
++        if (r.i >= images || r.j >= images || p.image_frame[r.i] >= frames || p.image_frame[r.j] >= frames)
++            throw std::runtime_error("final prior BA has an invalid factor index");
++        covered[p.image_frame[r.i]] = covered[p.image_frame[r.j]] = true;
++    }
++    for (bool value : covered)
++        if (!value) throw std::runtime_error("final prior BA has a body frame without a rotation factor");
++}
++}
+--- /dev/null
++++ b/src/sfm/tests/sfm_final_prior_validation_test.cpp
+@@ -0,0 +1,19 @@
++#include "sfm/map/FinalPriorValidation.h"
++#include <stdexcept>
++using namespace sfm;
++int main() {
++    BAProblem p; p.num_images=4; p.num_frames=2; p.image_frame={0,0,1,1};
++    PosePriors q; PriorRotation r; r.i=0; r.j=2; q.rotations.push_back(r);
++    validateFinalPriorLayout(p,q,4,2,1);
++    auto rejects=[&](const BAProblem& b,const PosePriors& x,uint32_t images,uint32_t frames,size_t count) {
++        try { validateFinalPriorLayout(b,x,images,frames,count); return false; }
++        catch (const std::runtime_error&) { return true; }
++    };
++    if (!rejects(p,q,5,2,1)) return 1;
++    if (!rejects(p,q,4,2,2)) return 2;
++    BAProblem loose=p; loose.ext_dim=1; if (!rejects(loose,q,4,2,1)) return 3;
++    PosePriors empty; if (!rejects(p,empty,4,2,0)) return 4;
++    BAProblem third=p; third.num_frames=3; third.image_frame={0,0,1,2};
++    if (!rejects(third,q,4,3,1)) return 5;
++    return 0;
++}

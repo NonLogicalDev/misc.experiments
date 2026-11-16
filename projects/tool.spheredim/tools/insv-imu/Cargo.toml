@@ -1,0 +1,7 @@
+[package]
+name = "spheredim-insv-imu"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+insta360-rs = { git = "https://github.com/OpenSpeleo/insta360-rs.git", rev = "b4f3845feb105b70c1928ed4316fe1d8a963bc36", default-features = false }

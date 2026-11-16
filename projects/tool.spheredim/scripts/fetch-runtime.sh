@@ -14,19 +14,14 @@ mkdir -p "$cache"
 tmp=$(mktemp -d "$cache/.fetch.XXXXXXXX")
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 warm_cache() {
-  name=$1
-  requirements=$2
-  mkdir -p "$cache/$name-wheels"
-  uv venv --python 3.14 "$tmp/$name-env"
-  if ! uv pip sync --offline --no-index --python "$tmp/$name-env/bin/python" --only-binary :all: --require-hashes --find-links "$cache/$name-wheels" "$requirements"; then
-    uv pip sync --python "$tmp/$name-env/bin/python" --only-binary :all: --require-hashes --find-links "$cache/$name-wheels" "$requirements"
-  fi
+  requirements=$1
+  uv run --isolated --no-project --python 3.14 --no-build --with-requirements "$requirements" python -c 'import sys; print("Runtime:", sys.prefix)'
 }
 if [ "$mode" = cpu ] || [ "$mode" = all ]; then
-  warm_cache cpu "$root/requirements.txt"
+  warm_cache "$root/requirements.txt"
 fi
 if [ "$mode" = gpu ] || [ "$mode" = all ]; then
-  warm_cache gpu "$root/vendor/360dvo-port/requirements-macos-arm64-py314.lock"
+  warm_cache "$root/vendor/360DVO/requirements-macos-arm64-py314.lock"
   command -v curl >/dev/null || { echo 'curl is required to download the model.' >&2; exit 1; }
   expected='ae4c7d6c96f1fe9eb784174e757b173a80beff8654c7572cde817df95d602d2c'
   if [ -f "$cache/360dvo.pth" ] && printf '%s  %s\n' "$expected" "$cache/360dvo.pth" | shasum -a 256 -c; then

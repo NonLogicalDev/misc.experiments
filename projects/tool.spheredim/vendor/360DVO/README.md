@@ -4,7 +4,7 @@ This is an experimental 360DVO inference port for full 2:1 equirectangular video
 
 ## Layerctl source
 
-`run-layerctl.sh` uses `go run` to execute the user's standalone `util.layerctl` at a pinned revision. It requires Go 1.26 or newer on PATH and the tool and its dependencies available in the Go module cache or downloadable. No layerctl checkout or executable is bundled.
+`../../scripts/layerctl.sh` uses `go run` to execute the user's standalone `util.layerctl` at a pinned revision. It requires Go 1.26 or newer on PATH and the tool and its dependencies available in the Go module cache or downloadable. No layerctl checkout or executable is bundled.
 
 ## Apple Silicon setup
 
@@ -13,12 +13,12 @@ uv, Go 1.26 or newer, Git and tar must be installed; uv can locate or install Py
 ```sh
 ../../scripts/fetch-runtime.sh gpu
 ./install-macos.sh
-uv run --python work/env/bin/python python work/source/portable_demo.py /absolute/path/input.mp4 /absolute/path/new-empty-output --weights ../../.artifacts/360dvo.pth --device mps --width 1024 --patches 96
+uv run --isolated --no-project --python 3.14 --with-requirements requirements-macos-arm64-py314.lock python work/portable_demo.py /absolute/path/input.mp4 /absolute/path/new-empty-output --weights ../../.artifacts/360dvo.pth --device mps --width 1024 --patches 96
 ```
 
 The output folder must be absent or empty. Import `poses.json` with SphereDim's existing `src/blender_import.py`. The full input frame is resized to the requested width; `--stride` can sample fewer frames. The program requires a 2:1 video and a fixed camera calibration. The current model buffer and algorithm are experimental, and long footage, seam crossings, rolling shutter and changing exposure are not validated.
 
-Run checks using `cd work/source` and `SPHEREDIM_DEVICE=mps uv run --python ../env/bin/python python -m unittest discover -s tests -v`. `../env` is relative to `work/source`.
+Run checks using `cd work` and `SPHEREDIM_DEVICE=mps uv run --isolated --no-project --python 3.14 --with-requirements ../requirements-macos-arm64-py314.lock python -m unittest discover -s tests -v`. uv keeps the runtime in its external cache; no environment is created inside the project.
 
 ## AMD and other systems
 
@@ -33,3 +33,15 @@ The upstream source revision is pinned in the layer definition and fetched by `l
 Detailed multi-scene results and exported poses are in [validation/portable-360dvo](../../validation/portable-360dvo/README.md). The moving-object scene also misses the image target, with a 1.270% worst-frame p95.
 
 The deliberately low-texture scene produced 24 poses but failed badly: 3.332% trajectory RMS and 32.791% worst-frame image p95. A complete pose count is not a reliability score.
+
+## Layer contents
+
+Documentation stays here because layerctl permits only manifest-referenced inputs inside each layer directory.
+
+### 360DVO upstream
+
+Fetches [chris1004336379/360DVO](https://github.com/chris1004336379/360DVO) at `46f5ed0735d39aff29a75f28c360600340879b35`. This layer adds the unmodified upstream source. The revision and clone settings are in [layer.toml](layers/0001-upstream/layer.toml). Composition and setup commands are in [the integration README](README.md).
+
+### Portable GPU inference patch
+
+Applies [portable-gpu.patch](layers/0002-port/portable-gpu.patch) after the pinned upstream layer. The patch replaces CUDA-specific inference operations with PyTorch tensor operations for native equirectangular input and adds pose export and regression checks. Apple MPS has been exercised; AMD execution still requires hardware validation. Read [the integration README](README.md) for setup, test commands, and measured accuracy. Edit this patch layer rather than the generated source in `vendor/360DVO/work`.
