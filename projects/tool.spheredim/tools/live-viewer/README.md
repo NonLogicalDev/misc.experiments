@@ -25,3 +25,9 @@ Set `SPHEREDIM_HOST=0.0.0.0` when starting the viewer to serve the same state di
 ### Initial view
 
 A scene state may provide `initialView` containing the JSON object from Copy view info (omit its introductory text). The viewer validates it and applies it once when entering that scene. Scene transforms remain authoritative. Follow Track uses the selected recorded position and the supplied orientation; an out-of-range track index is ignored with the entire initial view. These initial control and alignment settings persist like ordinary viewer controls when changing scenes. Without this field the normal scene and camera behavior applies.
+
+### Display parity fixture
+
+`/parity-fixture.html` is a display-only comparison fixture using the viewer's installed Spark renderer. Supply a URL-encoded JSON object in the fragment with `scene` (a catalog scene ID) and `matrix` (16 finite numbers, row-major OpenGL camera-to-world). Keep private case values outside the repository. The scene must point to the PLY being compared; check its hash and transform separately.
+
+The fixture renders 512×512 pixels at DPR 1 with a 55° vertical field of view, near/far 0.1/1000, black background, Spark defaults, sRGB output and ACES filmic tone mapping. Wait for `Ready` after 180 frames before capturing the canvas. It uses the standard viewer PLY endpoint and does not apply scene gravity alignment or the scene transform; supply a camera and model in the same coordinate frame. The fixture omits the app's controls, overlays and adaptive DPR, so matching it does not establish full-app parity. Native and Spark color, encoding and filtering may still differ.
