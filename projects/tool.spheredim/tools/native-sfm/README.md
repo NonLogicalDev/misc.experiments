@@ -64,3 +64,29 @@ Frame indices come from the fused CSV; packet checks verify matching physical-st
 `select_adaptive_frames.py DATASET VIEWER_POSES NEW_REPORT --window 6 --timeout 300` is a CPU prototype over the existing paired 1024×512 ERP dataset. It scans from the last accepted frame, measures matched bearing change after fused and rig rotation compensation, and ranks candidates with a bounded age penalty after an overlap and measurable-texture gate, with local relative sharpness as a soft ranking factor. Try `--window 2` or `--window 3` for sensitivity. By default it scans all manifest frames; `--limit` bounds the input prefix and must be at least two. A low match count or textureless lens is reported as unknown. The selector stops incomplete if the maximum gap contains no candidate with measurable texture and sufficient overlap; do not treat a partial selection as a complete dataset. Its selected indices and timestamps feed the existing timestamp exporter after verifying source identity. The preliminary pose file supplies post-hoc position coverage only, and its SfM used orientation priors. Coordinate convention, exposure normalization, moving scene content and relative sharpness are limitations; no feature score establishes physical surface coverage or proves blur.
 
 To keep a comparison fixed when selecting fewer frames, pass `prepare_splat.py --eval-frames-json FRAMES.json` with the original evaluation source indices. Both physical lenses at those timestamps remain evaluation images. Include those timestamps in the SfM inputs even if the selector omitted them; exclude them from training. `--compact-final-checkpoint` omits optimizer state and requires `--save-every` to equal `--iterations`; the default retains the full checkpoint. Saving only at the final iteration reduces disk use without changing the training schedule.
+
+`audit_landmark_coverage.py MODEL PREPARED SELECTION NEW_OUTPUT_DIR` compares retained original SfM landmark observations against the full training set, using the prepared dense training masks and excluding the held-out timestamps. It writes aggregate JSON and compressed per-landmark counts, baselines and view-angle spreads. Stereo observations at one timestamp do not count as separate temporal views. These are reconstructed features and approximate poses; they do not measure unobserved or featureless surfaces.
+
+`select_track_coverage.py MODEL PREPARED SELECTION NEW_REPORT [--compare-cap 272]` is a CPU feasibility prototype. It starts with every original training timestamp, removes lower-ranked matched-patch observations only when original ≥3-timestamp tracks retain three timestamps and at least 80% of original baseline and angle, and checks adjacent selections for 20 shared tracks. The thresholds are experimental, not verified reconstruction requirements. A cap is an optional comparison, not a forced output size. Patch gradients are relative proxies confounded by viewpoint, scale, exposure and texture. Source and mask hashes are checked; fixed held-outs are excluded. Review the report and actual image detail before using the selected timestamps; this does not estimate new poses or demonstrate visual improvement.
+
+
+### Sharper replacements with the original camera path
+
+`select_sharp_stream.py SOURCE REVIEW_MANIFEST FUSED_CSV NEW_OUTPUT --targets FRAME... --radius 2` runs the same native candidate scorer with four persistent physical-lens image/support exporters. It verifies exact paired timestamps and input hashes, pauses exporters while consuming a window, and bounds its spool and report size. The original exporter remains unchanged. Use the pinned UV dependencies and original exporter extension through `PYTHONPATH`; the generated plan records their identities. This helper does not enforce the aggregate task-storage budget.
+
+`prepare_sharp_replacements.py NATIVE_MANIFEST MASK_MANIFEST SELECTION_REPORT BASELINE NEW_OUTPUT` prepares the current thirteen-pair diagnostic from native 2048 images using the dense baseline's area reduction and mask rules. It requires the unchanged frame-1350 control and verifies selection and operator-mask provenance. This is an experiment-specific helper, not a general dataset exporter. A separate watchdog must enforce the combined export/preparation budget.
+
+`register_rig_frames.py --help` lists the model, original workspace, new feature-cache and source-manifest inputs for local physical-rig registration. It recovers original landmark descriptors from verified native feature/match indices, fits one body pose per actual selected timestamp, and checks both lenses and spatial support. It leaves the original model and seed unchanged. See [registration notes](registration-notes.md) for conventions, controls and acceptance limits.
+
+`prepare_sharp_overlay.py BASE_MANIFEST REPLACEMENTS REGISTRATION NEW_OUTPUT --run-name NAME` creates the current twelve-replacement training comparison. It preserves all other original camera rows, all evaluation inputs and the original seed through hardlinks, with no stale feature associations in its text model. The helper's `verify` function reconstructs expected inputs before a guarded launch; it does not itself start training or enforce output budgets. The preparation and verifier share code, so independent pose-composition tests remain necessary. Do not use the ordinary `run_splat.verify` for this overlay: its source-model check intentionally expects an unmodified dataset.
+
+Focused checks run from this directory with the existing external UV dependencies:
+
+```sh
+uv run --offline --isolated --no-project --python 3.14 \
+  --with-requirements ../../vendor/360DVO/requirements-macos-arm64-py314.lock \
+  python -B -m unittest test_stream_sharp_frames test_select_sharp_stream \
+  test_prepare_sharp_replacements test_recover_landmark_descriptors \
+  test_rig_pose test_register_rig_frames test_prepare_sharp_overlay \
+  test_audit_landmark_coverage test_select_track_coverage
+```
