@@ -96,3 +96,13 @@ uv run --offline --isolated --no-project --python 3.14 \
 
 
 `compare_splat_resolutions.py LOW_MANIFEST LOW_RUN HIGH_MANIFEST HIGH_RUN NEW_REPORT` scores a 2048 render after exact 2× area reduction against fixed 1024 source captures. It requires matching equirectangular camera IDs with exactly scaled parameters, identical pose rows and scene transforms, identical capture identities, exact reduced support and valid reference RGB. Saved reference files may differ from prepared RGB by at most one level; scoring uses the prepared source, matching `compare_splat_pixels.py`. The report preserves input, camera, configuration, render and mask hashes. It does not save resampled images or align the renders. Run `test_compare_splat_resolutions` for projection, reference and support rejection checks.
+
+### Temporal depth support diagnostic
+
+`temporal_depth_roi.py` tests whether masked training images support local depth hypotheses in a fixed ROI. For example, with the prepared dataset and original SfM model paths used in the quality plan:
+
+```sh
+uv run --offline --python 3.14 --with numpy --with scipy --with opencv-python-headless python tools/native-sfm/temporal_depth_roi.py PREPARED MODEL NEW_OUTPUT_DIR --reference 1435 --neighbors 1420 1425 1430 1445 1450 1455 --roi 400 330 140 35 --timeout 240
+```
+
+This CPU diagnostic currently uses camera 0 at 1024×512. It requires distinct training-frame neighbors and reports provisional matches and rejections; it does not create seed points. Depth search bounds and poses come from the supplied SfM model, which may have used evaluation frames. Patches assume locally constant radial depth, two-neighbor matches cannot receive the leave-one-out check, and repetitive or untextured regions may remain unknown. The results are not independent depth ground truth.
