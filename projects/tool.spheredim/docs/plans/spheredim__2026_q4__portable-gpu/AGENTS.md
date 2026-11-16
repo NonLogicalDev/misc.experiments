@@ -7,3 +7,7 @@ For Insta360 footage, preserve yaw while leveling the horizon, and exclude the o
 Any upstream fork or modification must use layerctl with pinned source and a separate maintained patch layer. Keep layerctl external; do not vendor or submodule the tool. Reconstruction exports must preserve observed source pixels and explicit validity rather than fill or cosmetically warp unsupported content. See the Terra quality plan for source-observation, lens-provenance and validation requirements.
 
 Use Terra subagents for cheap routine checks and bounded implementation tasks; keep research judgments and final integration with the owner. Preserve the separate viewer worker.
+
+Keep the viewer free of repeated generic experimental/unvalidated disclaimers. Show plain execution status and concrete actionable problems; put provenance and validation caveats in Activity/details or reports. Improving output quality takes priority over warning copy.
+
+The viewer is a generic consumer of a state file/directory. No recording-specific stages, artifact selection, filter decisions or run labels belong in viewer code; publish them through state producers. State changes must refresh without restarting the viewer.

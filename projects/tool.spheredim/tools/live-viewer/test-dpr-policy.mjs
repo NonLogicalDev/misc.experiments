@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import {cameraDprPolicy} from './dpr-policy.mjs';
+const policy=cameraDprPolicy(2),p=[0,0,0],q=[0,0,0,1];
+assert.equal(policy(p,q,0),2);
+assert.equal(policy([1,0,0],q,10),1);
+assert.equal(policy([1,0,0],q,100),1);
+assert.equal(policy([1,0,0],q,210),2);
+assert.equal(policy([1,0,0],[0,.1,0,.995],220),1);
+assert.equal(policy([1,0,0],[0,.1,0,.995],421),2);
+assert.equal(policy([2,0,0],q,430),1);
+assert.equal(policy([2,0,0],q,631),2,'repeated movement restores the original density');
+assert.equal(cameraDprPolicy(3)(p,q,0),2);
+assert.equal(cameraDprPolicy(1)(p,q,0),1);
+console.log('PASS camera movement DPR and idle restoration');
