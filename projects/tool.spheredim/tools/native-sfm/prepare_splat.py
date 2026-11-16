@@ -55,12 +55,29 @@ def split_frames(frames,interval):
     return {frame:('eval' if i%interval==0 else 'train') for i,frame in enumerate(frames)}
 
 
+def select_model_poses(poses, frames, allow_model_superset=False):
+    expected={f'{lens}/frame_{frame:06d}.png' for frame in frames for lens in ('cam0','cam1')}
+    names=[name for name,_ in poses]
+    if len(names)!=len(set(names)) or not expected.issubset(names):raise ValueError('Model images do not contain complete paired source frames')
+    if not allow_model_superset and set(names)!=expected:raise ValueError('Model images do not match complete paired source frames')
+    if allow_model_superset:
+        pairs={}
+        for name in names:
+            try:
+                lens,filename=name.split('/');frame=int(filename[6:-4])
+                if lens not in ('cam0','cam1') or filename!=f'frame_{frame:06d}.png':raise ValueError()
+            except ValueError:raise ValueError('Invalid model image name')
+            pairs.setdefault(frame,set()).add(lens)
+        if any(lenses!={'cam0','cam1'} for lenses in pairs.values()):raise ValueError('Model has incomplete physical lens pairs')
+    return [(name,row) for name,row in poses if name in expected]
+
+
 def validate_schedule(iterations,save_every):
     if not all(isinstance(x,int) and not isinstance(x,bool) for x in (iterations,save_every)) or not 1<=save_every<=iterations<=100000:
         raise ValueError('Iterations and save interval must be positive, save interval no greater than iterations, and iterations at most 100000')
 
 
-def prepare(dataset,model,binary,out,run_name,interval=8,iterations=3000,save_every=1000,log_performance=False,unpacked=False,no_appearance_correction=False,eval_frames=None,save_full_checkpoint=True):
+def prepare(dataset,model,binary,out,run_name,interval=8,iterations=3000,save_every=1000,log_performance=False,unpacked=False,no_appearance_correction=False,eval_frames=None,save_full_checkpoint=True,allow_model_superset=False):
     validate_schedule(iterations,save_every)
     dataset,model,binary=map(lambda p:Path(p).resolve(strict=True),(dataset,model,binary));out=Path(out).resolve()
     if out.exists():raise ValueError('Output already exists')
@@ -72,12 +89,12 @@ def prepare(dataset,model,binary,out,run_name,interval=8,iterations=3000,save_ev
         split={frame:('eval' if frame in heldout else 'train') for frame in frame_ids}
     if not save_full_checkpoint and save_every!=iterations:raise ValueError('Compact checkpoint requires final-only save')
     cams,poses,points=read_model(model)
-    if len(cams)!=2 or len(poses)!=len(frames)*2 or not points:raise ValueError('Incomplete two-camera model')
+    if len(cams)!=2 or not points:raise ValueError('Incomplete two-camera model')
     if len({x[0] for x in poses})!=len(poses) or len({x[0] for x in cams})!=2:raise ValueError('Duplicate cameras or images')
     if any(row[8] not in {c[0] for c in cams} or abs(sum(v*v for v in row[1:5])-1)>1e-3 for _,row in poses):raise ValueError('Invalid pose quaternion or camera ID')
     if not run_name or Path(run_name).name!=run_name:raise ValueError('Run name must be a single path component')
     byframe={x['source_frame']:x for x in frames}; expected={f'{lens}/frame_{frame:06d}.png' for frame in split for lens in ('cam0','cam1')}
-    if {p[0] for p in poses}!=expected:raise ValueError('Model images do not match complete paired source frames')
+    poses=select_model_poses(poses,split,allow_model_superset)
     if any((c[1],c[2])!=tuple(meta['resolution']) for c in cams):raise ValueError('Camera resolution mismatch')
     for name,row in poses:
         lens,filename=name.split('/');frame=int(filename[6:-4]);entry=byframe[frame]['lenses'][lens]
@@ -98,10 +115,10 @@ def prepare(dataset,model,binary,out,run_name,interval=8,iterations=3000,save_ev
     if log_performance:flags.extend(['--log-performance','1'])
     if unpacked:flags.extend(['--packed','0'])
     if no_appearance_correction:flags.extend(['--use-bilateral-grid','0','--use-ppisp','0'])
-    result={'status':'prepared for review; no training launched','dataset':str(dataset),'model':str(model),'model_hashes':{x:digest(model/x) for x in ('cameras.bin','images.bin','points3D.bin','rigs.txt')},'source_manifest_sha256':digest(dataset/'manifest.json'),'binary_sha256':digest(binary),'seed_sha256':digest(out/'seed.ply'),'camera_count':len(records),'point_count':len(points),'frames':records,'heldout_evaluation_order':[x['name'] for x in sorted(records,key=lambda x:x['name']) if x['split']=='eval'],'training_path_sample':[x['name'] for x in sorted(records,key=lambda x:x['name']) if x['split']=='train'][:4],'split_method':(f'every {interval}th sorted timestamp held out for BOTH physical lenses; filename-based eval' if eval_frames is None else 'explicit timestamps held out for BOTH physical lenses; filename-based eval'),'save_full_checkpoint':save_full_checkpoint,'training_path_evaluation':'Required for path-point quality acceptance; exact original training camera mapping remains to be implemented.','notes':['Camera poses retain fixed physical rig geometry from the source model; trainer consumes fixed per-image poses.','Source images and masks hardlinked without additional resampling. White mask means valid; images are already black outside support and reviewed operator mask.','Held-out observations contributed to the source SfM model and seed; evaluation is held out from splat training only.','ERP seam and mask boundary semantics remain under investigation.'],'command':[str(binary),*flags],'resource_policy':{'max_incremental_output_bytes':1024**3,'minimum_free_bytes':35*1024**3,'monitor_interval_seconds':10,'enforcement':'A storage watchdog is required before running; this manifest does not enforce limits.'}}
+    result={'status':'prepared for review; no training launched','dataset':str(dataset),'model':str(model),'model_hashes':{x:digest(model/x) for x in ('cameras.bin','images.bin','points3D.bin','rigs.txt')},'source_manifest_sha256':digest(dataset/'manifest.json'),'binary_sha256':digest(binary),'seed_sha256':digest(out/'seed.ply'),'camera_count':len(records),'point_count':len(points),'frames':records,'heldout_evaluation_order':[x['name'] for x in sorted(records,key=lambda x:x['name']) if x['split']=='eval'],'training_path_sample':[x['name'] for x in sorted(records,key=lambda x:x['name']) if x['split']=='train'][:4],'split_method':(f'every {interval}th sorted timestamp held out for BOTH physical lenses; filename-based eval' if eval_frames is None else 'explicit timestamps held out for BOTH physical lenses; filename-based eval'),'save_full_checkpoint':save_full_checkpoint,'allow_model_superset':allow_model_superset,'training_path_evaluation':'Required for path-point quality acceptance; exact original training camera mapping remains to be implemented.','notes':['Camera poses retain fixed physical rig geometry from the source model; trainer consumes fixed per-image poses.','Source images and masks hardlinked without additional resampling. White mask means valid; images are already black outside support and reviewed operator mask.','Held-out observations contributed to the source SfM model and seed; evaluation is held out from splat training only.','ERP seam and mask boundary semantics remain under investigation.'],'command':[str(binary),*flags],'resource_policy':{'max_incremental_output_bytes':1024**3,'minimum_free_bytes':35*1024**3,'monitor_interval_seconds':10,'enforcement':'A storage watchdog is required before running; this manifest does not enforce limits.'}}
     (out/'manifest.json').write_text(json.dumps(result,indent=2)+'\n');return result
 
 
 def main():
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('dataset',type=Path);p.add_argument('model',type=Path);p.add_argument('binary',type=Path);p.add_argument('output',type=Path);p.add_argument('--run-name',required=True);p.add_argument('--holdout-every',type=int,default=8);p.add_argument('--iterations',type=int,default=3000);p.add_argument('--save-every',type=int,default=1000);p.add_argument('--log-performance',action='store_true');p.add_argument('--unpacked',action='store_true',help='Experimental: store projections without packing');p.add_argument('--no-appearance-correction',action='store_true',help='Experimental: disable bilateral grid and PPISP');p.add_argument('--eval-frames-json',type=Path,help='JSON array of source frame indices held out for both lenses');p.add_argument('--compact-final-checkpoint',action='store_true',help='Omit optimizer state; requires --save-every equal to --iterations');a=p.parse_args();d=prepare(a.dataset,a.model,a.binary,a.output,a.run_name,a.holdout_every,a.iterations,a.save_every,a.log_performance,a.unpacked,a.no_appearance_correction,json.loads(a.eval_frames_json.read_text()) if a.eval_frames_json else None,not a.compact_final_checkpoint);print(f"Prepared {d['camera_count']} cameras and {d['point_count']} points; no training started")
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('dataset',type=Path);p.add_argument('model',type=Path);p.add_argument('binary',type=Path);p.add_argument('output',type=Path);p.add_argument('--run-name',required=True);p.add_argument('--holdout-every',type=int,default=8);p.add_argument('--iterations',type=int,default=3000);p.add_argument('--save-every',type=int,default=1000);p.add_argument('--log-performance',action='store_true');p.add_argument('--unpacked',action='store_true',help='Experimental: store projections without packing');p.add_argument('--no-appearance-correction',action='store_true',help='Experimental: disable bilateral grid and PPISP');p.add_argument('--eval-frames-json',type=Path,help='JSON array of source frame indices held out for both lenses');p.add_argument('--allow-model-superset',action='store_true',help='Use the selected complete physical-lens pairs from a larger model, retaining its full seed');p.add_argument('--compact-final-checkpoint',action='store_true',help='Omit optimizer state; requires --save-every equal to --iterations');a=p.parse_args();d=prepare(a.dataset,a.model,a.binary,a.output,a.run_name,a.holdout_every,a.iterations,a.save_every,a.log_performance,a.unpacked,a.no_appearance_correction,json.loads(a.eval_frames_json.read_text()) if a.eval_frames_json else None,not a.compact_final_checkpoint,a.allow_model_superset);print(f"Prepared {d['camera_count']} cameras and {d['point_count']} points; no training started")
 if __name__=='__main__':main()

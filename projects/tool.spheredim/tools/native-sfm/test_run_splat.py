@@ -87,6 +87,12 @@ class RunnerTests(unittest.TestCase):
     manifest['command'][manifest['command'].index('--steps-per-save')+1]='1';(out/'manifest.json').write_text(json.dumps(manifest))
     with self.assertRaisesRegex(ValueError,'compact checkpoint'):r.verify(out/'manifest.json')
     with self.assertRaisesRegex(ValueError,'Invalid explicit'):r.prep.prepare(source,model,binary,root/'invalid','run-invalid',eval_frames=[99])
+    additional=[(f'{lens}/frame_000030.png',(100+cam,1.,0.,0.,0.,0.,0.,0.,cam)) for cam,lens in enumerate(('cam0','cam1'),1)]
+    with patch.object(r.prep,'read_model',return_value=(cameras,poses+additional,[(0.,0.,0.,1,2,3),(1.,1.,1.,4,5,6)])):
+     with self.assertRaisesRegex(ValueError,'match complete'):r.prep.prepare(source,model,binary,root/'superset-denied','denied')
+     out=root/'subset';manifest=r.prep.prepare(source,model,binary,out,'run-subset',iterations=3,save_every=3,eval_frames=[15],save_full_checkpoint=False,allow_model_superset=True)
+     self.assertEqual(manifest['camera_count'],4);self.assertEqual(manifest['point_count'],2);r.verify(out/'manifest.json')
+    with self.assertRaisesRegex(ValueError,'incomplete physical lens pairs'):r.prep.select_model_poses(poses+additional[:1],[0,15],True)
     out=root/'unpacked';manifest=r.prep.prepare(source,model,binary,out,'run-unpacked',unpacked=True)
     self.assertEqual(manifest['command'][-2:],['--packed','0']);r.verify(out/'manifest.json')
     manifest['command'][-1]='1';(out/'manifest.json').write_text(json.dumps(manifest))

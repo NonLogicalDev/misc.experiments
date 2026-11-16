@@ -41,6 +41,8 @@ def verify(path):
     output=prefix/name
     if output.exists() or output.is_symlink():raise FileExistsError(output)
     source_manifest=json.loads((source/'manifest.json').read_text());byframe={x['source_frame']:x for x in source_manifest['frames']};records=m['frames'];cameras,poses,points=prep.read_model(model)
+    if type(m.get('allow_model_superset',False)) is not bool:raise ValueError('Invalid model subset option')
+    poses=prep.select_model_poses(poses,byframe,m.get('allow_model_superset',False))
     if len(records)!=m['camera_count'] or len(records)!=len(poses) or len({r['name'] for r in records})!=len(records) or len(byframe)*2!=len(records) or len(points)!=m['point_count']:raise ValueError('Invalid dataset inventory')
     lookup={n:r for n,r in poses};cam_ids={x[0] for x in cameras};seen=set();train=0;evals=[];lines=[]
     if len(cameras)!=2 or len(cam_ids)!=2:raise ValueError('Invalid camera inventory')
