@@ -13,7 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]
 ARTIFACTS = ROOT / "docs/plans/_owner/artifacts"
-DEPS = ROOT / "target/debug/deps"
+DEPS = ROOT / ".work/target/debug/deps"
 
 
 def newest(pattern):

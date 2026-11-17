@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 solidrecipe-core = { path = "../solidrecipe-core" }
-solidcore-tess = { path = "../../.solidcraft-layerctl/workspace/solidcore/crates/solidcore-tess" }
+solidcore-tess = { path = "../../.work/solidcraft/source/solidcore/crates/solidcore-tess" }
 serde_json = "1"
 ctrlc = "3.5.2"
 tempfile = "3.27.0"

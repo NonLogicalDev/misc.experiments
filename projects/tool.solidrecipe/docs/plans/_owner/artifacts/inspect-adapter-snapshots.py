@@ -30,7 +30,7 @@ for side, height in (("left", 4.5), ("left", 4.7), ("right", 4.5), ("right", 4.7
     namespace["adapter"](side=side, slot_height=height)
     for stage, shape in namespace["snapshots"]:
         process = subprocess.run(
-            [str(root / "target/debug/solidrecipe"), "inspect-graph"],
+            [str(root / ".work/target/debug/solidrecipe"), "inspect-graph"],
             input=json.dumps(shape.node),
             text=True,
             capture_output=True,

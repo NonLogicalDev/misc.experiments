@@ -35,7 +35,7 @@ class ParametersTest(unittest.TestCase):
 
     def test_viewer_updates_and_recalls_presets(self):
         root = Path(__file__).resolve().parents[1]
-        cli = root / "target/debug/solidrecipe"
+        cli = root / ".work/target/debug/solidrecipe"
         with tempfile.TemporaryDirectory() as temp:
             model = Path(temp) / "model.py"
             model.write_text(

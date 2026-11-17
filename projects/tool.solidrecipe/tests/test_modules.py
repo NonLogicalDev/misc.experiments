@@ -75,7 +75,7 @@ class ModulesTest(unittest.TestCase):
 
     def test_live_loaded_file_changes_and_missing_file_recovers(self):
         root = Path(__file__).resolve().parents[1]
-        cli = root / "target/debug/solidrecipe"
+        cli = root / ".work/target/debug/solidrecipe"
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp)
             model = path / "model.py"
@@ -146,7 +146,7 @@ class ModulesTest(unittest.TestCase):
 
     def test_viewer_selects_annotated_module_and_reuses_geometry(self):
         root = Path(__file__).resolve().parents[1]
-        cli = root / "target/debug/solidrecipe"
+        cli = root / ".work/target/debug/solidrecipe"
         with tempfile.TemporaryDirectory() as temp:
             model = Path(temp) / "model.py"
             model.write_text(
@@ -230,7 +230,7 @@ class ModulesTest(unittest.TestCase):
 
     def test_embedded_instances_drive_measurement_and_reference_blend(self):
         root = Path(__file__).resolve().parents[1]
-        cli = root / "target/debug/solidrecipe"
+        cli = root / ".work/target/debug/solidrecipe"
         with tempfile.TemporaryDirectory() as temp:
             model = Path(temp) / "model.py"
             model.write_text(
@@ -297,7 +297,7 @@ class ModulesTest(unittest.TestCase):
 
     def test_embedded_measurements_drive_later_geometry(self):
         root = Path(__file__).resolve().parents[1]
-        cli = root / "target/debug/solidrecipe"
+        cli = root / ".work/target/debug/solidrecipe"
         with tempfile.TemporaryDirectory() as temp:
             model = Path(temp) / "model.py"
             model.write_text(

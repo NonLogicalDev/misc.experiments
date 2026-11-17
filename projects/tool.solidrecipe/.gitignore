@@ -6,8 +6,9 @@ __pycache__/
 /viewer.html
 
 /.venv/
+/src/solidrecipe-core/.venv/
 *.egg-info/
 /src/solidrecipe-viewer/node_modules/
 /src/solidrecipe-viewer/dist/
 
-/.solidcraft-layerctl/
+/.work/

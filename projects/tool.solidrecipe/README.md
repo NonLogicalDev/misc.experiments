@@ -6,16 +6,15 @@ The initial example is a synthetic slotted block, not a verified cooler adapter.
 
 ## Build and run
 
-Install Rust, `uv`, pnpm, Node.js, Python, and [layerctl](https://github.com/NonLogicalDev/util.layerctl). Configure a Git author and committer identity. Initialize the vendor submodules and install the viewer dependencies, then build the embedded viewer and optimized CLI (the first build can take a few minutes):
+Install Rust, `uv`, pnpm, Node.js, Python, and [layerctl](https://github.com/NonLogicalDev/util.layerctl). Configure a Git author and committer identity. Install the viewer dependencies, then build the embedded viewer and optimized CLI (the first build can take a few minutes):
 
 ```sh
-git submodule update --init --recursive
 pnpm -C src/solidrecipe-viewer install
 make build
-./target/release/solidrecipe serve examples/slotted_block.py
+./.work/target/release/solidrecipe serve examples/slotted_block.py
 ```
 
-`make build`, `make lint`, and `make check` use layerctl to compose the pinned SolidCraft submodule and the five patches in `patches/vendor/` into `.solidcraft-layerctl/workspace`. The source submodule is not modified. Before invoking Cargo directly, run `make prepare-solidcore`. Preparation rejects unexpected source-submodule edits and refuses to replace a changed, stale, or incomplete workspace. To rebuild it, first preserve any work in `.solidcraft-layerctl/`, then remove that directory and run `make prepare-solidcore` again.
+`make build`, `make lint`, and `make check` use the layerctl definitions in `vendor/solidcraft/layers` to fetch the pinned upstream source and compose it into `.work/solidcraft/source`. The first composition requires network access. Before invoking Cargo from `src`, run `make prepare-solidcore`. Preparation refuses to replace a changed, stale, or incomplete workspace. Preserve any work in `.work/solidcraft` before removing it to rebuild.
 
 The CLI opens a loopback viewer and rebuilds when the selected Python file or a file loaded via `sr.load` changes. A model can call `sr.export(shape)` to provide a default output; the legacy variable `model` is also supported. If a rebuild fails, the previous preview remains visible and the error appears in the viewer. Ordinary Python imports are not watched. Model files run as Python code with your permissions.
 
@@ -24,8 +23,8 @@ The compiled executable embeds the viewer and Python support code, so it can run
 The original headless graph-to-OBJ workflow remains available:
 
 ```sh
-uv run python examples/slotted_block.py 4.6 graph.json
-./target/release/solidrecipe graph.json bracket.obj
+uv run --project src/solidrecipe-core python examples/slotted_block.py 4.6
+./.work/target/release/solidrecipe .work/artifacts/graph.json .work/artifacts/bracket.obj
 ```
 
 Run `make format` to apply the Rust, Python and TypeScript formatters; `make format-check`, `make lint` and `make check` verify the project. See [architecture](docs/architecture.md) for the data flow and current limitations.
@@ -35,6 +34,9 @@ Run `make format` to apply the Rust, Python and TypeScript formatters; `make for
 - `src/solidrecipe-core/`: graph evaluation, SolidCore geometry, display tessellation, and the experimental Python authoring interface.
 - `src/solidrecipe-cli/`: headless graph evaluation and OBJ output.
 - `src/solidrecipe-viewer/`: React and TypeScript web UI with a React Three Fiber OBJ mesh viewer.
+- `src/Cargo.toml`: Rust workspace; Python packaging belongs to `src/solidrecipe-core/`.
+- `vendor/solidcraft/`: checked-in layerctl definitions for the pinned SolidCraft source and SolidRecipe patches.
+- `.work/`: local builds, composed dependencies, and generated artifacts.
 - `examples/`: runnable model examples.
 
 ## Scope
@@ -67,7 +69,7 @@ Use `shape.with_metadata(name="stock", role="bracket")` to attach JSON-serializa
 
 ### Selecting topology in the viewer
 
-Run `./target/release/solidrecipe serve examples/cooler_adapter.py` to open the adapter, or replace the path with another model. Choose **Edges** or **Faces**, then click the displayed geometry to add or remove entries from the selection. You can select multiple edges and faces, switch modes, and use **Clear** to remove the selection. The viewer also displays selection sent through its local preview API.
+Run `./.work/target/release/solidrecipe serve examples/cooler_adapter.py` to open the adapter, or replace the path with another model. Choose **Edges** or **Faces**, then click the displayed geometry to add or remove entries from the selection. You can select multiple edges and faces, switch modes, and use **Clear** to remove the selection. The viewer also displays selection sent through its local preview API.
 
 Use **Copy for Python** to copy the selection with its model, output, applied parameters and evaluated revision. Selected entries include revision-scoped indices and hashes of their inspection records. These hashes help identify the displayed records; neither the hashes nor the indices are persistent topology identities. A successful rebuild clears the selection, because the new body can have different indices. Display geometry determines where a click lands; use the B-rep inspection data for measurements.
 

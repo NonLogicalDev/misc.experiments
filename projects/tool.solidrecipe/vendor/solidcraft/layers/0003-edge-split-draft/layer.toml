@@ -1,0 +1,9 @@
+[layer]
+enabled = false
+
+[vcs]
+commit-msg = "Draft ordered edge split (untested)"
+
+[[operation]]
+[operation.patch]
+file = "ordered-edge-split.patch"

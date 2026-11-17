@@ -1,32 +1,33 @@
 .PHONY: build viewer-build prepare-solidcore format format-check lint check
+export RUFF_CACHE_DIR := $(CURDIR)/.work/cache/ruff
 
 # Compose the pinned dependency and SolidRecipe patches without changing the submodule.
 prepare-solidcore:
-	./scripts/prepare-solidcraft-layers.sh
+	./scripts/prepare-solidcraft.sh
 
 # Cargo embeds the production viewer; build its assets before compiling the CLI.
 viewer-build:
 	pnpm -C src/solidrecipe-viewer build
 
 build: prepare-solidcore viewer-build
-	cargo build --release --workspace
+	cd src && cargo build --release --workspace
 
 format:
-	cargo fmt --all
-	uv run ruff format src/solidrecipe-core/python examples tests
+	cd src && cargo fmt -p solidrecipe-core -p solidrecipe
+	uv run --project src/solidrecipe-core ruff format --config src/solidrecipe-core/pyproject.toml src/solidrecipe-core/python examples tests
 	pnpm -C src/solidrecipe-viewer format
 
 format-check:
-	cargo fmt --all -- --check
-	uv run ruff format --check src/solidrecipe-core/python examples tests
+	cd src && cargo fmt -p solidrecipe-core -p solidrecipe -- --check
+	uv run --project src/solidrecipe-core ruff format --check --config src/solidrecipe-core/pyproject.toml src/solidrecipe-core/python examples tests
 	pnpm -C src/solidrecipe-viewer format:check
 
 lint: prepare-solidcore viewer-build
-	cargo clippy --workspace --all-targets -- -D warnings
-	uv run ruff check src/solidrecipe-core/python examples tests
+	cd src && cargo clippy --workspace --all-targets -- -D warnings
+	uv run --project src/solidrecipe-core ruff check --config src/solidrecipe-core/pyproject.toml src/solidrecipe-core/python examples tests
 	pnpm -C src/solidrecipe-viewer lint
 
 check: prepare-solidcore format-check lint
-	cargo build --workspace
-	cargo test --workspace
-	uv run python -m unittest discover -s tests
+	cd src && cargo build --workspace
+	cd src && cargo test --workspace
+	uv run --project src/solidrecipe-core python -m unittest discover -s tests

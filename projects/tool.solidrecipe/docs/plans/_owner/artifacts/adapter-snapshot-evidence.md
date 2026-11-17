@@ -4,7 +4,7 @@ These observations are from `examples/cooler_adapter.py`, an exploratory compari
 
 ## Reproduction
 
-From the project root, run `.venv/bin/python docs/plans/_owner/artifacts/inspect-adapter-snapshots.py`. The script instruments the model source in memory at two unique points, builds the original graphs with slot entry fillets enabled, and invokes `inspect-graph` using the existing debug binary. It emits complete inspection results as JSON to stdout. It performs no Rust build and creates no persistent output files. The results depend on the model source and binary version; verify that the binary corresponds to the intended checkout before using them as evidence for a different revision.
+From the project root, run `uv run --project src/solidrecipe-core python docs/plans/_owner/artifacts/inspect-adapter-snapshots.py`. The script instruments the model source in memory at two unique points, builds the original graphs with slot entry fillets enabled, and invokes `inspect-graph` using the existing debug binary. It emits complete inspection results as JSON to stdout. It performs no Rust build and creates no persistent output files. The results depend on the model source and binary version; verify that the binary corresponds to the intended checkout before using them as evidence for a different revision.
 
 The eight inspected cases are left and right sides at slot heights 4.5 mm and 4.7 mm, each before the slot-entry fillets and before the underside chamfer. The latter stage is after the entry fillets, setback cut and both screw-hole cuts. Both stages use the model's ordinary operations and coordinates.
 

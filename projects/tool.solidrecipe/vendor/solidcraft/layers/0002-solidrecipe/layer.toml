@@ -1,0 +1,25 @@
+[layer]
+enabled = true
+
+[vcs]
+commit-msg = "Apply SolidRecipe patches"
+
+[[operation]]
+[operation.patch]
+file = "solidcore-ordered-provenance.patch"
+
+[[operation]]
+[operation.patch]
+file = "solidcore-stitch-notifications.patch"
+
+[[operation]]
+[operation.patch]
+file = "solidcore-attribute-audit.patch"
+
+[[operation]]
+[operation.patch]
+file = "solidcore-slit-notifications.patch"
+
+[[operation]]
+[operation.patch]
+file = "solidcore-triangle-edge-map.patch"

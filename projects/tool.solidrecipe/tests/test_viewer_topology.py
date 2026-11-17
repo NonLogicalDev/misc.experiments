@@ -19,7 +19,7 @@ from urllib.request import Request, urlopen
 class ViewerTopologyTest(unittest.TestCase):
     def test_highlights_follow_the_exact_preview_revision(self):
         root = Path(__file__).resolve().parents[1]
-        cli = root / "target/debug/solidrecipe"
+        cli = root / ".work/target/debug/solidrecipe"
         with tempfile.TemporaryDirectory() as temp:
             model = Path(temp) / "model.py"
             model.write_text(

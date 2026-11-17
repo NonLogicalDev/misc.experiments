@@ -8,7 +8,7 @@ from pathlib import Path
 
 import solidrecipe as sr
 
-CLI = Path(__file__).resolve().parents[1] / "target/debug/solidrecipe"
+CLI = Path(__file__).resolve().parents[1] / ".work/target/debug/solidrecipe"
 
 
 def inspect(shape):

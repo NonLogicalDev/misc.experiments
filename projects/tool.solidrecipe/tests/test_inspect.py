@@ -134,7 +134,7 @@ class InspectTest(unittest.TestCase):
 
     def test_reference_selected_blends_reach_the_kernel(self):
         root = Path(__file__).resolve().parents[1]
-        cli = root / "target/debug/solidrecipe"
+        cli = root / ".work/target/debug/solidrecipe"
         stock = sr.Box(10, 8, 6).with_metadata(id="stock")
 
         def inspect_graph(shape):
@@ -167,7 +167,7 @@ class InspectTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
 
     def test_python_resolution_reports_real_kernel_history(self):
-        cli = Path(__file__).resolve().parents[1] / "target/debug/solidrecipe"
+        cli = Path(__file__).resolve().parents[1] / ".work/target/debug/solidrecipe"
 
         def inspect(graph):
             return subprocess.run(
@@ -207,7 +207,7 @@ class InspectTest(unittest.TestCase):
 
     def test_rust_inspection_describes_real_brep(self):
         root = Path(__file__).resolve().parents[1]
-        cli = root / "target/debug/solidrecipe"
+        cli = root / ".work/target/debug/solidrecipe"
         shape = sr.Box(10, 8, 6).with_metadata(name="stock")
         result = subprocess.run(
             [str(cli), "inspect-graph"],

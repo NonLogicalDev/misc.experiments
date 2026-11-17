@@ -17,7 +17,7 @@ helpers = runpy.run_path(str(ROOT / "docs/plans/_owner/artifacts/test-constructi
 
 
 def inspect_json(graph):
-    return subprocess.run([str(ROOT / "target/debug/solidrecipe"), "inspect-graph"],
+    return subprocess.run([str(ROOT / ".work/target/debug/solidrecipe"), "inspect-graph"],
                           input=graph, text=True, capture_output=True, check=True).stdout
 
 

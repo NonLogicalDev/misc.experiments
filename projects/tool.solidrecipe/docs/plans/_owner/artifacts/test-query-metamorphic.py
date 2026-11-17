@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[4]
 
 
 def inspect(shape):
-    p = subprocess.run([str(ROOT / "target/debug/solidrecipe"), "inspect-graph"],
+    p = subprocess.run([str(ROOT / ".work/target/debug/solidrecipe"), "inspect-graph"],
                        input=json.dumps(shape.node), text=True, capture_output=True, check=True)
     return json.loads(p.stdout)
 

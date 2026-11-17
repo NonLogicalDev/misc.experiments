@@ -9,7 +9,7 @@ Design a general way to query faces and edges of arbitrary shapes, use sets or p
 - Status: active research, operator experiments and an initial richer-history foundation. The foundation is not connected to the evaluator; the general query engine and face-attached profiles remain unimplemented.
 - The intended result is a reviewable design with alternatives, concrete examples, research, failure behavior and a staged path. API examples are proposals, not existing functionality.
 - [Working design and research](../../_owner/docs/topology-queries-and-attached-profiles.md) records the competing models, examples and open decisions.
-- Preserve the unfinished [topology identity work](plan-02%20Persistent%20topology%20identity.md), its checkpoints, and the [untested edge-split draft](../../_owner/artifacts/UNTESTED-ordered-edge-split-draft.patch). Do not infer that a query or a fingerprint proves persistent identity.
+- Preserve the unfinished [topology identity work](plan-02%20Persistent%20topology%20identity.md), its checkpoints, and the [untested edge-split draft](../../../../vendor/solidcraft/layers/0003-edge-split-draft/ordered-edge-split.patch). Do not infer that a query or a fingerprint proves persistent identity.
 
 ## Starting evidence
 

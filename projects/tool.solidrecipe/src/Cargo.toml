@@ -1,0 +1,4 @@
+[workspace]
+members = ["solidrecipe-core", "solidrecipe-cli"]
+exclude = ["../vendor/solidcore", "../.work/solidcraft/source"]
+resolver = "2"

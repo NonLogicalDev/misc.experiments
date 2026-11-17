@@ -35,7 +35,7 @@ class CoolerAdapterTest(unittest.TestCase):
                         graph.write_text(json.dumps(evaluated["graph"]))
                         result = subprocess.run(
                             [
-                                str(root / "target/debug/solidrecipe"),
+                                str(root / ".work/target/debug/solidrecipe"),
                                 str(graph),
                                 str(mesh),
                             ],
@@ -68,7 +68,7 @@ class CoolerAdapterTest(unittest.TestCase):
             self.assertFalse(evaluated["graph"]["metadata"]["manufacturing_ready"])
             graph.write_text(json.dumps(evaluated["graph"]))
             result = subprocess.run(
-                [str(root / "target/debug/solidrecipe"), str(graph), str(mesh)],
+                [str(root / ".work/target/debug/solidrecipe"), str(graph), str(mesh)],
                 check=True,
                 capture_output=True,
                 text=True,

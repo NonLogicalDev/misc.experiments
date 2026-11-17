@@ -18,7 +18,7 @@ def named(solid, name):
 
 
 def inspect(shape):
-    proc = subprocess.run([str(ROOT / "target/debug/solidrecipe"), "inspect-graph"],
+    proc = subprocess.run([str(ROOT / ".work/target/debug/solidrecipe"), "inspect-graph"],
                           input=json.dumps(shape.node), text=True, capture_output=True, check=True)
     return json.loads(proc.stdout)
 

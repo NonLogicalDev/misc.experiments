@@ -8,12 +8,12 @@ root="$(git rev-parse --show-toplevel)"
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/solidrecipe-rich-history.XXXXXX")"
 trap 'rm -rf "$tmp_dir"' EXIT
 
-for kernel in "$root"/target/debug/deps/libsolidcraft_kernel-*.rlib; do
+for kernel in "$root"/.work/target/debug/deps/libsolidcraft_kernel-*.rlib; do
   [[ -f "$kernel" ]] || continue
-  for record in "$root"/target/debug/deps/libsolidcore_record-*.rlib; do
+  for record in "$root"/.work/target/debug/deps/libsolidcore_record-*.rlib; do
     [[ -f "$record" ]] || continue
     if rustc --edition=2021 "$root/docs/plans/_owner/artifacts/probe-rich-history.rs" \
-      -L "dependency=$root/target/debug/deps" --extern "solidcraft_kernel=$kernel" \
+      -L "dependency=$root/.work/target/debug/deps" --extern "solidcraft_kernel=$kernel" \
       --extern "solidcore_record=$record" -o "$tmp_dir/probe" 2>"$tmp_dir/error"; then
       printf 'Using existing build artifacts (check their freshness):\n%s\n%s\n' "$kernel" "$record"
       "$tmp_dir/probe"
